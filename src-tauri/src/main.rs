@@ -22,6 +22,10 @@ fn main() {
             commands::start_quick_benchmark,
             commands::export_data,
             commands::wipe_data,
+            commands::list_tools,
+            commands::execute_tool,
+            commands::tool_needs_approval,
+            commands::get_tool_system_prompt,
         ])
         .run(tauri::generate_context!())
         .expect("error while running FitLLM");

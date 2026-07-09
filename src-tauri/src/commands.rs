@@ -4,6 +4,7 @@
 use crate::sidecar;
 use crate::state::{data_dir, AppState};
 use fitllm_core::{hardware, recommend, HardwareProfile, ModelCatalog, Recommendation};
+use fitllm_core::tools::ToolRequest;
 use tauri::{Emitter, Manager, State};
 
 /// Detect (or return the cached) hardware profile. Read-only.
@@ -157,4 +158,35 @@ pub fn wipe_data(state: State<AppState>) -> Result<(), String> {
         inner.store = store;
     }
     Ok(())
+}
+
+// ── Tool system commands ──────────────────────────────────────
+
+/// List all available tools with their parameter schemas.
+#[tauri::command]
+pub fn list_tools(state: State<AppState>) -> Result<serde_json::Value, String> {
+    let inner = state.0.lock().map_err(|e| e.to_string())?;
+    Ok(serde_json::json!(inner.tools.list_tools()))
+}
+
+/// Execute a tool and return the result. Destructive tools may require approval.
+#[tauri::command]
+pub fn execute_tool(state: State<AppState>, request: ToolRequest) -> Result<serde_json::Value, String> {
+    let inner = state.0.lock().map_err(|e| e.to_string())?;
+    let result = inner.tools.execute(&request);
+    Ok(serde_json::json!(result))
+}
+
+/// Check if a tool needs user approval before execution.
+#[tauri::command]
+pub fn tool_needs_approval(state: State<AppState>, tool_name: String) -> Result<bool, String> {
+    let inner = state.0.lock().map_err(|e| e.to_string())?;
+    Ok(inner.tools.needs_approval(&tool_name))
+}
+
+/// Generate a system prompt describing available tools for the model.
+#[tauri::command]
+pub fn get_tool_system_prompt(state: State<AppState>) -> Result<String, String> {
+    let inner = state.0.lock().map_err(|e| e.to_string())?;
+    Ok(inner.tools.system_prompt())
 }

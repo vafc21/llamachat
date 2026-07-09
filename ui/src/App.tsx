@@ -59,12 +59,14 @@ export default function App() {
     );
   }, [activeId]);
 
-  function handleSend(text: string) {
+  function uid() { return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => { const r = Math.random()*16|0; return (c==='x'?r:(r&0x3|0x8)).toString(16); }); }
+
+function handleSend(text: string) {
     if (!text.trim() || streaming) return;
 
     // User message
     const userMsg: Message = {
-      id: crypto.randomUUID(),
+      id: uid(),
       role: 'user',
       content: text,
       timestamp: new Date().toISOString(),
@@ -82,7 +84,7 @@ export default function App() {
     // Try real inference via sidecar dev server, fall back to mock
     setStreaming(true);
     const assistantMsg: Message = {
-      id: crypto.randomUUID(),
+      id: uid(),
       role: 'assistant',
       content: '',
       timestamp: new Date().toISOString(),
@@ -191,7 +193,7 @@ export default function App() {
   }
 
   function handleNewConversation() {
-    const id = crypto.randomUUID();
+    const id = uid();
     setConversations((prev) => [
       { id, title: 'New conversation', messages: [], createdAt: new Date().toISOString() },
       ...prev,
@@ -209,7 +211,7 @@ export default function App() {
 
   function handleToolCall(tool: string) {
     const userMsg: Message = {
-      id: crypto.randomUUID(),
+      id: uid(),
       role: 'user',
       content: `/${tool}`,
       timestamp: new Date().toISOString(),

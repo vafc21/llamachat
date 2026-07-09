@@ -3,7 +3,7 @@ resolver = "2"
 members = [
     "crates/fitllm-core",
     "crates/fitllm-cli",
-    # "src-tauri",  # added once the Tauri shell is scaffolded (needs webkit2gtk to build)
+    "src-tauri",  # needs webkit2gtk to build; `cargo build -p fitllm-cli` for core-only
 ]
 # `cargo build` on hosts without webkit2gtk builds only the pure-Rust core + CLI.
 # The Tauri shell (src-tauri) is built explicitly with `cargo build -p fitllm`.

@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { Sidebar } from './components/Sidebar'
 import { ChatArea } from './components/ChatArea'
 import { InputBar } from './components/InputBar'
@@ -11,6 +11,31 @@ const INITIAL_CONVERSATIONS: Conversation[] = [
 ];
 
 export default function App() {
+  const [platform, setPlatform] = useState<string>('linux');
+
+  // Detect platform for native-feel CSS
+  useEffect(() => {
+    async function detect() {
+      try {
+        if (window.__TAURI__) {
+          const p = await window.__TAURI__.invoke('plugin:tauri|platform') as string;
+          setPlatform(p);
+          return;
+        }
+      } catch {}
+      // Fallback for dev (outside Tauri)
+      const ua = navigator.platform || '';
+      if (ua.includes('Mac')) setPlatform('macos');
+      else if (ua.includes('Win')) setPlatform('windows');
+      else setPlatform('linux');
+    }
+    detect();
+  }, []);
+
+  // Set platform class on document for CSS
+  useEffect(() => {
+    document.documentElement.setAttribute('data-platform', platform);
+  }, [platform]);
   const [setupComplete, setSetupComplete] = useState(false);
   const [conversations, setConversations] = useState<Conversation[]>(INITIAL_CONVERSATIONS);
   const [activeId, setActiveId] = useState('1');

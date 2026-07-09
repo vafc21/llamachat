@@ -26,13 +26,65 @@
   --font-mono: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', 'SF Mono', 'Ubuntu Mono', monospace;
 }
 
+/* ── Platform-specific overrides ──────────────────────────── */
+/* ── Platform-native overrides ──────────────────────────────── */
+/* Each platform gets its own font stack, corner radius, and subtle
+   behavioral tweaks. The goal: feel like a native app, not a web page. */
+
+/* macOS: SF Pro, softer corners, translucent sidebar */
+[data-platform="macos"] {
+  --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+  --color-sidebar: rgba(20, 20, 28, 0.78);
+  --color-border: rgba(255, 255, 255, 0.05);
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --platform-sidebar-width: 240px;
+  --platform-font-size: 13px;
+}
+[data-platform="macos"] .border { border-color: rgba(255, 255, 255, 0.05); }
+
+/* Windows: Segoe UI, sharp corners, Fluent-style density */
+[data-platform="windows"] {
+  --font-sans: 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
+  --color-bg: #0b0b0b;
+  --color-sidebar: #060606;
+  --color-border: rgba(255, 255, 255, 0.08);
+  --radius-sm: 3px;
+  --radius-md: 4px;
+  --radius-lg: 6px;
+  --platform-sidebar-width: 260px;
+  --platform-font-size: 13.5px;
+}
+[data-platform="windows"] .border { border-color: rgba(255, 255, 255, 0.08); }
+
+/* Linux: Ubuntu/GNOME feel */
+[data-platform="linux"] {
+  --font-sans: 'Ubuntu', 'Cantarell', -apple-system, system-ui, sans-serif;
+  --color-border: rgba(255, 255, 255, 0.06);
+  --radius-sm: 5px;
+  --radius-md: 7px;
+  --radius-lg: 9px;
+  --platform-sidebar-width: 224px;
+  --platform-font-size: 13px;
+}
+
+/* Fallback */
+:root {
+  --radius-sm: 5px;
+  --radius-md: 7px;
+  --radius-lg: 9px;
+  --platform-sidebar-width: 224px;
+  --platform-font-size: 13px;
+}
+
 /* ── Base ──────────────────────────────────────────────────── */
 body {
   margin: 0;
   background: var(--color-bg);
   color: var(--color-text);
   font-family: var(--font-sans);
-  font-size: 13px;
+  font-size: var(--platform-font-size);
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;

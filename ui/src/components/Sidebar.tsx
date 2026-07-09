@@ -1,5 +1,14 @@
 import type { Conversation, HardwareProfile } from '../types'
 
+// Tauri platform type
+declare global {
+  interface Window {
+    __TAURI__?: {
+      invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
+    };
+  }
+}
+
 interface SidebarProps {
   open: boolean;
   conversations: Conversation[];
@@ -24,7 +33,8 @@ export function Sidebar({
   if (!open) return null;
 
   return (
-    <div className="w-56 flex-shrink-0 bg-sidebar border-r border-border flex flex-col">
+    <div className="flex-shrink-0 bg-sidebar border-r border-border flex flex-col"
+         style={{ width: 'var(--platform-sidebar-width)' }}>
       {/* Header */}
       <div className="flex-shrink-0 h-9 border-b border-border flex items-center px-3 gap-2">
         <span className="text-xs font-semibold tracking-wide text-text-secondary">

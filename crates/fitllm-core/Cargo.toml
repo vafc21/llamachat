@@ -1,0 +1,20 @@
+[package]
+name = "fitllm-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Core engine for FitLLM: hardware profiler, model catalog, recommendation engine, local store."
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+chrono.workspace = true
+rusqlite.workspace = true
+sysinfo.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

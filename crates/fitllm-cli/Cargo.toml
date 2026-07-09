@@ -1,0 +1,18 @@
+[package]
+name = "fitllm-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "FitLLM CLI: exercise the core engine (hardware profile, catalog, recommendations) without the desktop shell."
+
+[[bin]]
+name = "fitllm"
+path = "src/main.rs"
+
+[dependencies]
+fitllm-core = { path = "../fitllm-core" }
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true

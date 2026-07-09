@@ -1,0 +1,288 @@
+//! Shared data types for FitLLM. These are the interface contract between the
+//! hardware profiler, the model catalog, the recommendation engine, the Python
+//! benchmark sidecar, and the UI. All types serialize to the JSON shapes
+//! documented in `CONTRACT.md` — keep them in sync.
+
+use serde::{Deserialize, Serialize};
+
+// ---------------------------------------------------------------------------
+// Hardware profile
+// ---------------------------------------------------------------------------
+
+/// A normalized snapshot of the machine, produced by the hardware profiler and
+/// read by everything else.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HardwareProfile {
+    pub cpu: Cpu,
+    pub gpus: Vec<Gpu>,
+    /// Present only on Apple Silicon; `None` elsewhere.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub apple_silicon: Option<AppleSilicon>,
+    pub memory: Memory,
+    pub storage: Storage,
+    pub os: Os,
+    /// Acceleration backends available on this machine, e.g. ["cuda", "cpu"].
+    pub backends: Vec<String>,
+    /// ISO-8601 timestamp of when this profile was captured.
+    pub detected_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Cpu {
+    pub model: String,
+    pub vendor: String,
+    pub physical_cores: u32,
+    pub logical_cores: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub base_clock_mhz: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_clock_mhz: Option<f64>,
+    pub flags: CpuFlags,
+}
+
+/// Instruction-set features that matter for LLM inference throughput.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct CpuFlags {
+    pub avx2: bool,
+    pub avx512: bool,
+    pub fma: bool,
+    pub f16c: bool,
+    /// ARM NEON (Apple Silicon / ARM servers).
+    pub neon: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Gpu {
+    pub vendor: String,
+    pub model: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vram_total_mb: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vram_free_mb: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub driver_version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cuda_version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compute_capability: Option<String>,
+    /// Best inference backend for this GPU: "cuda", "rocm", "metal", "vulkan".
+    pub backend: String,
+    /// True for iGPUs / integrated graphics that share system RAM.
+    pub is_integrated: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AppleSilicon {
+    /// Apple Silicon uses unified memory shared between CPU and GPU — this
+    /// changes model-size math versus discrete VRAM.
+    pub unified_memory: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gpu_cores: Option<u32>,
+    pub neural_engine: bool,
+    pub chip: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Memory {
+    pub total_mb: u64,
+    pub available_mb: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Storage {
+    /// Directory where models are (or would be) stored.
+    pub models_dir: String,
+    pub free_mb: u64,
+    /// Sequential read speed if cheaply measurable; matters for weight load time.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub read_mbps: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Os {
+    pub name: String,
+    pub version: String,
+    pub arch: String,
+}
+
+// ---------------------------------------------------------------------------
+// Model catalog
+// ---------------------------------------------------------------------------
+
+/// The bundled, updatable catalog of open models plus frontier cloud references.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelCatalog {
+    pub schema_version: u32,
+    pub updated_at: String,
+    pub models: Vec<CatalogModel>,
+    /// Frontier hosted models for the (Phase 2) cloud-comparison panel. Kept in
+    /// the catalog so the reference list can be refreshed without a code change.
+    #[serde(default)]
+    pub frontier: Vec<FrontierModel>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CatalogModel {
+    pub id: String,
+    pub family: String,
+    pub display_name: String,
+    pub params_b: f64,
+    pub license: String,
+    /// A public, approximate quality score (0-100), higher is better.
+    pub quality_score: f64,
+    pub quality_source: String,
+    pub context_default: u32,
+    pub context_max: u32,
+    pub quants: Vec<Quant>,
+    /// Default Ollama pull tag for the recommended quant.
+    pub ollama_pull: String,
+    #[serde(default)]
+    pub tags: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Quant {
+    /// Quant name, e.g. "Q4_K_M", "Q8_0", "FP16".
+    pub name: String,
+    /// Effective bits-per-weight.
+    pub bits: f64,
+    /// On-disk / in-memory weight footprint in MB.
+    pub size_mb: u64,
+    /// Ollama tag that pulls this specific quant, if available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ollama_tag: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FrontierModel {
+    pub id: String,
+    pub display_name: String,
+    pub provider: String,
+    pub quality_score: f64,
+    pub quality_source: String,
+    /// Rough typical output speed for the hosted model (tokens/sec), for the
+    /// speed side-by-side. Approximate and clearly labeled in the UI.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub typical_tps: Option<f64>,
+}
+
+// ---------------------------------------------------------------------------
+// Benchmark results (produced by the Python sidecar)
+// ---------------------------------------------------------------------------
+
+/// A single benchmark run for one model on one adapter.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BenchmarkResult {
+    pub model: String,
+    pub adapter: String,
+    pub ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_eval_tps: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gen_tps: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ttft_ms: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub peak_mem_mb: Option<f64>,
+    pub context_tested: u32,
+    /// System load level (0.0-1.0) at run time, so results are comparable.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub background_load: Option<f64>,
+    /// "quick" or "full".
+    pub tier: String,
+    pub timestamp: String,
+}
+
+// ---------------------------------------------------------------------------
+// Recommendation output
+// ---------------------------------------------------------------------------
+
+/// The 5-tier rating for a model on this machine.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Tier {
+    /// Not enough VRAM/RAM even at the smallest quant.
+    WontRun,
+    /// Works, but under the usable-speed threshold or heavy swapping.
+    Slow,
+    /// Usable interactive speed.
+    Okay,
+    /// Comfortable headroom, fast.
+    Great,
+    /// Best-in-class for this machine.
+    Blazing,
+}
+
+impl Tier {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Tier::WontRun => "Won't run",
+            Tier::Slow => "Runs, but slow",
+            Tier::Okay => "Runs okay",
+            Tier::Great => "Runs great",
+            Tier::Blazing => "Blazing",
+        }
+    }
+    /// Ordering rank for sorting (higher is better).
+    pub fn rank(&self) -> u8 {
+        match self {
+            Tier::WontRun => 0,
+            Tier::Slow => 1,
+            Tier::Okay => 2,
+            Tier::Great => 3,
+            Tier::Blazing => 4,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RatingSource {
+    /// Spec heuristic (provisional, shown instantly).
+    Heuristic,
+    /// Backed by a real on-device benchmark.
+    Measured,
+}
+
+/// How a model's weights map onto this machine's memory.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryFit {
+    pub required_mb: u64,
+    /// GPU VRAM available (sum across usable GPUs / unified memory).
+    pub gpu_available_mb: u64,
+    pub ram_available_mb: u64,
+    pub fits_gpu: bool,
+    pub fits_ram: bool,
+    /// True if the model must partially offload to CPU/RAM to fit.
+    pub offload: bool,
+    /// Fraction of layers that fit on the GPU (0.0-1.0).
+    pub gpu_layers_fraction: f64,
+}
+
+/// A per-model recommendation for this machine.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Recommendation {
+    pub model_id: String,
+    pub display_name: String,
+    pub family: String,
+    pub params_b: f64,
+    pub quality_score: f64,
+    /// The quant the engine picked as the best fit.
+    pub quant: String,
+    pub tier: Tier,
+    pub source: RatingSource,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub estimated_tokens_per_sec: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub measured_tokens_per_sec: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ttft_ms: Option<f64>,
+    pub memory_fit: MemoryFit,
+    pub context_comfortable: u32,
+    /// Human-readable explanation of the rating.
+    pub why: String,
+    /// Ollama tag to pull/run this model.
+    pub ollama_pull: String,
+}

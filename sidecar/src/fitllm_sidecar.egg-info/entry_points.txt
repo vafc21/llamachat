@@ -1,2 +1,0 @@
-[console_scripts]
-fitllm-sidecar = fitllm_sidecar.__main__:main

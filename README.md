@@ -190,6 +190,8 @@ Phase 1 (MVP) scope and where each piece currently stands:
 - ✅ **CLI** — `profile` / `catalog` / `recommend` / `store-info` all wired to real implementations
 - ✅ **Tauri shell** — scaffolded with IPC commands, background benchmark events, consent flow
 - ✅ **Shared type contract** — `types.rs` + `CONTRACT.md` frozen across all modules
+- ✅ **Tool system** — sidecar exposes a `shell` tool; local models emit structured `{"tool": ...}` calls
+- ✅ **Agent loop** — sidecar drives the model→tool→result cycle for on-device agentic runs
 
 Phase 1 is functionally complete. Try it:
 ```bash

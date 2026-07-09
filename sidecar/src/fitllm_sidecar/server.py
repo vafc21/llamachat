@@ -70,6 +70,22 @@ def _build_agent_system(user_system: str = "") -> str:
     return TOOL_SYSTEM_PROMPT
 
 
+# ── Chat tool system prompt ──────────────────────────────────────
+# A compact tool description auto-injected into /chat when the caller
+# supplies no system prompt, so an out-of-the-box chat session can still
+# discover and drive the shell/file/process/desktop tools.
+CHAT_TOOL_SYSTEM_PROMPT = """You have access to tools. To use a tool, output exactly:
+{"tool": "<name>", "args": {...}}
+
+Available tools:
+- shell: Run shell commands. Args: {"command": "<cmd>", "cwd": "<optional dir>"}
+- file: Read/write/edit files. Args: {"action": "read|write|edit", "path": "<path>", "content": "<optional>"}
+- process: List/spawn/kill processes. Args: {"action": "list|spawn|kill", "command": "<optional>", "pid": <optional>}
+- desktop: Take screenshots. Args: {"action": "screenshot", "path": "<optional path>"}
+
+When you use a tool, the result will be shown. Then continue your response naturally."""
+
+
 # ── Simple HTTP server for dev mode ──────────────────────────────
 
 def _start_http_server(port: int = 9199) -> None:
@@ -94,7 +110,9 @@ def _start_http_server(port: int = 9199) -> None:
                     return
                 model = body.get("model", "llama3.2:1b")
                 messages = body.get("messages", [])
-                system = body.get("system", "")
+                # Auto-inject a tool-aware system prompt when the caller
+                # supplies none, so a bare chat session can still use tools.
+                system = body.get("system", "") or CHAT_TOOL_SYSTEM_PROMPT
 
                 # Stream as SSE
                 self.send_response(200)

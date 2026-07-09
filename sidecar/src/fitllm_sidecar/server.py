@@ -10,7 +10,7 @@ Request:  ``{"id": <int>, "method": <str>, "params": {...}}``
 Response: ``{"id": <int>, "result": {...}}`` or ``{"id": <int>, "error": "<msg>"}``
 Progress: ``{"event": "progress", "stage": <str>, "pct": <0-100>, "model": <str>}``
 
-Methods: ``ping``, ``list_adapters``, ``list_models``, ``quick_benchmark``.
+Methods: ``ping``, ``list_adapters``, ``list_models``, ``quick_benchmark``, ``chat``.
 """
 
 from __future__ import annotations
@@ -81,6 +81,41 @@ def handle_request(req: dict, out: TextIO) -> dict:
 
             result = run_benchmark(adapter, model, tier="quick", progress=progress)
             return {"id": req_id, "result": result}
+
+        if method == "chat":
+            name = params.get("adapter", "ollama")
+            model = params.get("model")
+            messages = params.get("messages", [])
+            system = params.get("system", "")
+
+            if not model:
+                return {"id": req_id, "error": "missing 'model' param"}
+            if not messages:
+                return {"id": req_id, "error": "missing 'messages' param"}
+
+            adapter = get_adapter(name)
+            if adapter is None:
+                return {"id": req_id, "error": f"unknown adapter '{name}'"}
+
+            # Stream tokens as progress events, collect full response
+            full = []
+            for token in adapter.chat(model, messages, system=system, stream=True):
+                full.append(token)
+                _write(out, {
+                    "event": "token",
+                    "token": token,
+                    "id": req_id,
+                })
+
+            return {
+                "id": req_id,
+                "result": {
+                    "model": model,
+                    "adapter": name,
+                    "content": "".join(full),
+                    "done": True,
+                },
+            }
 
         return {"id": req_id, "error": f"unknown method '{method}'"}
     except Exception as exc:  # never let one bad request kill the loop

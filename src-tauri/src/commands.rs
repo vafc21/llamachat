@@ -6,6 +6,7 @@ use crate::state::{data_dir, AppState};
 use fitllm_core::{hardware, recommend, HardwareProfile, ModelCatalog, Recommendation};
 use fitllm_core::tools::ToolRequest;
 use tauri::{Emitter, Manager, State};
+use crate::sidecar;
 
 /// Detect (or return the cached) hardware profile. Read-only.
 #[tauri::command]
@@ -189,4 +190,44 @@ pub fn tool_needs_approval(state: State<AppState>, tool_name: String) -> Result<
 pub fn get_tool_system_prompt(state: State<AppState>) -> Result<String, String> {
     let inner = state.0.lock().map_err(|e| e.to_string())?;
     Ok(inner.tools.system_prompt())
+}
+
+/// Send a message to the model and stream the response back via events.
+/// Emits `chat_token` events for each token and a final `chat_done` event.
+#[tauri::command]
+pub fn send_message(
+    app: tauri::AppHandle,
+    state: State<AppState>,
+    message: String,
+) -> Result<(), String> {
+    let (model_tag, messages, system_prompt) = {
+        let inner = state.0.lock().map_err(|e| e.to_string())?;
+        let profile = inner.profile.clone();
+        let catalog = inner.catalog.clone();
+        let benchmarks = inner.benchmarks.clone();
+        let sys = inner.tools.system_prompt();
+
+        // Pick best model from recommendations, or fall back
+        let model = if let Some(p) = profile {
+            let recs = recommend::rate_all(&p, &catalog, &benchmarks);
+            recs.first()
+                .map(|r| r.ollama_pull.clone())
+                .unwrap_or_else(|| "llama3.2:1b".into())
+        } else {
+            "llama3.2:1b".into()
+        };
+
+        let msgs = vec![serde_json::json!({"role": "user", "content": message})];
+        (model, msgs, sys)
+    };
+
+    // Run in background thread to not block the main thread
+    std::thread::spawn(move || {
+        let _ = sidecar::chat(&model_tag, &messages, &system_prompt, |token| {
+            let _ = app.emit("chat_token", token.to_string());
+        });
+        let _ = app.emit("chat_done", true);
+    });
+
+    Ok(())
 }

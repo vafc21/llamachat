@@ -126,8 +126,68 @@ class OllamaAdapter(RuntimeAdapter):
                 if obj.get("done"):
                     break
         except Exception:
-            # Streaming errors are swallowed — caller gets whatever tokens
-            # arrived before the failure.
+            return
+
+    def chat(
+        self,
+        model: str,
+        messages: list[dict],
+        system: str = "",
+        stream: bool = True,
+    ) -> Iterator[str]:
+        """Send a conversation to Ollama /api/chat and yield response tokens.
+
+        ``messages`` is a list of {role, content} dicts (roles: user/assistant/system).
+        ``system`` is an optional system prompt prepended to the messages.
+        When ``stream=True``, yields individual token strings. When ``stream=False``,
+        yields a single string with the complete response.
+        """
+        if not HAVE_REQUESTS:
+            return
+
+        # Build the Ollama chat payload
+        msgs: list[dict] = []
+        if system:
+            msgs.append({"role": "system", "content": system})
+
+        for msg in messages:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            msgs.append({"role": role, "content": content})
+
+        try:
+            resp = requests.post(
+                f"{self.base_url}/api/chat",
+                json={
+                    "model": model,
+                    "messages": msgs,
+                    "stream": stream,
+                },
+                stream=stream,
+                timeout=GEN_TIMEOUT,
+            )
+            resp.raise_for_status()
+
+            if not stream:
+                obj = resp.json()
+                content = obj.get("message", {}).get("content", "")
+                if content:
+                    yield content
+                return
+
+            for line in resp.iter_lines(decode_unicode=True):
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except Exception:
+                    continue
+                chunk = obj.get("message", {}).get("content", "")
+                if chunk:
+                    yield chunk
+                if obj.get("done"):
+                    break
+        except Exception:
             return
 
     def pull(self, model: str) -> Iterator[dict]:

@@ -5,10 +5,12 @@
 pub mod shell;
 pub mod filesystem;
 pub mod process;
+pub mod desktop;
 
 pub use shell::ShellTool;
 pub use filesystem::FilesystemTool;
 pub use process::ProcessTool;
+pub use desktop::DesktopTool;
 
 use serde::{Deserialize, Serialize};
 use std::time::Duration;

@@ -12,7 +12,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
 use fitllm_core::{catalog, hardware, recommend, store::Store, Recommendation};
-use fitllm_core::tools::{ShellTool, FilesystemTool, ProcessTool, ToolLimits, ToolRegistry, ToolRequest};
+use fitllm_core::tools::{ShellTool, FilesystemTool, ProcessTool, DesktopTool, ToolLimits, ToolRegistry, ToolRequest};
 
 /// FitLLM — profile your machine and see which local LLMs will actually run on it.
 #[derive(Debug, Parser)]
@@ -159,6 +159,7 @@ fn cmd_tools(tool_name: Option<String>, args_json: String) -> Result<()> {
     registry.register(Box::new(ShellTool::new(ToolLimits::default())));
     registry.register(Box::new(FilesystemTool::new(ToolLimits::default())));
     registry.register(Box::new(ProcessTool::new(ToolLimits::default())));
+    registry.register(Box::new(DesktopTool::new()));
 
     match tool_name {
         Some(name) => {

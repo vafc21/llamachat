@@ -5,7 +5,7 @@ use fitllm_core::{
     tools::{ToolLimits, ToolRegistry, ToolRequest, ToolResult},
     BenchmarkResult, HardwareProfile, ModelCatalog,
 };
-use fitllm_core::tools::{ShellTool, FilesystemTool, ProcessTool};
+use fitllm_core::tools::{ShellTool, FilesystemTool, ProcessTool, DesktopTool};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
@@ -46,6 +46,7 @@ impl AppState {
         tools.register(Box::new(ShellTool::new(ToolLimits::default())));
         tools.register(Box::new(FilesystemTool::new(ToolLimits::default())));
         tools.register(Box::new(ProcessTool::new(ToolLimits::default())));
+        tools.register(Box::new(DesktopTool::new()));
 
         Ok(AppState(Mutex::new(Inner {
             store,

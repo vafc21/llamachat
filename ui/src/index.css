@@ -1,42 +1,105 @@
 @import "tailwindcss";
 
+/* ── Theme ─────────────────────────────────────────────────── */
 @theme {
-  --color-fitllm-bg: #0a0a0f;
-  --color-fitllm-surface: #13131a;
-  --color-fitllm-card: #1a1a24;
-  --color-fitllm-border: #2a2a3a;
-  --color-fitllm-text: #e4e4ec;
-  --color-fitllm-muted: #8888a0;
-  --color-fitllm-accent: #6366f1;
-  --color-fitllm-accent-glow: rgba(99, 102, 241, 0.15);
-  --color-fitllm-success: #22c55e;
-  --color-fitllm-warning: #f59e0b;
-  --color-fitllm-danger: #ef4444;
+  --color-bg: #0d0d12;
+  --color-surface: #111118;
+  --color-sidebar: #0b0b10;
+  --color-border: rgba(255, 255, 255, 0.06);
+  --color-border-strong: rgba(255, 255, 255, 0.10);
+  --color-text: #e1e1e6;
+  --color-text-secondary: #8b8b9e;
+  --color-text-muted: #5c5c6e;
+  --color-accent: #4d7cff;
+  --color-accent-dim: rgba(77, 124, 255, 0.12);
+  --color-success: #3fb950;
+  --color-warning: #d29922;
+  --color-error: #f85149;
+  --color-info: #58a6ff;
 
-  /* Tier colors */
-  --color-tier-blazing: #f59e0b;
-  --color-tier-great: #22c55e;
-  --color-tier-okay: #3b82f6;
-  --color-tier-slow: #f97316;
-  --color-tier-wontrun: #6b7280;
+  /* Syntax / code */
+  --color-code-bg: rgba(255, 255, 255, 0.03);
+  --color-diff-add: rgba(63, 185, 80, 0.12);
+  --color-diff-remove: rgba(248, 81, 73, 0.12);
+
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Ubuntu', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', 'SF Mono', 'Ubuntu Mono', monospace;
 }
 
+/* ── Base ──────────────────────────────────────────────────── */
 body {
   margin: 0;
-  background: var(--color-fitllm-bg);
-  color: var(--color-fitllm-text);
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow: hidden;
 }
 
-/* Custom scrollbar */
-::-webkit-scrollbar {
-  width: 6px;
+/* Prevent the "bouncing" overscroll on macOS */
+html, body, #root {
+  height: 100%;
+  overscroll-behavior: none;
 }
-::-webkit-scrollbar-track {
-  background: var(--color-fitllm-surface);
+
+/* ── Scrollbar ─────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.14); }
+
+/* ── Selection ─────────────────────────────────────────────── */
+::selection {
+  background: rgba(77, 124, 255, 0.3);
+  color: #fff;
 }
-::-webkit-scrollbar-thumb {
-  background: var(--color-fitllm-border);
+
+/* ── Focus ─────────────────────────────────────────────────── */
+*:focus-visible {
+  outline: 1px solid var(--color-accent);
+  outline-offset: -1px;
+}
+input:focus-visible, textarea:focus-visible {
+  outline: none;
+}
+
+/* ── Animation ─────────────────────────────────────────────── */
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+.animate-fade-in { animation: fade-in 0.15s ease-out; }
+.animate-blink { animation: blink 1s step-end infinite; }
+
+/* ── Markdown in messages ──────────────────────────────────── */
+.prose pre {
+  background: var(--color-code-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: 10px 14px;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.prose code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: var(--color-code-bg);
   border-radius: 3px;
+  padding: 1px 5px;
 }
+.prose pre code {
+  background: none;
+  padding: 0;
+}
+.prose p { margin: 0 0 0.5em; }
+.prose p:last-child { margin-bottom: 0; }
+.prose ul, .prose ol { margin: 0.25em 0; padding-left: 1.5em; }

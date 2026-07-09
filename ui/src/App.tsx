@@ -1,157 +1,187 @@
-import { useState, useEffect } from 'react'
-import { HardwarePanel } from './components/HardwarePanel'
-import { RecommendationsList } from './components/RecommendationsList'
-import { OnboardingWizard } from './components/OnboardingWizard'
-import {
-  type HardwareProfile,
-  type Recommendation,
-  getHardwareProfile,
-  getRecommendations,
-  getConsent,
-} from './api'
+import { useState, useRef, useCallback } from 'react'
+import { Sidebar } from './components/Sidebar'
+import { ChatArea } from './components/ChatArea'
+import { InputBar } from './components/InputBar'
+import { SetupWizard } from './components/SetupWizard'
+import type { Message, Conversation, HardwareProfile } from './types'
 
-type View = 'loading' | 'onboarding' | 'dashboard';
+// Mock conversations for dev
+const INITIAL_CONVERSATIONS: Conversation[] = [
+  { id: '1', title: 'New conversation', messages: [], createdAt: new Date().toISOString() },
+];
 
 export default function App() {
-  const [view, setView] = useState<View>('loading');
+  const [setupComplete, setSetupComplete] = useState(false);
+  const [conversations, setConversations] = useState<Conversation[]>(INITIAL_CONVERSATIONS);
+  const [activeId, setActiveId] = useState('1');
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [streaming, setStreaming] = useState(false);
   const [hardware, setHardware] = useState<HardwareProfile | null>(null);
-  const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
-  const [benchmarkRunning, setBenchmarkRunning] = useState(false);
+  const chatRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    async function init() {
-      const consented = await getConsent();
-      if (!consented) {
-        setView('onboarding');
-        return;
-      }
-      await loadDashboard();
-    }
-    init();
-  }, []);
+  const active = conversations.find((c) => c.id === activeId) ?? conversations[0];
 
-  async function loadDashboard() {
-    setView('loading');
-    const [hw, recs] = await Promise.all([
-      getHardwareProfile(),
-      getRecommendations(),
-    ]);
+  function handleSetupComplete(hw: HardwareProfile) {
     setHardware(hw);
-    setRecommendations(recs);
-    setView('dashboard');
+    setSetupComplete(true);
   }
 
-  async function handleConsent() {
-    await loadDashboard();
+  const addMessage = useCallback((msg: Message) => {
+    setConversations((prev) =>
+      prev.map((c) =>
+        c.id === activeId ? { ...c, messages: [...c.messages, msg] } : c
+      )
+    );
+  }, [activeId]);
+
+  function handleSend(text: string) {
+    if (!text.trim() || streaming) return;
+
+    // User message
+    const userMsg: Message = {
+      id: crypto.randomUUID(),
+      role: 'user',
+      content: text,
+      timestamp: new Date().toISOString(),
+    };
+    addMessage(userMsg);
+
+    // Auto-title first message
+    if (active.messages.length === 0) {
+      const title = text.slice(0, 60) + (text.length > 60 ? '…' : '');
+      setConversations((prev) =>
+        prev.map((c) => (c.id === activeId ? { ...c, title } : c))
+      );
+    }
+
+    // Simulate assistant response
+    setStreaming(true);
+    const assistantMsg: Message = {
+      id: crypto.randomUUID(),
+      role: 'assistant',
+      content: '',
+      timestamp: new Date().toISOString(),
+    };
+    addMessage(assistantMsg);
+
+    // Mock streaming response
+    const responses = [
+      "I'll help you with that.",
+      "\n\nHere's what I found:",
+      "\n\n```sh\n$ ls -la /home/vlad/.openclaw/workspace/fitllm\ntotal 80\ndrwxrwxr-x  5 vlad vlad  4096 Jul  9 04:47 .\ndrwx------ 11 vlad vlad  4096 Jul  9 04:41 ..\n-rw-rw-r--  1 vlad vlad  5381 Jul  9 04:46 CONTRACT.md\n-rw-rw-r--  1 vlad vlad 21944 Jul  9 04:47 Cargo.lock\n-rw-rw-r--  1 vlad vlad   824 Jul  9 04:47 Cargo.toml\n-rw-rw-r--  1 vlad vlad  5001 Jul  9 04:45 RECON.md\n-rw-rw-r--  1 vlad vlad 11250 Jul  9 04:42 SPEC.md\n```",
+      "\n\nThe project is set up and ready. Is there anything specific you'd like me to work on?",
+    ];
+
+    let delay = 0;
+    responses.forEach((chunk) => {
+      setTimeout(() => {
+        setConversations((prev) =>
+          prev.map((c) =>
+            c.id === activeId
+              ? {
+                  ...c,
+                  messages: c.messages.map((m) =>
+                    m.id === assistantMsg.id
+                      ? { ...m, content: m.content + chunk }
+                      : m
+                  ),
+                }
+              : c
+          )
+        );
+      }, delay);
+      delay += chunk.length * 18; // rough typing speed
+    });
+
+    setTimeout(() => setStreaming(false), delay + 100);
+  }
+
+  function handleNewConversation() {
+    const id = crypto.randomUUID();
+    setConversations((prev) => [
+      { id, title: 'New conversation', messages: [], createdAt: new Date().toISOString() },
+      ...prev,
+    ]);
+    setActiveId(id);
+  }
+
+  function handleDeleteConversation(id: string) {
+    setConversations((prev) => {
+      const next = prev.filter((c) => c.id !== id);
+      if (activeId === id && next.length > 0) setActiveId(next[0].id);
+      return next;
+    });
+  }
+
+  function handleToolCall(tool: string) {
+    const userMsg: Message = {
+      id: crypto.randomUUID(),
+      role: 'user',
+      content: `/${tool}`,
+      timestamp: new Date().toISOString(),
+      toolCall: { name: tool, args: {} },
+    };
+    addMessage(userMsg);
+  }
+
+  // Setup wizard on first launch
+  if (!setupComplete) {
+    return <SetupWizard onComplete={handleSetupComplete} />;
   }
 
   return (
-    <div className="min-h-screen bg-fitllm-bg">
-      {view === 'loading' && (
-        <div className="flex items-center justify-center h-screen">
-          <div className="text-center">
-            <div className="w-12 h-12 border-2 border-fitllm-accent border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-            <p className="text-fitllm-muted text-sm">Profiling hardware &hellip;</p>
-          </div>
-        </div>
-      )}
+    <div className="h-full flex bg-bg">
+      {/* Sidebar */}
+      <Sidebar
+        open={sidebarOpen}
+        conversations={conversations}
+        activeId={activeId}
+        hardware={hardware}
+        onSelect={setActiveId}
+        onNew={handleNewConversation}
+        onDelete={handleDeleteConversation}
+        onToggle={() => setSidebarOpen((o) => !o)}
+      />
 
-      {view === 'onboarding' && (
-        <OnboardingWizard onConsent={handleConsent} />
-      )}
-
-      {view === 'dashboard' && hardware && (
-        <Dashboard
-          hardware={hardware}
-          recommendations={recommendations}
-          benchmarkRunning={benchmarkRunning}
-          onStartBenchmark={() => setBenchmarkRunning(true)}
-        />
-      )}
-    </div>
-  );
-}
-
-function Dashboard({
-  hardware,
-  recommendations,
-  benchmarkRunning,
-  onStartBenchmark,
-}: {
-  hardware: HardwareProfile;
-  recommendations: Recommendation[];
-  benchmarkRunning: boolean;
-  onStartBenchmark: () => void;
-}) {
-  const measured = recommendations.filter((r) => r.source === 'measured');
-
-  return (
-    <div className="max-w-6xl mx-auto px-4 py-8">
-      {/* Header */}
-      <header className="mb-8">
-        <div className="flex items-center gap-3 mb-2">
-          <span className="text-2xl">⚡</span>
-          <h1 className="text-2xl font-bold text-fitllm-text">FitLLM</h1>
-          <span className="text-xs bg-fitllm-card border border-fitllm-border rounded-full px-3 py-0.5 text-fitllm-muted">
-            Phase 1 MVP
-          </span>
-        </div>
-        <p className="text-fitllm-muted text-sm">
-          Which AI models actually run on your machine? Measured, not guessed.
-        </p>
-      </header>
-
-      {/* Hardware Panel */}
-      <section className="mb-8">
-        <HardwarePanel hardware={hardware} />
-      </section>
-
-      {/* Benchmark Status */}
-      <section className="mb-8">
-        <div className="bg-fitllm-card border border-fitllm-border rounded-xl p-4 flex items-center justify-between">
-          <div>
-            <h3 className="text-sm font-medium text-fitllm-text">
-              {benchmarkRunning
-                ? 'Benchmark running&hellip;'
-                : measured.length > 0
-                  ? 'Measurements ready'
-                  : 'Provisional ratings'}
-            </h3>
-            <p className="text-xs text-fitllm-muted mt-0.5">
-              {benchmarkRunning
-                ? 'Running quick benchmark in the background — your machine stays responsive.'
-                : measured.length > 0
-                  ? `${measured.length} models benchmarked. Refresh for real numbers.`
-                  : 'Estimates based on your hardware specs. Run a quick benchmark for measured numbers.'}
-            </p>
-          </div>
-          {!benchmarkRunning && (
+      {/* Main area */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Header bar */}
+        <div className="flex-shrink-0 h-9 border-b border-border flex items-center px-3 gap-2">
+          {!sidebarOpen && (
             <button
-              onClick={onStartBenchmark}
-              className="px-4 py-2 bg-fitllm-accent text-white text-sm font-medium rounded-lg hover:opacity-90 transition-opacity"
+              onClick={() => setSidebarOpen(true)}
+              className="text-text-secondary hover:text-text p-0.5"
+              title="Toggle sidebar"
             >
-              {measured.length > 0 ? 'Re-run Benchmark' : 'Run Quick Benchmark'}
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <path d="M2 3h12M2 8h12M2 13h12" stroke="currentColor" strokeWidth="1.5" />
+              </svg>
             </button>
           )}
-          {benchmarkRunning && (
-            <div className="flex items-center gap-2 text-fitllm-accent text-sm">
-              <div className="w-4 h-4 border-2 border-fitllm-accent border-t-transparent rounded-full animate-spin" />
-              Running&hellip;
-            </div>
+          <span className="text-[11px] text-text-muted truncate">
+            {active.title}
+          </span>
+          {hardware && (
+            <span className="text-[10px] text-text-muted ml-auto">
+              {hardware.cpu.model} · {hardware.gpus[0]?.model ?? 'CPU'}
+            </span>
           )}
         </div>
-      </section>
 
-      {/* Recommendations */}
-      <section>
-        <div className="flex items-center gap-2 mb-4">
-          <h2 className="text-lg font-semibold text-fitllm-text">Recommendations</h2>
-          <span className="text-xs text-fitllm-muted bg-fitllm-card border border-fitllm-border rounded-full px-2 py-0.5">
-            {recommendations.length} models
-          </span>
-        </div>
-        <RecommendationsList recommendations={recommendations} />
-      </section>
+        {/* Chat */}
+        <ChatArea
+          ref={chatRef}
+          messages={active.messages}
+          streaming={streaming}
+        />
+
+        {/* Input */}
+        <InputBar
+          onSend={handleSend}
+          onToolCall={handleToolCall}
+          disabled={streaming}
+        />
+      </div>
     </div>
   );
 }

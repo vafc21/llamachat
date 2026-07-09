@@ -12,6 +12,10 @@ use crate::types::*;
 // ---------------------------------------------------------------------------
 // Tunable thresholds (tokens/sec, generation). Exposed as module constants so
 // the UI / tests can reference the same numbers.
+//
+// Bands are calibrated against real llama.cpp generation numbers (e.g. an 8B
+// Q4_K_M on a mid-range 8GB discrete GPU lands in the mid-40s tok/s → Great,
+// while 1-3B models on the same card clear 50 → Blazing).
 // ---------------------------------------------------------------------------
 
 /// Below this, a model that technically fits is rated [`Tier::Slow`].
@@ -22,7 +26,11 @@ pub const OKAY_MAX_TPS: f64 = 25.0;
 pub const GREAT_MAX_TPS: f64 = 50.0;
 
 /// Fraction of memory kept free for the KV cache / runtime overhead.
-const KV_HEADROOM: f64 = 0.10;
+///
+/// ~20% over the raw weight size covers the KV cache at a typical interactive
+/// context plus runtime/CUDA overhead; 10% proved too tight in practice and let
+/// models that actually OOM slip through as "fits".
+const KV_HEADROOM: f64 = 0.20;
 /// Headroom fraction above which the full `context_max` is considered comfortable.
 const COMFORT_HEADROOM: f64 = 0.20;
 
@@ -85,6 +93,54 @@ struct MachineMemory {
     unified: bool,
     /// True when a usable discrete/integrated GPU backend is present.
     has_gpu: bool,
+    /// Architecture-relative speed multiplier for the GPU path, anchored so a
+    /// mainstream tensor-core discrete GPU ≈ 1.2 (see [`gpu_speed_factor`]).
+    gpu_factor: f64,
+}
+
+/// Speed multiplier applied to the GPU generation estimate, capturing the huge
+/// per-architecture spread that raw VRAM size can't. Calibrated against real
+/// llama.cpp numbers for Llama-3 8B Q4_K_M:
+///
+/// * Tensor-core discrete GPUs (Volta+/CC ≥ 7.0, e.g. RTX 3070 ~71 tok/s) →
+///   `1.20`.
+/// * Pre-tensor-core discrete GPUs (CC < 7.0, e.g. GTX 1080 Pascal ~42 tok/s,
+///   ~60-65% of a 3070) → `0.72`.
+/// * Apple Silicon unified memory scales with GPU core count (M1 7-core ~10
+///   tok/s → ~0.024 per core), clamped to a sane band.
+///
+/// These are provisional heuristics only; a measured benchmark always wins.
+fn gpu_speed_factor(p: &HardwareProfile) -> f64 {
+    if let Some(a) = p.apple_silicon.as_ref() {
+        if a.unified_memory {
+            // Apple GPU throughput tracks core count far more than VRAM. Anchor
+            // on the M1 (~7 cores → ~10 tok/s ≈ 0.17× the tensor-core baseline).
+            return match a.gpu_cores {
+                Some(cores) if cores > 0 => (cores as f64 * 0.024).clamp(0.12, 1.20),
+                _ => 0.40, // unknown Apple GPU: conservative middle.
+            };
+        }
+    }
+
+    // Discrete/integrated GPU: use the largest-VRAM non-integrated GPU as the
+    // one inference will actually run on.
+    let primary = p
+        .gpus
+        .iter()
+        .filter(|g| !g.is_integrated)
+        .max_by_key(|g| g.vram_total_mb.unwrap_or(0));
+
+    match primary.and_then(|g| parse_compute_capability(g.compute_capability.as_deref())) {
+        Some(cc) if cc >= 7.0 => 1.20, // tensor cores (Volta/Turing/Ampere/Ada+)
+        Some(_) => 0.72,               // Pascal & older: no tensor cores
+        None => 1.0,                   // unknown architecture: stay neutral
+    }
+}
+
+/// Parse an NVIDIA compute-capability string like "8.9" or "6.1" into a float.
+fn parse_compute_capability(cc: Option<&str>) -> Option<f64> {
+    cc.and_then(|s| s.trim().parse::<f64>().ok())
+        .filter(|v| *v > 0.0)
 }
 
 impl MachineMemory {
@@ -102,6 +158,8 @@ impl MachineMemory {
             p.memory.available_mb
         };
 
+        let gpu_factor = gpu_speed_factor(p);
+
         if unified {
             // Unified memory: the "GPU" can address (most of) system RAM.
             return MachineMemory {
@@ -109,6 +167,7 @@ impl MachineMemory {
                 ram_mb,
                 unified: true,
                 has_gpu: true,
+                gpu_factor,
             };
         }
 
@@ -134,6 +193,7 @@ impl MachineMemory {
             ram_mb,
             unified: false,
             has_gpu,
+            gpu_factor,
         }
     }
 }
@@ -217,7 +277,15 @@ fn rate_one(
         }
         None => {
             let est = if fits {
-                estimate_tps(m.params_b, &path, &memory_fit, headroom_frac, cores, avx2)
+                estimate_tps(
+                    m.params_b,
+                    &path,
+                    &memory_fit,
+                    headroom_frac,
+                    cores,
+                    avx2,
+                    mem.gpu_factor,
+                )
             } else {
                 // Won't run — no meaningful speed to report.
                 0.0
@@ -303,6 +371,10 @@ fn compute_fit(required_mb: u64, mem: &MachineMemory) -> MemoryFit {
 }
 
 /// Heuristic tokens/sec estimate. Conservative by design.
+///
+/// `gpu_factor` is the architecture-relative speed multiplier from
+/// [`gpu_speed_factor`]; it only affects the GPU (and the GPU share of the
+/// offload) path.
 fn estimate_tps(
     params_b: f64,
     path: &ExecPath,
@@ -310,15 +382,18 @@ fn estimate_tps(
     headroom_frac: f64,
     cores: u32,
     avx2: bool,
+    gpu_factor: f64,
 ) -> f64 {
     let params_b = params_b.max(0.1);
     match path {
         ExecPath::Gpu => {
-            // Anchor: a 7B model at ~75 tok/s, scaling inversely with size.
+            // Anchor: a 7B model at ~75 tok/s on a mainstream tensor-core GPU,
+            // scaling inversely with size. `gpu_factor` then rescales for the
+            // actual accelerator class (Pascal, Ampere, Apple, …).
             let base = 75.0 * (7.0 / params_b).powf(0.7);
-            // Tight VRAM → toward the low end of 50-100; roomy → high end.
-            let adj = base * (0.70 + 0.50 * headroom_frac);
-            adj.clamp(5.0, 120.0)
+            // Tight VRAM → toward the low end; roomy → high end.
+            let adj = base * (0.70 + 0.50 * headroom_frac) * gpu_factor;
+            adj.clamp(3.0, 200.0)
         }
         ExecPath::Cpu => {
             // Anchor: a 7B model at ~12 tok/s on 8 fast cores with AVX2.
@@ -330,8 +405,10 @@ fn estimate_tps(
         ExecPath::Offload => {
             // Blend of GPU and CPU speeds, weighted by the fraction of layers on
             // the GPU, then discounted for PCIe transfer overhead.
-            let gpu = estimate_tps(params_b, &ExecPath::Gpu, fit, headroom_frac, cores, avx2);
-            let cpu = estimate_tps(params_b, &ExecPath::Cpu, fit, headroom_frac, cores, avx2);
+            let gpu =
+                estimate_tps(params_b, &ExecPath::Gpu, fit, headroom_frac, cores, avx2, gpu_factor);
+            let cpu =
+                estimate_tps(params_b, &ExecPath::Cpu, fit, headroom_frac, cores, avx2, gpu_factor);
             let f = fit.gpu_layers_fraction;
             (cpu + (gpu - cpu) * f * 0.60).clamp(0.5, 100.0)
         }
@@ -520,14 +597,18 @@ mod tests {
     }
 
     fn discrete_gpu(vram_mb: u64) -> Gpu {
+        gpu_with_cc(vram_mb, Some("8.9"))
+    }
+
+    fn gpu_with_cc(vram_mb: u64, cc: Option<&str>) -> Gpu {
         Gpu {
             vendor: "NVIDIA".into(),
-            model: "RTX Test".into(),
+            model: "NVIDIA Test".into(),
             vram_total_mb: Some(vram_mb),
             vram_free_mb: Some(vram_mb),
             driver_version: None,
             cuda_version: Some("12.4".into()),
-            compute_capability: Some("8.9".into()),
+            compute_capability: cc.map(|s| s.to_string()),
             backend: "cuda".into(),
             is_integrated: false,
         }
@@ -591,6 +672,55 @@ mod tests {
         assert_eq!(l8.source, RatingSource::Measured);
         assert_eq!(l8.measured_tokens_per_sec, Some(7.5));
         assert_eq!(l8.tier, Tier::Slow);
+    }
+
+    #[test]
+    fn pascal_gpu_is_slower_than_tensor_core_gpu() {
+        // GTX 1080: Pascal (CC 6.1), 8GB, no tensor cores. Real llama.cpp puts
+        // 8B Q4_K_M around the low-to-mid 40s tok/s → "Great", and materially
+        // below a tensor-core card of the same VRAM.
+        // RAM is held just under the Q8_0 footprint so the engine keeps the 8B
+        // on the GPU at Q4_K_M (the pure-GPU path the arch factor governs)
+        // instead of preferring Q8_0 via CPU offload.
+        let cat = catalog::load_bundled().unwrap();
+        let p1080 = profile(9_000, vec![gpu_with_cc(8_000, Some("6.1"))], None);
+        let recs = rate_all(&p1080, &cat, &[]);
+        let l8 = recs.iter().find(|r| r.model_id == "llama3.1-8b").unwrap();
+        assert!(l8.memory_fit.fits_gpu, "8B Q4_K_M should fit an 8GB card");
+        assert_eq!(l8.quant, "Q4_K_M");
+        assert_eq!(l8.tier, Tier::Great, "8B on a GTX 1080 should be Great, not Blazing");
+        let tps = l8.estimated_tokens_per_sec.unwrap();
+        assert!((30.0..50.0).contains(&tps), "expected ~40-45 tok/s, got {tps}");
+
+        // Same VRAM but a tensor-core card (Ampere, CC 8.6) must be faster.
+        let p3070 = profile(9_000, vec![gpu_with_cc(8_000, Some("8.6"))], None);
+        let recs2 = rate_all(&p3070, &cat, &[]);
+        let l8_amp = recs2.iter().find(|r| r.model_id == "llama3.1-8b").unwrap();
+        assert!(
+            l8_amp.estimated_tokens_per_sec.unwrap() > tps,
+            "tensor-core GPU should out-run Pascal at equal VRAM"
+        );
+    }
+
+    #[test]
+    fn apple_m1_8b_is_modest() {
+        // M1 (7-core GPU, 8GB unified) runs 8B Q4_K_M around ~10 tok/s — far
+        // below what the raw unified-memory size alone would suggest.
+        let cat = catalog::load_bundled().unwrap();
+        let apple = Some(AppleSilicon {
+            unified_memory: true,
+            gpu_cores: Some(7),
+            neural_engine: true,
+            chip: "M1".into(),
+        });
+        let mut p = profile(8_000, vec![], apple);
+        p.cpu.flags.neon = true;
+        p.backends = vec!["metal".into(), "cpu".into()];
+        let recs = rate_all(&p, &cat, &[]);
+        let l8 = recs.iter().find(|r| r.model_id == "llama3.1-8b").unwrap();
+        let tps = l8.estimated_tokens_per_sec.unwrap();
+        assert!(tps < 16.0, "M1 8B should be modest (~10 tok/s), got {tps}");
+        assert!(l8.tier.rank() <= Tier::Okay.rank(), "M1 8B is Slow/Okay, not Great");
     }
 
     #[test]

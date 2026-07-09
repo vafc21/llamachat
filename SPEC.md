@@ -1,10 +1,10 @@
-# Build Spec: Local LLM Optimizer (working name: **FitLLM** / **RunLocal**)
+# Build Spec: FitLLM
 
 ## 0. One-line pitch
 
-An open-source, local-first desktop app that profiles your machine, runs real on-device benchmarks in the background, and tells you exactly which AI models will run on your system, rated from "won't run" to "blazing", with an honest comparison against current frontier cloud models.
+**A cross-platform local AI assistant that runs on YOUR machine.** First it profiles your hardware, picks the best model you can actually run, downloads it, and then gives you a full agent with shell, filesystem, browser, and process control — all running locally, zero cloud.
 
-Think of it as a cross between **OpenClaw** (deep, agentic system access) and **whichllm** (hardware-to-model matching), except the recommendations come from *your actual measured performance*, not theoretical specs.
+Think of it as **OpenClaw running on local models** instead of cloud APIs. The hardware profiling + model selection is the onboarding wizard. The product is the assistant.
 
 ---
 
@@ -19,23 +19,30 @@ Think of it as a cross between **OpenClaw** (deep, agentic system access) and **
 
 ## 2. Primary user flow
 
-### 2.1 First launch (onboarding)
-1. Splash + one-screen explainer of what the app does and what system access it needs, with a clear consent step.
+### 2.1 First launch (onboarding wizard)
+1. Welcome screen — one sentence: "FitLLM runs AI locally on your machine. First, let's find the best model for your hardware."
 2. **Hardware detection** runs immediately (fast, read-only, seconds).
-3. Show an instant *provisional* rating using spec heuristics so the user sees value right away ("Based on your RTX 4070, you can probably run models up to ~30B quantized").
-4. Kick off a **background quick benchmark** to replace those estimates with real numbers. Show a subtle progress indicator, not a blocking modal.
-5. Once the quick benchmark lands, refresh the dashboard with measured ratings.
+3. Show the best recommended model with a one-line explanation of why.
+4. User clicks "Download & Start" — pulls the model via Ollama/llama.cpp with a progress bar.
+5. Model loaded → you're in the assistant.
 
-### 2.2 Ongoing use
-- Dashboard shows a ranked list of models with per-model ratings and a "compare to cloud" panel.
-- App can optionally keep learning: if the user actually runs a model through their runtime (Ollama, etc.), passively record real tokens/sec and feed it back into the ratings.
-- Offer an on-demand **Full Test** whenever the user wants sharper numbers.
+### 2.2 The assistant (main product)
+- Chat-first interface: you talk to the model, it responds.
+- Full tool access (user grants on first use):
+  - **Shell**: run commands, get output
+  - **Filesystem**: read, write, edit files
+  - **Browser**: open URLs, take screenshots, interact with pages
+  - **Process**: start/stop/monitor background processes
+  - **System**: hardware info, resource usage, notifications
+- Tool output renders inline — code blocks, file diffs, screenshots, terminal output
+- Conversation history persisted locally in SQLite
+- Multiple conversations / threads in a sidebar
 
-### 2.3 Full Test mode (the "clean room" benchmark)
-- User-triggered, opt-in, clearly explained.
-- Prompts the user to close other apps for maximum accuracy, and optionally detects/warns about heavy background processes (browsers, Docker, other GPU users).
-- Runs a longer, more thorough benchmark suite with the machine as idle as possible to get best-case numbers.
-- Stores both "typical" (background) and "best-case" (full test) results so the user can see the spread.
+### 2.3 Settings & model management
+- Switch models anytime (shows what's installed + what else fits)
+- Full benchmark re-run for sharper numbers
+- Download/delete models
+- Privacy controls: all data is local, export/wipe available
 
 ---
 
@@ -43,26 +50,36 @@ Think of it as a cross between **OpenClaw** (deep, agentic system access) and **
 
 ```
 +-------------------------------------------------------------+
-| Desktop UI |
-| (onboarding wizard, dashboard, compare view, settings) |
+| Desktop UI (React + Tailwind)                               |
+| +-------------------+--------------------------------------+|
+| | Sidebar           | Main area                             ||
+| | - Conversations   | +----------------------------------+ ||
+| | - Model status    | | Chat (messages, tool output,     | ||
+| | - Settings gear   | |  code blocks, diffs, terminal)   | ||
+| |                   | +----------------------------------+ ||
+| |                   | +----------------------------------+ ||
+| |                   | | Input bar (prompt + tool toggle)  | ||
+| |                   | +----------------------------------+ ||
+| +-------------------+--------------------------------------+|
 +----------------------------+--------------------------------+
- | IPC
+                             | IPC (Tauri commands + events)
 +----------------------------v--------------------------------+
-| Core Engine (daemon) |
-| |
-| +------------------+ +-----------------+ +-------------+ |
-| | Hardware Profiler| | Benchmark Engine| | Recommender | |
-| +------------------+ +-----------------+ +-------------+ |
-| | | | |
-| +-------v--------------------v--------------------v------+ |
-| | Local Store (SQLite) | |
-| | hardware profile, benchmark history, model catalog | |
-| +-------------------------------------------------------+ |
-| | |
-| +--------------------------v----------------------------+ |
-| | Runtime Adapters (pluggable) | |
-| | Ollama | llama.cpp | vLLM | LM Studio | MLX | |
-| +-------------------------------------------------------+ |
+| Core Engine (Rust)                                          |
+| +------------+ +------------+ +-------------+ +----------+  |
+| | Profiler   | | Recommender| | Tool Engine | | Store    |  |
+| +------------+ +------------+ +-------------+ +----------+  |
+|      |              |              |               |        |
+| +----v--------------v--------------v---------------v------+  |
+| |                   SQLite Store                          |  |
+| | hardware / models / benchmarks / conversations / tools  |  |
+| +--------------------------------------------------------+  |
+|      |                                                      |
+| +----v---------------------------------------------------+  |
+| | Runtime Adapter (Python sidecar)                        |  |
+| | - Ollama (primary)                                      |  |
+| | - llama.cpp (bundled fallback)                          |  |
+| | - MLX (Apple Silicon)                                   |  |
+| +--------------------------------------------------------+  |
 +-------------------------------------------------------------+
 ```
 
@@ -138,6 +155,27 @@ Abstract interface so benchmarking and running work across:
 
 Each adapter implements: `is_available()`, `pull(model)`, `run_benchmark(model, prompts)`, `stream_generate(...)`. Adding a new backend should mean writing one adapter, nothing else.
 
+### 4.7 Tool Engine (the assistant's hands)
+The assistant can use these tools, each with user-facing consent and per-invocation approval for destructive actions:
+
+- **Shell** (`exec`): run commands, capture stdout/stderr, timeout, working directory. Whitelist/blacklist for safety.
+- **Filesystem** (`read`, `write`, `edit`): read files (with size limits), write new files, targeted edits. Respects OS file permissions.
+- **Browser** (`navigate`, `screenshot`, `click`, `type`): control a headless or visible browser. Useful for web research, form filling, testing.
+- **Process** (`spawn`, `list`, `kill`): start background tasks, monitor running processes.
+- **System** (`profile`, `resources`): read hardware profile, check current CPU/RAM/GPU usage.
+
+All tool calls are:
+- Rendered inline in the chat (code blocks for shell, diffs for edits, images for screenshots)
+- Logged to the local store for audit
+- Rate-limited and resource-capped (no fork bombs, no infinite loops)
+
+### 4.8 Assistant Engine
+- Manages the conversation loop: user message → model inference → tool calls → tool results → model continues → final response
+- Streaming token output to the UI
+- Handles tool-use parsing (model outputs a structured tool call, engine executes it, feeds result back)
+- Context window management (truncation, summarization for long conversations)
+- Multiple concurrent conversations, each with isolated context
+
 ---
 
 ## 5. Tech stack (chosen)
@@ -170,26 +208,37 @@ Keep it lightweight and truly cross-platform — that is the constraint that mat
 
 ---
 
-## 8. Suggested build phases
+## 8. Build phases
 
-**Phase 1 (MVP):**
-- Hardware profiler (all platforms).
-- Ollama adapter only.
-- Quick background benchmark (tokens/sec, TTFT, memory headroom).
-- Static bundled model catalog.
-- Dashboard with the 5-tier ratings.
+**Phase 1 (MVP — DONE ✅):**
+- Hardware profiler (Linux; Mac/Win stubs).
+- Ollama adapter with quick benchmark.
+- Static bundled model catalog + 5-tier recommendation engine.
+- SQLite local store.
+- CLI (`fitllm profile|catalog|recommend|store-info`).
+- Dashboard UI showing hardware + recommendations.
 
-**Phase 2:**
-- Full Test / clean-room mode with background-load detection.
-- Cloud comparison panel with updatable frontier reference list.
-- llama.cpp + MLX adapters.
+**Phase 2 (Assistant — current):**
+- Complete UI redesign: chat-first, tool-native, dark-only, dense.
+- Setup wizard: profile → recommend → download → chat.
+- Tool engine: shell, filesystem, browser, process, system.
+- Streaming chat with tool-use loop.
+- Conversation persistence + sidebar.
+- Cross-platform hardware profiler (Mac/Windows real implementations).
+- Model download + management in UI.
+
+**Phase 3 (Polish):**
+- Full Test / clean-room benchmark with background-load detection.
+- llama.cpp + MLX adapters (for self-contained inference).
+- Cloud comparison panel with updatable frontier list.
 - Benchmark history + "typical vs best-case" spread.
-
-**Phase 3 (stretch):**
 - Passive learning from real usage.
-- Optional anonymous community leaderboard ("machines like yours run X at Y tok/s").
+
+**Phase 4 (Stretch):**
+- Optional anonymous community leaderboard.
 - vLLM + LM Studio adapters.
-- Auto-tuning suggestions (which quant, how many GPU layers, context size) per model.
+- Auto-tuning suggestions (quant, GPU layers, context size).
+- Plugin system for custom tools.
 
 ---
 

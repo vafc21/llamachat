@@ -10,7 +10,7 @@ Request:  ``{"id": <int>, "method": <str>, "params": {...}}``
 Response: ``{"id": <int>, "result": {...}}`` or ``{"id": <int>, "error": "<msg>"}``
 Progress: ``{"event": "progress", "stage": <str>, "pct": <0-100>, "model": <str>}``
 
-Methods: ``ping``, ``list_adapters``, ``list_models``, ``quick_benchmark``, ``chat``.
+Methods: ``ping``, ``list_adapters``, ``list_models``, ``quick_benchmark``, ``chat``, ``agent``.
 """
 
 from __future__ import annotations
@@ -22,6 +22,53 @@ from typing import Any, Optional, TextIO
 from .adapters import get_adapter, list_adapters as _list_adapters
 from .benchmark import run_benchmark
 from .sysmon import cpu_load, mem_used_mb
+
+# ── Agent tool system prompt ─────────────────────────────────────
+# Mirrors ToolRegistry::system_prompt() in fitllm-core (crates/fitllm-core/
+# src/tools/mod.rs). Kept in sync so the sidecar's /agent endpoint drives the
+# same shell/file/process/desktop tools the Rust agent loop understands.
+TOOL_SYSTEM_PROMPT = """You have access to the following tools. To use a tool, output a JSON object with "tool" and "args":
+
+## shell
+Run a shell command and return its output. Use for: listing files, checking system state, running builds, git operations. Do NOT use for: infinite loops, interactive commands, or commands that modify system configuration without user approval.
+Parameters:
+  - command: string (required) The shell command to execute.
+  - cwd: string (optional) Working directory for the command.
+
+## file
+Read or write files on the filesystem. Use 'read' to view a file's contents, 'write' to create or overwrite a file, 'edit' for targeted text replacements.
+Parameters:
+  - action: string (required) One of: read, write, edit
+  - path: string (required) Absolute or relative file path.
+  - content: string (optional) Content to write (required for write action).
+  - old_text: string (optional) Text to find and replace (required for edit action).
+  - new_text: string (optional) Replacement text (required for edit action).
+
+## process
+List running processes or manage background tasks. Use 'list' to see what's running, 'spawn' to start a background command, 'kill' to stop a process by PID.
+Parameters:
+  - action: string (required) One of: list, spawn, kill
+  - command: string (optional) Command to run (required for spawn).
+  - pid: number (optional) Process ID to kill (required for kill).
+
+## desktop
+Take screenshots of the desktop to see what's on screen. Use to inspect UI, read error messages, or verify visual state before interacting. Returns the file path of the screenshot.
+Parameters:
+  - action: string (required) Action: 'screenshot' to capture the full screen
+  - path: string (optional) Where to save the screenshot (defaults to temp file).
+
+Respond with tool calls like:
+{"tool": "shell", "args": {"command": "ls -la"}}
+You can use multiple tools in sequence. After tool results, continue your response.
+"""
+
+
+def _build_agent_system(user_system: str = "") -> str:
+    """Prepend the tool instructions to any caller-supplied system prompt."""
+    if user_system:
+        return f"{TOOL_SYSTEM_PROMPT}\n{user_system}"
+    return TOOL_SYSTEM_PROMPT
+
 
 # ── Simple HTTP server for dev mode ──────────────────────────────
 
@@ -50,6 +97,29 @@ def _start_http_server(port: int = 9199) -> None:
                 system = body.get("system", "")
 
                 # Stream as SSE
+                self.send_response(200)
+                self._cors()
+                self.send_header("Content-Type", "text/event-stream")
+                self.send_header("Cache-Control", "no-cache")
+                self.end_headers()
+
+                full = []
+                for token in adapter.chat(model, messages, system=system, stream=True):
+                    full.append(token)
+                    self.wfile.write(f"data: {json.dumps({'token': token})}\n\n".encode())
+                    self.wfile.flush()
+                self.wfile.write(f"data: {json.dumps({'done': True, 'content': ''.join(full)})}\n\n".encode())
+            elif self.path == "/agent":
+                # Same as /chat but injects the tool system prompt so the model
+                # can emit {"tool": ..., "args": ...} calls the shell drives.
+                adapter = get_adapter(body.get("adapter", "ollama"))
+                if not adapter:
+                    self._json(400, {"error": "adapter not available"})
+                    return
+                model = body.get("model", "llama3.2:3b")
+                messages = body.get("messages", [])
+                system = _build_agent_system(body.get("system", ""))
+
                 self.send_response(200)
                 self._cors()
                 self.send_header("Content-Type", "text/event-stream")
@@ -146,7 +216,7 @@ def handle_request(req: dict, out: TextIO) -> dict:
             result = run_benchmark(adapter, model, tier="quick", progress=progress)
             return {"id": req_id, "result": result}
 
-        if method == "chat":
+        if method in ("chat", "agent"):
             name = params.get("adapter", "ollama")
             model = params.get("model")
             messages = params.get("messages", [])
@@ -160,6 +230,11 @@ def handle_request(req: dict, out: TextIO) -> dict:
             adapter = get_adapter(name)
             if adapter is None:
                 return {"id": req_id, "error": f"unknown adapter '{name}'"}
+
+            # `agent` behaves like `chat` but injects the tool system prompt so
+            # the model can emit tool calls the client executes.
+            if method == "agent":
+                system = _build_agent_system(system)
 
             # Stream tokens as progress events, collect full response
             full = []

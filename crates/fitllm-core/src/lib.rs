@@ -16,6 +16,7 @@ pub mod hardware;
 pub mod recommend;
 pub mod store;
 pub mod tools;
+pub mod agent;
 pub mod types;
 
 pub use types::*;

@@ -5,25 +5,38 @@ import { InputBar } from './components/InputBar'
 import { SetupWizard } from './components/SetupWizard'
 import type { Message, Conversation, HardwareProfile } from './types'
 
-// Mock conversations for dev
+function uid(): string {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+  });
+}
+
 const INITIAL_CONVERSATIONS: Conversation[] = [
-  { id: '1', title: 'New conversation', messages: [], createdAt: new Date().toISOString() },
+  { id: uid(), title: 'New conversation', messages: [], createdAt: new Date().toISOString() },
 ];
 
 export default function App() {
-  const [platform, setPlatform] = useState<string>('linux');
+  type Platform = 'linux' | 'macos' | 'windows';
+  const [platform, setPlatform] = useState<Platform>('linux');
+  const [setupComplete, setSetupComplete] = useState(false);
+  const [conversations, setConversations] = useState<Conversation[]>(INITIAL_CONVERSATIONS);
+  const [activeId, setActiveId] = useState(INITIAL_CONVERSATIONS[0].id);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [streaming, setStreaming] = useState(false);
+  const [hardware, setHardware] = useState<HardwareProfile | null>(null);
+  const [selectedModel, setSelectedModel] = useState('llama3.2:3b');
+  const chatRef = useRef<HTMLDivElement>(null);
 
-  // Detect platform for native-feel CSS
   useEffect(() => {
     async function detect() {
       try {
         if (window.__TAURI__) {
           const p = await window.__TAURI__.invoke('plugin:tauri|platform') as string;
-          setPlatform(p);
+          setPlatform(p as Platform);
           return;
         }
       } catch {}
-      // Fallback for dev (outside Tauri)
       const ua = navigator.platform || '';
       if (ua.includes('Mac')) setPlatform('macos');
       else if (ua.includes('Win')) setPlatform('windows');
@@ -32,22 +45,15 @@ export default function App() {
     detect();
   }, []);
 
-  // Set platform class on document for CSS
   useEffect(() => {
     document.documentElement.setAttribute('data-platform', platform);
   }, [platform]);
-  const [setupComplete, setSetupComplete] = useState(false);
-  const [conversations, setConversations] = useState<Conversation[]>(INITIAL_CONVERSATIONS);
-  const [activeId, setActiveId] = useState('1');
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [streaming, setStreaming] = useState(false);
-  const [hardware, setHardware] = useState<HardwareProfile | null>(null);
-  const chatRef = useRef<HTMLDivElement>(null);
 
   const active = conversations.find((c) => c.id === activeId) ?? conversations[0];
 
-  function handleSetupComplete(hw: HardwareProfile) {
+  function handleSetupComplete(hw: HardwareProfile, model: string) {
     setHardware(hw);
+    setSelectedModel(model);
     setSetupComplete(true);
   }
 
@@ -59,12 +65,9 @@ export default function App() {
     );
   }, [activeId]);
 
-  function uid() { return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => { const r = Math.random()*16|0; return (c==='x'?r:(r&0x3|0x8)).toString(16); }); }
-
-function handleSend(text: string) {
+  function handleSend(text: string) {
     if (!text.trim() || streaming) return;
 
-    // User message
     const userMsg: Message = {
       id: uid(),
       role: 'user',
@@ -73,15 +76,13 @@ function handleSend(text: string) {
     };
     addMessage(userMsg);
 
-    // Auto-title first message
     if (active.messages.length === 0) {
-      const title = text.slice(0, 60) + (text.length > 60 ? '…' : '');
+      const title = text.slice(0, 60) + (text.length > 60 ? '...' : '');
       setConversations((prev) =>
         prev.map((c) => (c.id === activeId ? { ...c, title } : c))
       );
     }
 
-    // Try real inference via sidecar dev server, fall back to mock
     setStreaming(true);
     const assistantMsg: Message = {
       id: uid(),
@@ -91,29 +92,27 @@ function handleSend(text: string) {
     };
     addMessage(assistantMsg);
 
-    tryRealOrMock(text, assistantMsg.id);
+    streamResponse(text, assistantMsg.id);
   }
 
-  async function tryRealOrMock(text: string, msgId: string) {
+  async function streamResponse(userText: string, msgId: string) {
     try {
-      // Try the sidecar HTTP dev server
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 30000);
+      const timeout = setTimeout(() => controller.abort(), 60000);
 
       const resp = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           adapter: 'ollama',
-          model: 'llama3.2:1b',
-          messages: [{ role: 'user', content: text }],
-          system: 'You are a helpful assistant running locally. Be concise and direct.',
+          model: selectedModel,
+          messages: [{ role: 'user', content: userText }],
+          system: 'You are a helpful AI assistant running locally. Be concise and direct.',
         }),
         signal: controller.signal,
       });
 
       clearTimeout(timeout);
-
       if (!resp.ok || !resp.body) throw new Error('no body');
 
       const reader = resp.body.getReader();
@@ -125,7 +124,6 @@ function handleSend(text: string) {
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
 
-        // Parse SSE events
         const lines = buffer.split('\n');
         buffer = lines.pop() || '';
 
@@ -137,14 +135,8 @@ function handleSend(text: string) {
                 setConversations((prev) =>
                   prev.map((c) =>
                     c.id === activeId
-                      ? {
-                          ...c,
-                          messages: c.messages.map((m) =>
-                            m.id === msgId
-                              ? { ...m, content: m.content + data.token }
-                              : m
-                          ),
-                        }
+                      ? { ...c, messages: c.messages.map((m) =>
+                          m.id === msgId ? { ...m, content: m.content + data.token } : m) }
                       : c
                   )
                 );
@@ -155,41 +147,31 @@ function handleSend(text: string) {
         }
       }
     } catch {
-      // Fall back to mock if sidecar isn't running
-      mockResponse(text, msgId);
+      mockResponse(msgId);
     } finally {
       setStreaming(false);
     }
   }
 
-  function mockResponse(_text: string, msgId: string) {
-    const responses = [
-      "I'll help you with that.",
-      "\n\nHere's what I found:",
-      "\n\n```sh\n$ ls -la\n```",
-      "\n\n*(Connect the sidecar dev server for real responses: `python -m fitllm_sidecar dev-server`)*",
+  function mockResponse(msgId: string) {
+    const chunks = [
+      "I'm running locally on your machine.",
+      "\n\nSidecar not connected — start it: python -m fitllm_sidecar dev-server",
     ];
     let delay = 0;
-    responses.forEach((chunk) => {
+    chunks.forEach((chunk) => {
       setTimeout(() => {
         setConversations((prev) =>
           prev.map((c) =>
             c.id === activeId
-              ? {
-                  ...c,
-                  messages: c.messages.map((m) =>
-                    m.id === msgId
-                      ? { ...m, content: m.content + chunk }
-                      : m
-                  ),
-                }
+              ? { ...c, messages: c.messages.map((m) =>
+                  m.id === msgId ? { ...m, content: m.content + chunk } : m) }
               : c
           )
         );
       }, delay);
-      delay += chunk.length * 20;
+      delay += chunk.length * 15;
     });
-    setTimeout(() => setStreaming(false), delay + 100);
   }
 
   function handleNewConversation() {
@@ -210,24 +192,22 @@ function handleSend(text: string) {
   }
 
   function handleToolCall(tool: string) {
-    const userMsg: Message = {
+    const msg: Message = {
       id: uid(),
       role: 'user',
-      content: `/${tool}`,
+      content: '/' + tool,
       timestamp: new Date().toISOString(),
       toolCall: { name: tool, args: {} },
     };
-    addMessage(userMsg);
+    addMessage(msg);
   }
 
-  // Setup wizard on first launch
   if (!setupComplete) {
     return <SetupWizard onComplete={handleSetupComplete} />;
   }
 
   return (
     <div className="h-full flex bg-bg">
-      {/* Sidebar */}
       <Sidebar
         open={sidebarOpen}
         conversations={conversations}
@@ -239,44 +219,26 @@ function handleSend(text: string) {
         onToggle={() => setSidebarOpen((o) => !o)}
       />
 
-      {/* Main area */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Header bar */}
         <div className="flex-shrink-0 h-9 border-b border-border flex items-center px-3 gap-2">
           {!sidebarOpen && (
-            <button
-              onClick={() => setSidebarOpen(true)}
-              className="text-text-secondary hover:text-text p-0.5"
-              title="Toggle sidebar"
-            >
+            <button onClick={() => setSidebarOpen(true)} className="text-text-secondary hover:text-text p-0.5" title="Toggle sidebar">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
                 <path d="M2 3h12M2 8h12M2 13h12" stroke="currentColor" strokeWidth="1.5" />
               </svg>
             </button>
           )}
-          <span className="text-[11px] text-text-muted truncate">
-            {active.title}
-          </span>
+          <span className="text-[11px] text-text-muted truncate">{active.title}</span>
+          <span className="text-[10px] text-accent ml-auto">{selectedModel}</span>
           {hardware && (
-            <span className="text-[10px] text-text-muted ml-auto">
-              {hardware.cpu.model} · {hardware.gpus[0]?.model ?? 'CPU'}
+            <span className="text-[10px] text-text-muted">
+              &middot; {hardware.cpu.model.split(' ').slice(0, 2).join(' ')}
             </span>
           )}
         </div>
 
-        {/* Chat */}
-        <ChatArea
-          ref={chatRef}
-          messages={active.messages}
-          streaming={streaming}
-        />
-
-        {/* Input */}
-        <InputBar
-          onSend={handleSend}
-          onToolCall={handleToolCall}
-          disabled={streaming}
-        />
+        <ChatArea ref={chatRef} messages={active.messages} streaming={streaming} />
+        <InputBar onSend={handleSend} onToolCall={handleToolCall} disabled={streaming} />
       </div>
     </div>
   );

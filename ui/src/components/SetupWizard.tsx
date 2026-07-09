@@ -55,7 +55,7 @@ const MOCK_RECS: Recommendation[] = [
 type Step = 'profiling' | 'recommendation' | 'downloading' | 'done';
 
 interface Props {
-  onComplete: (hw: HardwareProfile) => void;
+  onComplete: (hw: HardwareProfile, model: string) => void;
 }
 
 export function SetupWizard({ onComplete }: Props) {
@@ -216,7 +216,7 @@ export function SetupWizard({ onComplete }: Props) {
               </p>
             </div>
             <button
-              onClick={() => hardware && onComplete(hardware)}
+              onClick={() => hardware && rec && onComplete(hardware, rec.ollama_pull)}
               className="px-6 py-2 bg-accent text-white text-[13px] font-medium rounded-lg
                          hover:opacity-90 transition-opacity"
             >

@@ -1,0 +1,16 @@
+README.md
+pyproject.toml
+src/fitllm_sidecar/__init__.py
+src/fitllm_sidecar/__main__.py
+src/fitllm_sidecar/benchmark.py
+src/fitllm_sidecar/server.py
+src/fitllm_sidecar/sysmon.py
+src/fitllm_sidecar.egg-info/PKG-INFO
+src/fitllm_sidecar.egg-info/SOURCES.txt
+src/fitllm_sidecar.egg-info/dependency_links.txt
+src/fitllm_sidecar.egg-info/entry_points.txt
+src/fitllm_sidecar.egg-info/requires.txt
+src/fitllm_sidecar.egg-info/top_level.txt
+src/fitllm_sidecar/adapters/__init__.py
+src/fitllm_sidecar/adapters/base.py
+src/fitllm_sidecar/adapters/ollama.py

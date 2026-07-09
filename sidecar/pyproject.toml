@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fitllm-sidecar"
+version = "0.1.0"
+description = "FitLLM Python benchmark sidecar — orchestrates on-device LLM benchmarks and talks to Ollama."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "FitLLM" }]
+
+# Runtime dependencies:
+#   requests — HTTP client for the Ollama API at http://127.0.0.1:11434
+#   psutil   — background load + memory sampling. NOTE: psutil is imported
+#              defensively everywhere; if it is missing at runtime the sidecar
+#              still works and simply reports background_load / peak_mem_mb as
+#              null. It is listed here as the intended, supported dependency.
+dependencies = [
+    "requests>=2.28",
+    "psutil>=5.9",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[project.scripts]
+fitllm-sidecar = "fitllm_sidecar.__main__:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]

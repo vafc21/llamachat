@@ -1,0 +1,27 @@
+[package]
+name = "fitllm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "FitLLM desktop shell (Tauri): profiles your machine and rates which LLMs it can run."
+default-run = "fitllm"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+fitllm-core = { path = "../crates/fitllm-core" }
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2"
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+chrono.workspace = true
+dirs = "5"
+
+[features]
+# this feature is used for production builds or when a dev server is not specified,
+# DO NOT REMOVE!!
+custom-protocol = ["tauri/custom-protocol"]

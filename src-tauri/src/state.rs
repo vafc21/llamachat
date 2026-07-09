@@ -2,7 +2,7 @@
 
 use fitllm_core::{
     catalog, store::Store,
-    tools::{ToolLimits, ToolRegistry, ToolRequest, ToolResult},
+    tools::{ToolLimits, ToolRegistry},
     BenchmarkResult, HardwareProfile, ModelCatalog,
 };
 use fitllm_core::tools::{ShellTool, FilesystemTool, ProcessTool, DesktopTool};

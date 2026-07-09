@@ -6,7 +6,7 @@ use crate::state::{data_dir, AppState};
 use fitllm_core::{hardware, recommend, HardwareProfile, ModelCatalog, Recommendation};
 use fitllm_core::tools::ToolRequest;
 use tauri::{Emitter, Manager, State};
-use crate::sidecar;
+
 
 /// Detect (or return the cached) hardware profile. Read-only.
 #[tauri::command]

@@ -84,7 +84,7 @@ def _start_http_server(port: int = 9199) -> None:
             pass  # quiet
 
     print(f"fitllm-sidecar HTTP dev server: http://localhost:{port}")
-    HTTPServer(("127.0.0.1", port), Handler).serve_forever()
+    HTTPServer(("0.0.0.0", port), Handler).serve_forever()
 
 
 def _write(out: TextIO, obj: dict) -> None:

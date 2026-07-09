@@ -1,0 +1,248 @@
+{
+  "schema_version": 1,
+  "updated_at": "2026-07-09T00:00:00Z",
+  "models": [
+    {
+      "id": "tinyllama-1.1b",
+      "family": "TinyLlama",
+      "display_name": "TinyLlama 1.1B Chat",
+      "params_b": 1.1,
+      "license": "Apache-2.0",
+      "quality_score": 25.0,
+      "quality_source": "HF Open LLM Leaderboard (avg)",
+      "context_default": 2048,
+      "context_max": 2048,
+      "quants": [
+        { "name": "Q4_K_M", "bits": 4.5, "size_mb": 605, "ollama_tag": "tinyllama:1.1b-chat-v1-q4_K_M" },
+        { "name": "Q8_0", "bits": 8.0, "size_mb": 1100, "ollama_tag": "tinyllama:1.1b-chat-v1-q8_0" },
+        { "name": "FP16", "bits": 16.0, "size_mb": 2200, "ollama_tag": "tinyllama:1.1b-chat-v1-fp16" }
+      ],
+      "ollama_pull": "tinyllama:1.1b",
+      "tags": ["tiny", "chat", "edge", "cpu-friendly"]
+    },
+    {
+      "id": "llama3.2-3b",
+      "family": "Llama",
+      "display_name": "Llama 3.2 3B Instruct",
+      "params_b": 3.2,
+      "license": "Llama 3.2 Community",
+      "quality_score": 63.0,
+      "quality_source": "Meta model card / MMLU",
+      "context_default": 8192,
+      "context_max": 131072,
+      "quants": [
+        { "name": "Q4_K_M", "bits": 4.5, "size_mb": 1760, "ollama_tag": "llama3.2:3b-instruct-q4_K_M" },
+        { "name": "Q8_0", "bits": 8.0, "size_mb": 3200, "ollama_tag": "llama3.2:3b-instruct-q8_0" },
+        { "name": "FP16", "bits": 16.0, "size_mb": 6400, "ollama_tag": "llama3.2:3b-instruct-fp16" }
+      ],
+      "ollama_pull": "llama3.2:3b",
+      "tags": ["small", "instruct", "long-context", "cpu-friendly"]
+    },
+    {
+      "id": "phi3-mini-3.8b",
+      "family": "Phi",
+      "display_name": "Phi-3 Mini 3.8B",
+      "params_b": 3.8,
+      "license": "MIT",
+      "quality_score": 69.0,
+      "quality_source": "Microsoft model card / MMLU",
+      "context_default": 4096,
+      "context_max": 131072,
+      "quants": [
+        { "name": "Q4_K_M", "bits": 4.5, "size_mb": 2090, "ollama_tag": "phi3:3.8b-mini-4k-instruct-q4_K_M" },
+        { "name": "Q8_0", "bits": 8.0, "size_mb": 3800, "ollama_tag": "phi3:3.8b-mini-4k-instruct-q8_0" },
+        { "name": "FP16", "bits": 16.0, "size_mb": 7600, "ollama_tag": "phi3:3.8b-mini-4k-instruct-fp16" }
+      ],
+      "ollama_pull": "phi3:3.8b",
+      "tags": ["small", "instruct", "reasoning", "cpu-friendly"]
+    },
+    {
+      "id": "mistral-7b",
+      "family": "Mistral",
+      "display_name": "Mistral 7B Instruct v0.3",
+      "params_b": 7.2,
+      "license": "Apache-2.0",
+      "quality_score": 62.0,
+      "quality_source": "Mistral model card / MMLU",
+      "context_default": 8192,
+      "context_max": 32768,
+      "quants": [
+        { "name": "Q4_K_M", "bits": 4.5, "size_mb": 3960, "ollama_tag": "mistral:7b-instruct-v0.3-q4_K_M" },
+        { "name": "Q8_0", "bits": 8.0, "size_mb": 7200, "ollama_tag": "mistral:7b-instruct-v0.3-q8_0" },
+        { "name": "FP16", "bits": 16.0, "size_mb": 14400, "ollama_tag": "mistral:7b-instruct-v0.3-fp16" }
+      ],
+      "ollama_pull": "mistral:7b",
+      "tags": ["mid", "instruct", "apache"]
+    },
+    {
+      "id": "qwen2.5-7b",
+      "family": "Qwen",
+      "display_name": "Qwen 2.5 7B Instruct",
+      "params_b": 7.6,
+      "license": "Apache-2.0",
+      "quality_score": 74.0,
+      "quality_source": "Qwen model card / MMLU-Pro",
+      "context_default": 32768,
+      "context_max": 131072,
+      "quants": [
+        { "name": "Q4_K_M", "bits": 4.5, "size_mb": 4180, "ollama_tag": "qwen2.5:7b-instruct-q4_K_M" },
+        { "name": "Q8_0", "bits": 8.0, "size_mb": 7600, "ollama_tag": "qwen2.5:7b-instruct-q8_0" },
+        { "name": "FP16", "bits": 16.0, "size_mb": 15200, "ollama_tag": "qwen2.5:7b-instruct-fp16" }
+      ],
+      "ollama_pull": "qwen2.5:7b",
+      "tags": ["mid", "instruct", "multilingual", "long-context"]
+    },
+    {
+      "id": "llama3.1-8b",
+      "family": "Llama",
+      "display_name": "Llama 3.1 8B Instruct",
+      "params_b": 8.0,
+      "license": "Llama 3.1 Community",
+      "quality_score": 68.0,
+      "quality_source": "Meta model card / MMLU",
+      "context_default": 8192,
+      "context_max": 131072,
+      "quants": [
+        { "name": "Q4_K_M", "bits": 4.5, "size_mb": 4400, "ollama_tag": "llama3.1:8b-instruct-q4_K_M" },
+        { "name": "Q8_0", "bits": 8.0, "size_mb": 8000, "ollama_tag": "llama3.1:8b-instruct-q8_0" },
+        { "name": "FP16", "bits": 16.0, "size_mb": 16000, "ollama_tag": "llama3.1:8b-instruct-fp16" }
+      ],
+      "ollama_pull": "llama3.1:8b",
+      "tags": ["mid", "instruct", "long-context", "popular"]
+    },
+    {
+      "id": "deepseek-r1-distill-llama-8b",
+      "family": "DeepSeek",
+      "display_name": "DeepSeek-R1-Distill-Llama 8B",
+      "params_b": 8.0,
+      "license": "MIT",
+      "quality_score": 72.0,
+      "quality_source": "DeepSeek model card / reasoning benchmarks",
+      "context_default": 8192,
+      "context_max": 131072,
+      "quants": [
+        { "name": "Q4_K_M", "bits": 4.5, "size_mb": 4400, "ollama_tag": "deepseek-r1:8b-llama-distill-q4_K_M" },
+        { "name": "Q8_0", "bits": 8.0, "size_mb": 8000, "ollama_tag": "deepseek-r1:8b-llama-distill-q8_0" },
+        { "name": "FP16", "bits": 16.0, "size_mb": 16000, "ollama_tag": "deepseek-r1:8b-llama-distill-fp16" }
+      ],
+      "ollama_pull": "deepseek-r1:8b",
+      "tags": ["mid", "reasoning", "distill", "chain-of-thought"]
+    },
+    {
+      "id": "gemma2-9b",
+      "family": "Gemma",
+      "display_name": "Gemma 2 9B Instruct",
+      "params_b": 9.2,
+      "license": "Gemma",
+      "quality_score": 71.0,
+      "quality_source": "Google model card / MMLU",
+      "context_default": 8192,
+      "context_max": 8192,
+      "quants": [
+        { "name": "Q4_K_M", "bits": 4.5, "size_mb": 5060, "ollama_tag": "gemma2:9b-instruct-q4_K_M" },
+        { "name": "Q8_0", "bits": 8.0, "size_mb": 9200, "ollama_tag": "gemma2:9b-instruct-q8_0" },
+        { "name": "FP16", "bits": 16.0, "size_mb": 18400, "ollama_tag": "gemma2:9b-instruct-fp16" }
+      ],
+      "ollama_pull": "gemma2:9b",
+      "tags": ["mid", "instruct", "google"]
+    },
+    {
+      "id": "phi3-medium-14b",
+      "family": "Phi",
+      "display_name": "Phi-3 Medium 14B",
+      "params_b": 14.0,
+      "license": "MIT",
+      "quality_score": 78.0,
+      "quality_source": "Microsoft model card / MMLU",
+      "context_default": 4096,
+      "context_max": 131072,
+      "quants": [
+        { "name": "Q4_K_M", "bits": 4.5, "size_mb": 7700, "ollama_tag": "phi3:14b-medium-4k-instruct-q4_K_M" },
+        { "name": "Q8_0", "bits": 8.0, "size_mb": 14000, "ollama_tag": "phi3:14b-medium-4k-instruct-q8_0" },
+        { "name": "FP16", "bits": 16.0, "size_mb": 28000, "ollama_tag": "phi3:14b-medium-4k-instruct-fp16" }
+      ],
+      "ollama_pull": "phi3:14b",
+      "tags": ["large", "instruct", "reasoning"]
+    },
+    {
+      "id": "mistral-small-22b",
+      "family": "Mistral",
+      "display_name": "Mistral Small 22B Instruct",
+      "params_b": 22.2,
+      "license": "Mistral Research License",
+      "quality_score": 74.0,
+      "quality_source": "Mistral model card / MMLU",
+      "context_default": 32768,
+      "context_max": 131072,
+      "quants": [
+        { "name": "Q4_K_M", "bits": 4.5, "size_mb": 12210, "ollama_tag": "mistral-small:22b-instruct-2409-q4_K_M" },
+        { "name": "Q8_0", "bits": 8.0, "size_mb": 22200, "ollama_tag": "mistral-small:22b-instruct-2409-q8_0" },
+        { "name": "FP16", "bits": 16.0, "size_mb": 44400, "ollama_tag": "mistral-small:22b-instruct-2409-fp16" }
+      ],
+      "ollama_pull": "mistral-small:22b",
+      "tags": ["large", "instruct", "long-context"]
+    },
+    {
+      "id": "qwen2.5-32b",
+      "family": "Qwen",
+      "display_name": "Qwen 2.5 32B Instruct",
+      "params_b": 32.5,
+      "license": "Apache-2.0",
+      "quality_score": 83.0,
+      "quality_source": "Qwen model card / MMLU-Pro",
+      "context_default": 32768,
+      "context_max": 131072,
+      "quants": [
+        { "name": "Q4_K_M", "bits": 4.5, "size_mb": 17875, "ollama_tag": "qwen2.5:32b-instruct-q4_K_M" },
+        { "name": "Q8_0", "bits": 8.0, "size_mb": 32500, "ollama_tag": "qwen2.5:32b-instruct-q8_0" },
+        { "name": "FP16", "bits": 16.0, "size_mb": 65000, "ollama_tag": "qwen2.5:32b-instruct-fp16" }
+      ],
+      "ollama_pull": "qwen2.5:32b",
+      "tags": ["xl", "instruct", "long-context", "multilingual"]
+    },
+    {
+      "id": "llama3.1-70b",
+      "family": "Llama",
+      "display_name": "Llama 3.1 70B Instruct",
+      "params_b": 70.6,
+      "license": "Llama 3.1 Community",
+      "quality_score": 86.0,
+      "quality_source": "Meta model card / MMLU",
+      "context_default": 8192,
+      "context_max": 131072,
+      "quants": [
+        { "name": "Q4_K_M", "bits": 4.5, "size_mb": 38830, "ollama_tag": "llama3.1:70b-instruct-q4_K_M" },
+        { "name": "Q8_0", "bits": 8.0, "size_mb": 70600, "ollama_tag": "llama3.1:70b-instruct-q8_0" },
+        { "name": "FP16", "bits": 16.0, "size_mb": 141200, "ollama_tag": "llama3.1:70b-instruct-fp16" }
+      ],
+      "ollama_pull": "llama3.1:70b",
+      "tags": ["xxl", "instruct", "frontier-open", "long-context"]
+    }
+  ],
+  "frontier": [
+    {
+      "id": "claude-opus-4",
+      "display_name": "Claude Opus 4",
+      "provider": "Anthropic",
+      "quality_score": 89.0,
+      "quality_source": "Vendor benchmarks / LMSYS Arena",
+      "typical_tps": 60.0
+    },
+    {
+      "id": "gpt-4o",
+      "display_name": "GPT-4o",
+      "provider": "OpenAI",
+      "quality_score": 85.0,
+      "quality_source": "Vendor benchmarks / LMSYS Arena",
+      "typical_tps": 90.0
+    },
+    {
+      "id": "gemini-2.5-pro",
+      "display_name": "Gemini 2.5 Pro",
+      "provider": "Google",
+      "quality_score": 87.0,
+      "quality_source": "Vendor benchmarks / LMSYS Arena",
+      "typical_tps": 70.0
+    }
+  ]
+}

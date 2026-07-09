@@ -21,6 +21,70 @@ from typing import Any, Optional, TextIO
 
 from .adapters import get_adapter, list_adapters as _list_adapters
 from .benchmark import run_benchmark
+from .sysmon import cpu_load, mem_used_mb
+
+# ── Simple HTTP server for dev mode ──────────────────────────────
+
+def _start_http_server(port: int = 9199) -> None:
+    """Start a tiny HTTP server that the UI can call during development.
+    Only used outside Tauri — the real path is stdin/stdout serve mode."""
+    from http.server import HTTPServer, BaseHTTPRequestHandler
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_OPTIONS(self):
+            self.send_response(204)
+            self._cors()
+            self.end_headers()
+
+        def do_POST(self):
+            length = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(length)) if length else {}
+
+            if self.path == "/chat":
+                adapter = get_adapter(body.get("adapter", "ollama"))
+                if not adapter:
+                    self._json(400, {"error": "adapter not available"})
+                    return
+                model = body.get("model", "llama3.2:1b")
+                messages = body.get("messages", [])
+                system = body.get("system", "")
+
+                # Stream as SSE
+                self.send_response(200)
+                self._cors()
+                self.send_header("Content-Type", "text/event-stream")
+                self.send_header("Cache-Control", "no-cache")
+                self.end_headers()
+
+                full = []
+                for token in adapter.chat(model, messages, system=system, stream=True):
+                    full.append(token)
+                    self.wfile.write(f"data: {json.dumps({'token': token})}\n\n".encode())
+                    self.wfile.flush()
+                self.wfile.write(f"data: {json.dumps({'done': True, 'content': ''.join(full)})}\n\n".encode())
+            elif self.path == "/tools":
+                result = _list_adapters()
+                self._json(200, {"adapters": result})
+            else:
+                self._json(404, {"error": "not found"})
+
+        def _json(self, status: int, data: dict):
+            self.send_response(status)
+            self._cors()
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(data).encode())
+
+        def _cors(self):
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Methods", "POST, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type")
+
+        def log_message(self, *args):
+            pass  # quiet
+
+    print(f"fitllm-sidecar HTTP dev server: http://localhost:{port}")
+    HTTPServer(("127.0.0.1", port), Handler).serve_forever()
 
 
 def _write(out: TextIO, obj: dict) -> None:

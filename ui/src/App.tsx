@@ -79,7 +79,7 @@ export default function App() {
       );
     }
 
-    // Simulate assistant response
+    // Try real inference via sidecar dev server, fall back to mock
     setStreaming(true);
     const assistantMsg: Message = {
       id: crypto.randomUUID(),
@@ -89,14 +89,84 @@ export default function App() {
     };
     addMessage(assistantMsg);
 
-    // Mock streaming response
+    tryRealOrMock(text, assistantMsg.id);
+  }
+
+  async function tryRealOrMock(text: string, msgId: string) {
+    try {
+      // Try the sidecar HTTP dev server
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 30000);
+
+      const resp = await fetch('http://localhost:9199/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          adapter: 'ollama',
+          model: 'llama3.2:1b',
+          messages: [{ role: 'user', content: text }],
+          system: 'You are a helpful assistant running locally. Be concise and direct.',
+        }),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeout);
+
+      if (!resp.ok || !resp.body) throw new Error('no body');
+
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        // Parse SSE events
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              if (data.token) {
+                setConversations((prev) =>
+                  prev.map((c) =>
+                    c.id === activeId
+                      ? {
+                          ...c,
+                          messages: c.messages.map((m) =>
+                            m.id === msgId
+                              ? { ...m, content: m.content + data.token }
+                              : m
+                          ),
+                        }
+                      : c
+                  )
+                );
+              }
+              if (data.done) break;
+            } catch {}
+          }
+        }
+      }
+    } catch {
+      // Fall back to mock if sidecar isn't running
+      mockResponse(text, msgId);
+    } finally {
+      setStreaming(false);
+    }
+  }
+
+  function mockResponse(_text: string, msgId: string) {
     const responses = [
       "I'll help you with that.",
       "\n\nHere's what I found:",
-      "\n\n```sh\n$ ls -la /home/vlad/.openclaw/workspace/fitllm\ntotal 80\ndrwxrwxr-x  5 vlad vlad  4096 Jul  9 04:47 .\ndrwx------ 11 vlad vlad  4096 Jul  9 04:41 ..\n-rw-rw-r--  1 vlad vlad  5381 Jul  9 04:46 CONTRACT.md\n-rw-rw-r--  1 vlad vlad 21944 Jul  9 04:47 Cargo.lock\n-rw-rw-r--  1 vlad vlad   824 Jul  9 04:47 Cargo.toml\n-rw-rw-r--  1 vlad vlad  5001 Jul  9 04:45 RECON.md\n-rw-rw-r--  1 vlad vlad 11250 Jul  9 04:42 SPEC.md\n```",
-      "\n\nThe project is set up and ready. Is there anything specific you'd like me to work on?",
+      "\n\n```sh\n$ ls -la\n```",
+      "\n\n*(Connect the sidecar dev server for real responses: `python -m fitllm_sidecar dev-server`)*",
     ];
-
     let delay = 0;
     responses.forEach((chunk) => {
       setTimeout(() => {
@@ -106,7 +176,7 @@ export default function App() {
               ? {
                   ...c,
                   messages: c.messages.map((m) =>
-                    m.id === assistantMsg.id
+                    m.id === msgId
                       ? { ...m, content: m.content + chunk }
                       : m
                   ),
@@ -115,9 +185,8 @@ export default function App() {
           )
         );
       }, delay);
-      delay += chunk.length * 18; // rough typing speed
+      delay += chunk.length * 20;
     });
-
     setTimeout(() => setStreaming(false), delay + 100);
   }
 

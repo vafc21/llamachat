@@ -61,6 +61,12 @@ def cmd_serve(_args) -> int:
     return 0
 
 
+def cmd_dev_server(args) -> int:
+    from .server import _start_http_server
+    _start_http_server(port=args.port)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="fitllm_sidecar",
@@ -85,6 +91,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_serve = sub.add_parser("serve", help="run the stdin/stdout JSON-line RPC loop")
     p_serve.set_defaults(func=cmd_serve)
+
+    p_dev = sub.add_parser("dev-server", help="start HTTP dev server for UI development")
+    p_dev.add_argument("--port", type=int, default=9199, help="HTTP port (default: 9199)")
+    p_dev.set_defaults(func=cmd_dev_server)
 
     return parser
 

@@ -30,11 +30,46 @@ export interface HardwareProfile {
 
 export type Tier = 'wont_run' | 'slow' | 'okay' | 'great' | 'blazing';
 
+/** How hard FitLLM benchmarks — chosen on first run, changeable in Settings. */
+export type BenchmarkIntensity = 'quick' | 'balanced' | 'full';
+
+export interface IntensityOption {
+  id: BenchmarkIntensity;
+  title: string;
+  blurb: string;
+  detail: string;
+}
+
+export const INTENSITY_OPTIONS: IntensityOption[] = [
+  {
+    id: 'quick',
+    title: 'Quick',
+    blurb: 'A fast check',
+    detail: 'About 30 seconds. Great to get started right away.',
+  },
+  {
+    id: 'balanced',
+    title: 'Balanced',
+    blurb: 'A solid test',
+    detail: 'A few minutes. The recommended default for most people.',
+  },
+  {
+    id: 'full',
+    title: 'Full',
+    blurb: 'The works',
+    detail: 'Thorough and most accurate. Can take a while to finish.',
+  },
+];
+
 export interface Recommendation {
   model_id: string;
   display_name: string;
   params_b: number;
   quality_score: number;
+  /** "How smart" on a 1-10 scale, derived from quality_score. */
+  intelligence_score: number;
+  /** "How fast it runs on this machine" on a 1-10 scale. */
+  speed_score: number;
   quant: string;
   tier: Tier;
   estimated_tokens_per_sec: number | null;

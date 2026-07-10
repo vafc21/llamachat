@@ -98,6 +98,25 @@ can only ever name a model that actually runs at that comfort level on this box.
 - **`SPEC.md` §2.2 / §4.2** — updated to describe levels as capability targets that
   name their model, with depth as an independent knob.
 
+## Update — cohorts: run and report every model at each setting
+
+Refinement after first ship: a setting must **run and report results for every
+model in its cohort, not pick one and stop.** The single "headline" pick per tier
+is kept only for the card label; the benchmark runs the whole cohort so the user
+can compare per-model results.
+
+- **Quick** runs the fast cohort (all `Blazing` models; falls back to the single
+  fastest runnable).
+- **Standard** runs the `Great`-or-better cohort.
+- **Full / Max / All** run the whole runnable set (`Okay`+) — so Full exercises the
+  large models too, and reports each, instead of stopping at one.
+
+`LevelPlan` gains `quick_set` / `standard_set` cohorts (`all` already held the
+runnable set). `run_benchmark` benchmarks each model in the selected cohort and
+emits a result per model; the recommendations view then shows the full per-model
+comparison. The tier card lists the cohort ("Runs & reports N models: …") before
+the user commits.
+
 ## Success check
 
 - On an M4-class profile, `Max` (and usually `Standard`) resolves to a large model,

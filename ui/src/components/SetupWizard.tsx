@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import type { HardwareProfile, Recommendation, BenchmarkIntensity, LevelPlan } from '../types'
-import { INTENSITY_OPTIONS, planForIntensity } from '../types'
+import { INTENSITY_OPTIONS, cohortForIntensity } from '../types'
 import { invoke } from '../tauri'
 
 const INTENSITY_KEY = 'fitllm.benchmarkIntensity'
@@ -61,31 +61,35 @@ const MOCK_RECS: Recommendation[] = [
 // Dev-only fallback plan (browser build without a Tauri backend) so the tier
 // picker still demonstrates escalating, per-tier models. Real builds get the
 // hardware-sized plan from `get_benchmark_plan`.
+const MOCK_STANDARD: Recommendation = {
+  ...MOCK_RECS[0],
+  model_id: 'gemma2-9b',
+  display_name: 'Gemma 2 9B',
+  params_b: 9.2,
+  intelligence_score: 7.4,
+  speed_score: 8,
+  tier: 'great',
+  ollama_pull: 'gemma2:9b',
+  why: 'Great: strong everyday quality that stays snappy on this machine.',
+};
+const MOCK_MAX: Recommendation = {
+  ...MOCK_RECS[0],
+  model_id: 'qwen2.5-32b',
+  display_name: 'Qwen2.5 32B',
+  params_b: 32.5,
+  intelligence_score: 8.4,
+  speed_score: 5,
+  tier: 'okay',
+  ollama_pull: 'qwen2.5:32b',
+  why: 'Okay: the biggest model this machine can run — pushes the hardware.',
+};
 const MOCK_PLAN: LevelPlan = {
   quick: MOCK_RECS[0],
-  standard: {
-    ...MOCK_RECS[0],
-    model_id: 'gemma2-9b',
-    display_name: 'Gemma 2 9B',
-    params_b: 9.2,
-    intelligence_score: 7.4,
-    speed_score: 8,
-    tier: 'great',
-    ollama_pull: 'gemma2:9b',
-    why: 'Great: strong everyday quality that stays snappy on this machine.',
-  },
-  max: {
-    ...MOCK_RECS[0],
-    model_id: 'qwen2.5-32b',
-    display_name: 'Qwen2.5 32B',
-    params_b: 32.5,
-    intelligence_score: 8.4,
-    speed_score: 5,
-    tier: 'okay',
-    ollama_pull: 'qwen2.5:32b',
-    why: 'Okay: the biggest model this machine can run — pushes the hardware.',
-  },
-  all: [],
+  standard: MOCK_STANDARD,
+  max: MOCK_MAX,
+  quick_set: [MOCK_RECS[0]],
+  standard_set: [MOCK_STANDARD, MOCK_RECS[0]],
+  all: [MOCK_MAX, MOCK_STANDARD, MOCK_RECS[0]],
 };
 
 type Step = 'profiling' | 'intensity' | 'recommendation' | 'downloading' | 'done';
@@ -197,7 +201,7 @@ export function SetupWizard({ onComplete }: Props) {
             <div className="space-y-2">
               {INTENSITY_OPTIONS.map((opt) => {
                 const active = intensity === opt.id;
-                const planned = planForIntensity(plan, opt.id);
+                const cohort = cohortForIntensity(plan, opt.id);
                 return (
                   <button
                     key={opt.id}
@@ -219,15 +223,27 @@ export function SetupWizard({ onComplete }: Props) {
                       />
                     </div>
                     <p className="text-[11px] text-text-muted mt-1">{opt.detail}</p>
-                    {planned ? (
-                      <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
-                        <span className="text-text font-medium">Runs: {planned.display_name}</span>
-                        <span className="text-text-muted">
-                          smart {planned.intelligence_score.toFixed(0)}/10 · fast {planned.speed_score.toFixed(0)}/10
+                    {cohort.length > 0 ? (
+                      <div className="mt-2 space-y-1">
+                        <span className="text-[11px] text-text font-medium">
+                          Runs &amp; reports {cohort.length} model{cohort.length === 1 ? '' : 's'}:
                         </span>
+                        <div className="space-y-0.5">
+                          {cohort.slice(0, 4).map((m) => (
+                            <div key={m.model_id} className="flex items-center justify-between text-[11px]">
+                              <span className="text-text">{m.display_name}</span>
+                              <span className="text-text-muted">
+                                smart {m.intelligence_score.toFixed(0)}/10 · fast {m.speed_score.toFixed(0)}/10
+                              </span>
+                            </div>
+                          ))}
+                          {cohort.length > 4 && (
+                            <div className="text-[11px] text-text-muted">+{cohort.length - 4} more</div>
+                          )}
+                        </div>
                       </div>
                     ) : (
-                      <p className="mt-2 text-[11px] text-text-muted italic">Sizing a model to your machine…</p>
+                      <p className="mt-2 text-[11px] text-text-muted italic">Sizing models to your machine…</p>
                     )}
                   </button>
                 );

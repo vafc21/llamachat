@@ -4,7 +4,7 @@
 use crate::settings::{self, AppSettings, CustomModelInput};
 use crate::sidecar;
 use crate::state::{data_dir, AppState};
-use fitllm_core::{hardware, recommend, HardwareProfile, ModelCatalog, Recommendation};
+use fitllm_core::{hardware, recommend, HardwareProfile, LevelPlan, ModelCatalog, Recommendation};
 use fitllm_core::tools::ToolRequest;
 use std::io::Read;
 use std::process::{Command, Stdio};
@@ -35,6 +35,22 @@ pub fn get_recommendations(state: State<AppState>) -> Result<Vec<Recommendation>
     }
     let profile = inner.profile.clone().unwrap();
     Ok(recommend::rate_all(&profile, &inner.catalog, &inner.benchmarks))
+}
+
+/// Per-level model plan: which model each tier (Quick/Standard/Max) will run on
+/// THIS machine, sized to the hardware, so the UI can show the model + its
+/// intelligence/speed scores at each tier *before* the user commits — instead of
+/// one consolidated picker. See `docs/design/benchmark-levels.md`.
+#[tauri::command]
+pub fn get_benchmark_plan(state: State<AppState>) -> Result<LevelPlan, String> {
+    let mut inner = state.0.lock().map_err(|e| e.to_string())?;
+    if inner.profile.is_none() {
+        let p = hardware::profile().map_err(|e| e.to_string())?;
+        inner.store.save_profile(&p).ok();
+        inner.profile = Some(p);
+    }
+    let profile = inner.profile.clone().unwrap();
+    Ok(recommend::plan_levels(&profile, &inner.catalog, &inner.benchmarks))
 }
 
 #[tauri::command]
@@ -103,32 +119,72 @@ fn run_benchmark(app: tauri::AppHandle, tier: String) {
             return;
         }
 
-        // Pick candidate models: catalog models whose default tag is installed
-        // locally, capped to a few so the quick pass stays light.
+        // Choose WHICH models to benchmark from the hardware-sized level plan —
+        // not "whatever is installed". This is what stops Full/Max from
+        // underestimating a strong machine (e.g. an M4 getting a 3B). The level
+        // names the model; measurement depth is a separate knob derived below.
         let installed = sidecar::list_models().unwrap_or_default();
         let state = app.state::<AppState>();
-        let candidates: Vec<String> = {
-            let inner = state.0.lock().unwrap();
-            inner
-                .catalog
-                .models
-                .iter()
-                .map(|m| m.ollama_pull.clone())
-                .filter(|tag| installed.iter().any(|i| i == tag || i.starts_with(tag)))
-                .take(4)
-                .collect()
+        let (targets, depth): (Vec<Recommendation>, String) = {
+            let mut inner = state.0.lock().unwrap();
+            if inner.profile.is_none() {
+                if let Ok(p) = hardware::profile() {
+                    inner.store.save_profile(&p).ok();
+                    inner.profile = Some(p);
+                }
+            }
+            let plan = inner
+                .profile
+                .clone()
+                .map(|p| recommend::plan_levels(&p, &inner.catalog, &inner.benchmarks));
+            // Level = which model(s). Depth = how thorough the measurement is.
+            let depth = match tier.as_str() {
+                "quick" => "quick",
+                "balanced" | "standard" => "balanced",
+                _ => "full", // full / max / all
+            }
+            .to_string();
+            let targets = match (plan, tier.as_str()) {
+                (Some(p), "quick") => p.quick.into_iter().collect(),
+                (Some(p), "balanced") | (Some(p), "standard") => p.standard.into_iter().collect(),
+                (Some(p), "all") => p.all,
+                (Some(p), _) => p.max.into_iter().collect(), // full / max
+                (None, _) => Vec::new(),
+            };
+            (targets, depth)
         };
 
-        if candidates.is_empty() {
+        if targets.is_empty() {
             emit("no-models", 100, "");
             return;
         }
 
-        let total = candidates.len();
-        for (i, model) in candidates.iter().enumerate() {
+        // Benchmark each model the level named. If it isn't installed, tell the UI
+        // to offer a download — never silently fall back to a smaller installed
+        // model (that silent downgrade was the original bug).
+        let total = targets.len().max(1);
+        for (i, target) in targets.iter().enumerate() {
             let pct = 10 + (80 * i as u32 / total as u32);
-            emit("benchmarking", pct, model);
-            if let Ok(result) = sidecar::benchmark(model, &tier) {
+            let tag = &target.ollama_pull;
+            let is_installed = installed
+                .iter()
+                .any(|iname| iname == tag || iname.starts_with(tag.as_str()));
+            if !is_installed {
+                app.emit(
+                    "benchmark_progress",
+                    serde_json::json!({
+                        "stage": "needs-download", "pct": pct, "model": tag,
+                        "detail": format!(
+                            "{} isn't installed yet — download it to benchmark this tier.",
+                            target.display_name
+                        )
+                    }),
+                )
+                .ok();
+                continue;
+            }
+            emit("benchmarking", pct, tag);
+            if let Ok(result) = sidecar::benchmark(tag, &depth) {
                 let mut inner = state.0.lock().unwrap();
                 inner.store.save_benchmark(&result).ok();
                 inner.benchmarks.push(result);

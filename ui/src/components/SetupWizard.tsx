@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
-import type { HardwareProfile, Recommendation, BenchmarkIntensity } from '../types'
-import { INTENSITY_OPTIONS } from '../types'
+import type { HardwareProfile, Recommendation, BenchmarkIntensity, LevelPlan } from '../types'
+import { INTENSITY_OPTIONS, planForIntensity } from '../types'
+import { invoke } from '../tauri'
 
 const INTENSITY_KEY = 'fitllm.benchmarkIntensity'
 
@@ -57,6 +58,36 @@ const MOCK_RECS: Recommendation[] = [
   },
 ];
 
+// Dev-only fallback plan (browser build without a Tauri backend) so the tier
+// picker still demonstrates escalating, per-tier models. Real builds get the
+// hardware-sized plan from `get_benchmark_plan`.
+const MOCK_PLAN: LevelPlan = {
+  quick: MOCK_RECS[0],
+  standard: {
+    ...MOCK_RECS[0],
+    model_id: 'gemma2-9b',
+    display_name: 'Gemma 2 9B',
+    params_b: 9.2,
+    intelligence_score: 7.4,
+    speed_score: 8,
+    tier: 'great',
+    ollama_pull: 'gemma2:9b',
+    why: 'Great: strong everyday quality that stays snappy on this machine.',
+  },
+  max: {
+    ...MOCK_RECS[0],
+    model_id: 'qwen2.5-32b',
+    display_name: 'Qwen2.5 32B',
+    params_b: 32.5,
+    intelligence_score: 8.4,
+    speed_score: 5,
+    tier: 'okay',
+    ollama_pull: 'qwen2.5:32b',
+    why: 'Okay: the biggest model this machine can run — pushes the hardware.',
+  },
+  all: [],
+};
+
 type Step = 'profiling' | 'intensity' | 'recommendation' | 'downloading' | 'done';
 
 interface Props {
@@ -70,6 +101,7 @@ export function SetupWizard({ onComplete }: Props) {
   const [progress, setProgress] = useState(0);
   const [eta, setEta] = useState('');
   const [intensity, setIntensity] = useState<BenchmarkIntensity>('balanced');
+  const [plan, setPlan] = useState<LevelPlan | null>(null);
 
   // Simulate hardware detection, then ask how hard to benchmark.
   useEffect(() => {
@@ -80,6 +112,23 @@ export function SetupWizard({ onComplete }: Props) {
       setStep('intensity');
     }, 1200);
     return () => clearTimeout(timer);
+  }, [step]);
+
+  // On the tier step, fetch the hardware-sized plan so each tier can show the
+  // exact model it will run (name + scores) BEFORE the user commits. In a plain
+  // browser dev build `invoke` returns null and we fall back to the mock recs.
+  useEffect(() => {
+    if (step !== 'intensity') return;
+    let alive = true;
+    invoke<LevelPlan>('get_benchmark_plan')
+      .then((p) => {
+        if (!alive) return;
+        setPlan(p ?? MOCK_PLAN);
+      })
+      .catch(() => alive && setPlan(MOCK_PLAN));
+    return () => {
+      alive = false;
+    };
   }, [step]);
 
   function confirmIntensity() {
@@ -139,15 +188,16 @@ export function SetupWizard({ onComplete }: Props) {
         {step === 'intensity' && (
           <div className="space-y-5">
             <div>
-              <p className="text-sm text-text font-medium">How hard should we test?</p>
+              <p className="text-sm text-text font-medium">Pick how far to push your machine</p>
               <p className="text-[11px] text-text-muted mt-1">
-                This is how thoroughly FitLLM measures models on your machine. You can change it later in Settings.
+                Each level runs a different model, sized to your hardware — shown on each option below. You can change it later in Settings.
               </p>
             </div>
 
             <div className="space-y-2">
               {INTENSITY_OPTIONS.map((opt) => {
                 const active = intensity === opt.id;
+                const planned = planForIntensity(plan, opt.id);
                 return (
                   <button
                     key={opt.id}
@@ -169,6 +219,16 @@ export function SetupWizard({ onComplete }: Props) {
                       />
                     </div>
                     <p className="text-[11px] text-text-muted mt-1">{opt.detail}</p>
+                    {planned ? (
+                      <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
+                        <span className="text-text font-medium">Runs: {planned.display_name}</span>
+                        <span className="text-text-muted">
+                          smart {planned.intelligence_score.toFixed(0)}/10 · fast {planned.speed_score.toFixed(0)}/10
+                        </span>
+                      </div>
+                    ) : (
+                      <p className="mt-2 text-[11px] text-text-muted italic">Sizing a model to your machine…</p>
+                    )}
                   </button>
                 );
               })}

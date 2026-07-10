@@ -94,6 +94,30 @@ export interface Recommendation {
   ollama_pull: string;
 }
 
+/**
+ * Which model each benchmark level runs on THIS machine, from the
+ * `get_benchmark_plan` backend command. Each level names its model so the tier
+ * picker can show it (and its scores) before the user commits — instead of one
+ * consolidated picker. See docs/design/benchmark-levels.md.
+ */
+export interface LevelPlan {
+  quick: Recommendation | null;
+  standard: Recommendation | null;
+  max: Recommendation | null;
+  all: Recommendation[];
+}
+
+/** The planned model for a given intensity tier (quick→quick, balanced→standard, full→max). */
+export function planForIntensity(
+  plan: LevelPlan | null,
+  id: BenchmarkIntensity
+): Recommendation | null {
+  if (!plan) return null;
+  if (id === 'quick') return plan.quick;
+  if (id === 'balanced') return plan.standard;
+  return plan.max;
+}
+
 // ── Model library + settings ───────────────────────────────
 
 /** User-tunable app settings, persisted by the backend. */

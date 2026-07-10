@@ -61,6 +61,85 @@ pub fn rate_all(
     recs
 }
 
+/// Throughput used for tie-breaking / "fastest" picks (measured beats estimate).
+fn rec_tps(r: &Recommendation) -> f64 {
+    r.measured_tokens_per_sec
+        .or(r.estimated_tokens_per_sec)
+        .unwrap_or(0.0)
+}
+
+/// Best-quality model in a (already fit-filtered) slice, tie-broken by speed.
+/// Returns `None` for an empty slice.
+fn best_by_quality(recs: &[Recommendation]) -> Option<Recommendation> {
+    recs.iter()
+        .max_by(|a, b| {
+            a.quality_score
+                .partial_cmp(&b.quality_score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| {
+                    rec_tps(a)
+                        .partial_cmp(&rec_tps(b))
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+        })
+        .cloned()
+}
+
+/// Plan which model each benchmark *level* will run on this machine.
+///
+/// Unlike the old flow (which benchmarked "whatever is installed" and let the
+/// level only change measurement duration), every level here is a capability
+/// target sized to the hardware via the fit tiers, and names a concrete model so
+/// the UI can show it before running. On strong hardware `max` reaches a large
+/// model — it never falls back to a tiny one when a bigger model fits. See
+/// `docs/design/benchmark-levels.md`.
+pub fn plan_levels(
+    profile: &HardwareProfile,
+    catalog: &ModelCatalog,
+    benchmarks: &[BenchmarkResult],
+) -> LevelPlan {
+    let rated = rate_all(profile, catalog, benchmarks);
+
+    let filter_rank = |min: &Tier| -> Vec<Recommendation> {
+        rated
+            .iter()
+            .filter(|r| r.tier.rank() >= min.rank())
+            .cloned()
+            .collect()
+    };
+
+    let runnable = filter_rank(&Tier::Okay);
+    let great_plus = filter_rank(&Tier::Great);
+    let blazing: Vec<Recommendation> = rated
+        .iter()
+        .filter(|r| r.tier == Tier::Blazing)
+        .cloned()
+        .collect();
+
+    // Quick: best-quality Blazing fit; if nothing is Blazing, the fastest model
+    // that runs at all, so Quick always resolves to something usable.
+    let fastest_runnable = runnable
+        .iter()
+        .max_by(|a, b| {
+            rec_tps(a)
+                .partial_cmp(&rec_tps(b))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .cloned();
+    let quick = best_by_quality(&blazing).or(fastest_runnable);
+    // Standard: best-quality model that runs Great or better (fall back to Quick).
+    let standard = best_by_quality(&great_plus).or_else(|| quick.clone());
+    // Max: best-quality model that runs at all (fall back to Standard).
+    let max = best_by_quality(&runnable).or_else(|| standard.clone());
+
+    LevelPlan {
+        quick,
+        standard,
+        max,
+        all: runnable,
+    }
+}
+
 /// Composite ranking score (higher is better) used only for ordering.
 fn sort_score(r: &Recommendation) -> f64 {
     let tier_mult = match r.tier {
@@ -758,5 +837,53 @@ mod tests {
         // With 64GB unified memory, a 32B model should fit on the "GPU" pool.
         let q32 = recs.iter().find(|r| r.model_id == "qwen2.5-32b").unwrap();
         assert!(q32.memory_fit.fits_gpu);
+    }
+
+    #[test]
+    fn m4_max_level_reaches_a_large_model_not_a_3b() {
+        // Regression for the reported bug: on an M4 with plenty of unified
+        // memory, the "Max" level recommended a 3B model. Max must reach a large
+        // model — never fall back to a tiny one when a bigger model fits.
+        let cat = catalog::load_bundled().unwrap();
+        let apple = Some(AppleSilicon {
+            unified_memory: true,
+            gpu_cores: Some(40), // M4 Max-class GPU
+            neural_engine: true,
+            chip: "Apple M4 Max".into(),
+        });
+        let mut p = profile(48_000, vec![], apple); // 48GB unified memory
+        p.cpu.flags.neon = true;
+        p.backends = vec!["metal".into(), "cpu".into()];
+
+        let plan = plan_levels(&p, &cat, &[]);
+
+        let max = plan.max.expect("Max must name a model");
+        assert!(
+            max.params_b > 8.0,
+            "Max picked {} ({}B) — too small for a 48GB M4",
+            max.display_name,
+            max.params_b
+        );
+        assert!(max.tier.rank() >= Tier::Okay.rank(), "Max must actually run");
+
+        // Every level names a concrete model, and they escalate in capability.
+        let quick = plan.quick.expect("Quick must name a model");
+        let standard = plan.standard.expect("Standard must name a model");
+        assert!(max.params_b >= standard.params_b);
+        assert!(standard.params_b >= quick.params_b || standard.quality_score >= quick.quality_score);
+        assert!(!plan.all.is_empty(), "the runnable set must not be empty");
+    }
+
+    #[test]
+    fn tiny_machine_levels_stay_within_reach() {
+        // On a small CPU-only laptop every level must still resolve to something
+        // that actually runs (no None, no WontRun leaking through).
+        let cat = catalog::load_bundled().unwrap();
+        let p = profile(8_000, vec![], None); // 8GB CPU-only
+        let plan = plan_levels(&p, &cat, &[]);
+        for pick in [&plan.quick, &plan.standard, &plan.max] {
+            let r = pick.as_ref().expect("every level must name a model");
+            assert!(r.tier.rank() >= Tier::Okay.rank(), "{} must run", r.display_name);
+        }
     }
 }

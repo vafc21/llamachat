@@ -12,5 +12,7 @@ requests==2.32.3
 psutil==6.0.0
 
 # Build tool. PyInstaller 6.x supports macOS 11+ and the target_arch/universal2
-# options referenced by fitllm-sidecar.spec.
-pyinstaller==6.11.1
+# options referenced by fitllm-sidecar.spec. Ranged rather than hard-pinned:
+# 6.11.x caps at Python 3.13, while 6.15+ is required to freeze under Python
+# 3.14. Any 6.x >= 6.15 works across the supported interpreters.
+pyinstaller>=6.15,<7

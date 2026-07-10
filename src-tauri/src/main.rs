@@ -50,6 +50,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             commands::get_hardware_profile,
             commands::get_recommendations,
+            commands::get_benchmark_plan,
             commands::get_catalog,
             commands::get_consent,
             commands::set_consent,

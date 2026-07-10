@@ -100,17 +100,27 @@ Detect and store, read-only, cross-platform (macOS / Linux / Windows):
 Output a normalized `HardwareProfile` object the rest of the app reads from.
 
 ### 4.2 Benchmark Engine
-Two tiers:
 
-**Quick benchmark (background, default):**
-- Pull one small representative model per size class already available locally, or download a tiny probe model (a few hundred MB) if none exist, with consent.
-- Measure the metrics below on a short fixed prompt set, capped in time and resource use.
+Two **independent** knobs — do not conflate them (see `docs/design/benchmark-levels.md`):
 
-**Full Test (clean room, on demand):**
-- Larger prompt set, multiple size classes, multiple quant levels, longer context probes.
-- Runs closer to full hardware utilization.
+**Level = how far up your hardware to push (which model runs).** A level is
+computed against the live `HardwareProfile` and **names the model(s) it will run,
+before it runs them**, with each model's intelligence/speed scores and headroom
+shown so the user can change them. Never a single opaque global pick, and never
+"whatever is installed" — the level selects a model *set* sized to the machine via
+the recommendation fit tiers:
+- **Quick** — the fastest strong fit (best model rated *Blazing*). Start now.
+- **Standard** — the everyday best (best model rated *Great* or better).
+- **Max** — push the machine (best model that runs *at all*). Optional **All** mode
+  benchmarks the whole runnable set. On strong hardware (e.g. an M4) this reaches a
+  large model — it must never fall back to a tiny 3B when bigger models fit.
 
-**Metrics to capture (both tiers):**
+**Depth = measurement thoroughness (accuracy of the numbers), separate from level:**
+- *Short probe (background, default):* short fixed prompt set, capped in time/resources.
+- *Thorough / clean-room (on demand):* larger prompt set, multiple quant levels,
+  longer context probes, closer to full hardware utilization.
+
+**Metrics to capture (any depth):**
 - **Prompt eval speed** (tokens/sec ingesting the prompt).
 - **Generation speed** (tokens/sec output).
 - **Time to first token (TTFT)**.

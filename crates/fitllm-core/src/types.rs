@@ -292,3 +292,25 @@ pub struct Recommendation {
     /// Ollama tag to pull/run this model.
     pub ollama_pull: String,
 }
+
+/// A concrete, hardware-sized plan of which model each benchmark *level* runs.
+///
+/// Levels are capability targets, not benchmark durations: each names the model
+/// it will run — sized to this machine via the fit tiers — so the UI can show it
+/// (name + intelligence/speed scores) BEFORE running, instead of a single opaque
+/// global pick. See `docs/design/benchmark-levels.md`. Each field is `None` only
+/// when nothing in the catalog runs on this machine at all.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LevelPlan {
+    /// Quick: start now — best-quality model rated `Blazing` (else the fastest
+    /// model that runs at all).
+    pub quick: Option<Recommendation>,
+    /// Standard: the everyday best — best-quality model rated `Great` or better.
+    pub standard: Option<Recommendation>,
+    /// Max: push the machine — best-quality model that runs at all (`Okay`+). On
+    /// strong hardware this reaches a large model; it never falls back to a tiny
+    /// one when a bigger model fits.
+    pub max: Option<Recommendation>,
+    /// The whole runnable set (`Okay`+), best-first — backs the optional "All" mode.
+    pub all: Vec<Recommendation>,
+}

@@ -327,6 +327,8 @@ fn rate_one(
         family: m.family.clone(),
         params_b: m.params_b,
         quality_score: m.quality_score,
+        intelligence_score: intelligence_score(m.quality_score),
+        speed_score: speed_score(effectively_fits, speed),
         quant: chosen.name.clone(),
         tier,
         source,
@@ -529,6 +531,23 @@ fn build_why(
 
 fn round1(x: f64) -> f64 {
     (x * 10.0).round() / 10.0
+}
+
+/// Map the public 0-100 quality score to a friendly 1-10 "how smart" score.
+/// Clamped to 1.0 so nothing reads as a flat zero.
+fn intelligence_score(quality_0_100: f64) -> f64 {
+    round1((quality_0_100 / 10.0).clamp(1.0, 10.0))
+}
+
+/// Map generation speed (tokens/sec on *this* machine) to a friendly 1-10
+/// "how fast" score. A model that won't run scores the floor (1.0). The square
+/// root gives a gentle curve so the interactive range (10-60 tok/s) spreads
+/// across most of the scale: ~10 tok/s → 4, ~25 → 6.5, ~50 → 9, 60+ → 10.
+fn speed_score(fits: bool, tps: f64) -> f64 {
+    if !fits || tps <= 0.0 {
+        return 1.0;
+    }
+    round1(((tps / 60.0).sqrt() * 10.0).clamp(1.0, 10.0))
 }
 
 fn fmt_mb(mb: u64) -> String {

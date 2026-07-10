@@ -1,5 +1,8 @@
 import { useState, useEffect } from 'react'
-import type { HardwareProfile, Recommendation } from '../types'
+import type { HardwareProfile, Recommendation, BenchmarkIntensity } from '../types'
+import { INTENSITY_OPTIONS } from '../types'
+
+const INTENSITY_KEY = 'fitllm.benchmarkIntensity'
 
 // Mock hardware data — real version calls the Tauri backend
 const MOCK_HARDWARE: HardwareProfile = {
@@ -34,6 +37,8 @@ const MOCK_RECS: Recommendation[] = [
     display_name: 'Llama 3.2 3B',
     params_b: 3.2,
     quality_score: 63,
+    intelligence_score: 6.3,
+    speed_score: 10,
     quant: 'Q8_0',
     tier: 'blazing',
     estimated_tokens_per_sec: 120,
@@ -52,7 +57,7 @@ const MOCK_RECS: Recommendation[] = [
   },
 ];
 
-type Step = 'profiling' | 'recommendation' | 'downloading' | 'done';
+type Step = 'profiling' | 'intensity' | 'recommendation' | 'downloading' | 'done';
 
 interface Props {
   onComplete: (hw: HardwareProfile, model: string) => void;
@@ -64,17 +69,25 @@ export function SetupWizard({ onComplete }: Props) {
   const [rec, setRec] = useState<Recommendation | null>(null);
   const [progress, setProgress] = useState(0);
   const [eta, setEta] = useState('');
+  const [intensity, setIntensity] = useState<BenchmarkIntensity>('balanced');
 
-  // Simulate hardware detection
+  // Simulate hardware detection, then ask how hard to benchmark.
   useEffect(() => {
     if (step !== 'profiling') return;
     const timer = setTimeout(() => {
       setHardware(MOCK_HARDWARE);
       setRec(MOCK_RECS[0]);
-      setStep('recommendation');
+      setStep('intensity');
     }, 1200);
     return () => clearTimeout(timer);
   }, [step]);
+
+  function confirmIntensity() {
+    try {
+      localStorage.setItem(INTENSITY_KEY, intensity);
+    } catch { /* storage may be unavailable; the default still applies */ }
+    setStep('recommendation');
+  }
 
   // Simulate download
   function handleDownload() {
@@ -122,6 +135,55 @@ export function SetupWizard({ onComplete }: Props) {
           </div>
         )}
 
+        {/* Step 1.5: Benchmark intensity */}
+        {step === 'intensity' && (
+          <div className="space-y-5">
+            <div>
+              <p className="text-sm text-text font-medium">How hard should we test?</p>
+              <p className="text-[11px] text-text-muted mt-1">
+                This is how thoroughly FitLLM measures models on your machine. You can change it later in Settings.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              {INTENSITY_OPTIONS.map((opt) => {
+                const active = intensity === opt.id;
+                return (
+                  <button
+                    key={opt.id}
+                    onClick={() => setIntensity(opt.id)}
+                    className={`w-full text-left rounded-lg p-3 border transition-colors ${
+                      active
+                        ? 'border-accent bg-accent-dim'
+                        : 'border-border bg-surface hover:border-accent/40'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-[13px] font-medium text-text">
+                        {opt.title} <span className="text-text-muted font-normal">· {opt.blurb}</span>
+                      </span>
+                      <span
+                        className={`w-3.5 h-3.5 rounded-full border ${
+                          active ? 'border-accent bg-accent' : 'border-text-muted'
+                        }`}
+                      />
+                    </div>
+                    <p className="text-[11px] text-text-muted mt-1">{opt.detail}</p>
+                  </button>
+                );
+              })}
+            </div>
+
+            <button
+              onClick={confirmIntensity}
+              className="w-full py-2.5 bg-accent text-white text-[13px] font-medium rounded-lg
+                         hover:opacity-90 transition-opacity"
+            >
+              Continue
+            </button>
+          </div>
+        )}
+
         {/* Step 2: Recommendation */}
         {step === 'recommendation' && hardware && rec && (
           <div className="space-y-5">
@@ -154,10 +216,13 @@ export function SetupWizard({ onComplete }: Props) {
               <p className="text-[11px] text-text-secondary leading-relaxed">
                 {rec.why}
               </p>
+              <div className="mt-3 grid grid-cols-2 gap-3">
+                <ScoreBar label="Intelligence" score={rec.intelligence_score} />
+                <ScoreBar label="Speed" score={rec.speed_score} />
+              </div>
               <div className="flex gap-3 mt-3 text-[10px] text-text-muted">
                 <span>{rec.memory_fit.required_mb}MB download</span>
                 <span>~{rec.estimated_tokens_per_sec?.toFixed(0)} tok/s</span>
-                <span>Quality {rec.quality_score}/100</span>
               </div>
             </div>
 
@@ -234,6 +299,22 @@ function Row({ label, value }: { label: string; value: string }) {
     <div className="overflow-hidden">
       <div className="text-[10px] text-text-muted">{label}</div>
       <div className="text-[11px] text-text truncate" title={value}>{value}</div>
+    </div>
+  );
+}
+
+/** A compact 1-10 score with a filled bar. Used across onboarding + the model library. */
+export function ScoreBar({ label, score }: { label: string; score: number }) {
+  const pct = Math.max(0, Math.min(100, score * 10));
+  return (
+    <div>
+      <div className="flex items-center justify-between text-[10px] text-text-muted mb-1">
+        <span>{label}</span>
+        <span className="text-text font-medium">{score.toFixed(1)}/10</span>
+      </div>
+      <div className="h-1 bg-white/[0.06] rounded-full overflow-hidden">
+        <div className="h-full bg-accent rounded-full" style={{ width: `${pct}%` }} />
+      </div>
     </div>
   );
 }

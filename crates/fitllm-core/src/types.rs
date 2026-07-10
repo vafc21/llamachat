@@ -269,6 +269,12 @@ pub struct Recommendation {
     pub family: String,
     pub params_b: f64,
     pub quality_score: f64,
+    /// Plain-language "how smart" rating on a 1-10 scale, derived from
+    /// `quality_score`. Shown next to every model so non-experts can compare.
+    pub intelligence_score: f64,
+    /// Plain-language "how fast it runs on *this* machine" rating on a 1-10
+    /// scale, derived from the measured (or estimated) tokens/sec.
+    pub speed_score: f64,
     /// The quant the engine picked as the best fit.
     pub quant: String,
     pub tier: Tier,

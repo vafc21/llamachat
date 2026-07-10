@@ -104,10 +104,15 @@ export interface LevelPlan {
   quick: Recommendation | null;
   standard: Recommendation | null;
   max: Recommendation | null;
+  /** Whole runnable set — what Full/Max/All run and report. */
   all: Recommendation[];
+  /** Quick cohort (fast models). */
+  quick_set: Recommendation[];
+  /** Standard cohort (Great+ models). */
+  standard_set: Recommendation[];
 }
 
-/** The planned model for a given intensity tier (quick→quick, balanced→standard, full→max). */
+/** Headline model for a tier (quick→quick, balanced→standard, full→max). */
 export function planForIntensity(
   plan: LevelPlan | null,
   id: BenchmarkIntensity
@@ -116,6 +121,17 @@ export function planForIntensity(
   if (id === 'quick') return plan.quick;
   if (id === 'balanced') return plan.standard;
   return plan.max;
+}
+
+/** The full cohort a tier runs and reports (not just the headline pick). */
+export function cohortForIntensity(
+  plan: LevelPlan | null,
+  id: BenchmarkIntensity
+): Recommendation[] {
+  if (!plan) return [];
+  if (id === 'quick') return plan.quick_set;
+  if (id === 'balanced') return plan.standard_set;
+  return plan.all;
 }
 
 // ── Model library + settings ───────────────────────────────

@@ -302,15 +302,24 @@ pub struct Recommendation {
 /// when nothing in the catalog runs on this machine at all.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LevelPlan {
-    /// Quick: start now — best-quality model rated `Blazing` (else the fastest
-    /// model that runs at all).
+    /// Quick: headline pick — best-quality model rated `Blazing` (else the fastest
+    /// model that runs at all). The `*_set` fields below are what each tier
+    /// actually runs and reports; these single picks are just the headline shown
+    /// on the tier card.
     pub quick: Option<Recommendation>,
-    /// Standard: the everyday best — best-quality model rated `Great` or better.
+    /// Standard: headline pick — best-quality model rated `Great` or better.
     pub standard: Option<Recommendation>,
-    /// Max: push the machine — best-quality model that runs at all (`Okay`+). On
-    /// strong hardware this reaches a large model; it never falls back to a tiny
-    /// one when a bigger model fits.
+    /// Max: headline pick — best-quality model that runs at all (`Okay`+). On
+    /// strong hardware this reaches a large model; never a tiny one when a bigger
+    /// model fits.
     pub max: Option<Recommendation>,
-    /// The whole runnable set (`Okay`+), best-first — backs the optional "All" mode.
+    /// The whole runnable set (`Okay`+), best-first — what `Full`/`Max`/`All` run
+    /// and report. Each setting benchmarks a *cohort* and reports every model, so
+    /// the user can compare — it never picks one and stops.
     pub all: Vec<Recommendation>,
+    /// Quick cohort: the fast models (rated `Blazing`), best-first. Falls back to
+    /// the single fastest runnable model when nothing is `Blazing`.
+    pub quick_set: Vec<Recommendation>,
+    /// Standard cohort: models rated `Great` or better, best-first.
+    pub standard_set: Vec<Recommendation>,
 }

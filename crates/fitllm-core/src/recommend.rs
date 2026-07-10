@@ -126,17 +126,34 @@ pub fn plan_levels(
                 .unwrap_or(std::cmp::Ordering::Equal)
         })
         .cloned();
-    let quick = best_by_quality(&blazing).or(fastest_runnable);
+    let quick = best_by_quality(&blazing).or(fastest_runnable.clone());
     // Standard: best-quality model that runs Great or better (fall back to Quick).
     let standard = best_by_quality(&great_plus).or_else(|| quick.clone());
     // Max: best-quality model that runs at all (fall back to Standard).
     let max = best_by_quality(&runnable).or_else(|| standard.clone());
+
+    // Cohorts: each tier RUNS and reports every model in its cohort — it never
+    // picks one and stops. Quick = the fast (Blazing) models; Standard = Great+;
+    // Full/Max/All = the whole runnable set. All are best-first already (filtered
+    // from the sorted `rated`). Non-empty fallbacks keep every tier runnable.
+    let quick_set = if blazing.is_empty() {
+        fastest_runnable.into_iter().collect()
+    } else {
+        blazing
+    };
+    let standard_set = if great_plus.is_empty() {
+        quick.clone().into_iter().collect()
+    } else {
+        great_plus
+    };
 
     LevelPlan {
         quick,
         standard,
         max,
         all: runnable,
+        quick_set,
+        standard_set,
     }
 }
 
@@ -872,6 +889,17 @@ mod tests {
         assert!(max.params_b >= standard.params_b);
         assert!(standard.params_b >= quick.params_b || standard.quality_score >= quick.quality_score);
         assert!(!plan.all.is_empty(), "the runnable set must not be empty");
+
+        // Each setting runs and reports a COHORT, not a single model. On a 48GB
+        // M4 there are several runnable models, so Full/All reports many and its
+        // cohort includes the large headline model.
+        assert!(!plan.quick_set.is_empty(), "Quick cohort must not be empty");
+        assert!(!plan.standard_set.is_empty(), "Standard cohort must not be empty");
+        assert!(plan.all.len() >= 2, "Full/All must run and report multiple models");
+        assert!(
+            plan.all.iter().any(|r| r.params_b > 8.0),
+            "Full/All cohort must include a large model on an M4"
+        );
     }
 
     #[test]

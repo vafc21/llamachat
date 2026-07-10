@@ -144,11 +144,13 @@ fn run_benchmark(app: tauri::AppHandle, tier: String) {
                 _ => "full", // full / max / all
             }
             .to_string();
+            // Each setting runs and reports a COHORT of models — not a single
+            // pick. Quick = the fast set, Standard = the Great+ set, Full/Max/All
+            // = the whole runnable set (so Full exercises the big models too).
             let targets = match (plan, tier.as_str()) {
-                (Some(p), "quick") => p.quick.into_iter().collect(),
-                (Some(p), "balanced") | (Some(p), "standard") => p.standard.into_iter().collect(),
-                (Some(p), "all") => p.all,
-                (Some(p), _) => p.max.into_iter().collect(), // full / max
+                (Some(p), "quick") => p.quick_set,
+                (Some(p), "balanced") | (Some(p), "standard") => p.standard_set,
+                (Some(p), _) => p.all, // full / max / all
                 (None, _) => Vec::new(),
             };
             (targets, depth)

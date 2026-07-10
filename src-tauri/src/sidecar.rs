@@ -43,16 +43,43 @@ fn python() -> String {
     std::env::var("FITLLM_PYTHON").unwrap_or_else(|_| "python3".to_string())
 }
 
+/// Locate the bundled, frozen `fitllm-sidecar` binary that ships next to the app
+/// executable in a packaged build (`FitLLM.app/Contents/MacOS/fitllm-sidecar`).
+/// Packagers can point at it explicitly with `FITLLM_SIDECAR_BIN`.
+fn bundled_bin() -> Option<PathBuf> {
+    if let Ok(p) = std::env::var("FITLLM_SIDECAR_BIN") {
+        let pb = PathBuf::from(p);
+        if pb.is_file() {
+            return Some(pb);
+        }
+    }
+    let exe = std::env::current_exe().ok()?;
+    let name = if cfg!(windows) { "fitllm-sidecar.exe" } else { "fitllm-sidecar" };
+    let cand = exe.parent()?.join(name);
+    cand.is_file().then_some(cand)
+}
+
+/// Build a `Command` that runs the sidecar, preferring the bundled frozen binary
+/// and falling back to `python -m fitllm_sidecar` from the repo `sidecar/` dir in
+/// dev. The frozen binary takes args straight through; the Python fallback needs
+/// the module invocation and its working directory.
+fn sidecar_command() -> Result<Command> {
+    if let Some(bin) = bundled_bin() {
+        return Ok(Command::new(bin));
+    }
+    let dir = sidecar_dir()
+        .ok_or_else(|| anyhow!("sidecar not found: no bundled binary and no sidecar/ dir"))?;
+    let mut c = Command::new(python());
+    c.arg("-m").arg("fitllm_sidecar").current_dir(&dir);
+    Ok(c)
+}
+
 /// Run one sidecar subcommand and return its stdout.
 fn run(args: &[&str]) -> Result<String> {
-    let dir = sidecar_dir().ok_or_else(|| anyhow!("sidecar directory not found"))?;
-    let out = Command::new(python())
-        .arg("-m")
-        .arg("fitllm_sidecar")
+    let out = sidecar_command()?
         .args(args)
-        .current_dir(&dir)
         .output()
-        .with_context(|| "failed to spawn python sidecar")?;
+        .with_context(|| "failed to spawn sidecar")?;
     if !out.status.success() {
         return Err(anyhow!(
             "sidecar exited with {}: {}",
@@ -63,16 +90,25 @@ fn run(args: &[&str]) -> Result<String> {
     Ok(String::from_utf8_lossy(&out.stdout).to_string())
 }
 
-/// Run a quick benchmark for one Ollama model tag. Returns a `BenchmarkResult`
-/// even on failure (with `ok: false`) so the caller can surface the reason.
-pub fn quick_benchmark(model: &str) -> Result<BenchmarkResult> {
-    let stdout = run(&["benchmark", "--adapter", "ollama", "--model", model, "--tier", "quick"])?;
+/// Benchmark one Ollama model tag at the given tier (`quick` | `balanced` |
+/// `full`). The tier is passed straight through to the Python sidecar. Returns
+/// a `BenchmarkResult` even on failure (with `ok: false`) so the caller can
+/// surface the reason.
+pub fn benchmark(model: &str, tier: &str) -> Result<BenchmarkResult> {
+    let stdout = run(&["benchmark", "--adapter", "ollama", "--model", model, "--tier", tier])?;
     let line = stdout
         .lines()
         .rev()
         .find(|l| l.trim_start().starts_with('{'))
         .ok_or_else(|| anyhow!("no JSON in sidecar output: {stdout}"))?;
     Ok(serde_json::from_str(line)?)
+}
+
+/// Run a quick benchmark for one Ollama model tag. Thin wrapper over
+/// [`benchmark`] kept as a stable helper for existing callers.
+#[allow(dead_code)]
+pub fn quick_benchmark(model: &str) -> Result<BenchmarkResult> {
+    benchmark(model, "quick")
 }
 
 /// Ask the sidecar which locally-installed Ollama models are available.
@@ -115,13 +151,8 @@ pub fn chat(
     system: &str,
     on_token: impl Fn(&str),
 ) -> Result<String> {
-    let dir = sidecar_dir().ok_or_else(|| anyhow!("sidecar directory not found"))?;
-
-    let mut child = Command::new(python())
-        .arg("-m")
-        .arg("fitllm_sidecar")
+    let mut child = sidecar_command()?
         .arg("serve")
-        .current_dir(&dir)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped()) // keep stderr separate

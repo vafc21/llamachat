@@ -3,7 +3,11 @@ import { Sidebar } from './components/Sidebar'
 import { ChatArea } from './components/ChatArea'
 import { InputBar } from './components/InputBar'
 import { SetupWizard } from './components/SetupWizard'
+import { ModelLibrary } from './components/ModelLibrary'
+import { Settings } from './components/Settings'
 import type { Message, Conversation, HardwareProfile } from './types'
+
+type View = 'chat' | 'library' | 'settings'
 
 function uid(): string {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
@@ -23,6 +27,7 @@ export default function App() {
   const [conversations, setConversations] = useState<Conversation[]>(INITIAL_CONVERSATIONS);
   const [activeId, setActiveId] = useState(INITIAL_CONVERSATIONS[0].id);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [view, setView] = useState<View>('chat');
   const [streaming, setStreaming] = useState(false);
   const [hardware, setHardware] = useState<HardwareProfile | null>(null);
   const [selectedModel, setSelectedModel] = useState('llama3.2:3b');
@@ -228,17 +233,69 @@ export default function App() {
               </svg>
             </button>
           )}
-          <span className="text-[11px] text-text-muted truncate">{active.title}</span>
-          <span className="text-[10px] text-accent ml-auto">{selectedModel}</span>
-          {hardware && (
-            <span className="text-[10px] text-text-muted">
-              &middot; {hardware.cpu.model.split(' ').slice(0, 2).join(' ')}
-            </span>
+          {view === 'chat' ? (
+            <>
+              <span className="text-[11px] text-text-muted truncate">{active.title}</span>
+              <span className="text-[10px] text-accent ml-auto">{selectedModel}</span>
+              {hardware && (
+                <span className="text-[10px] text-text-muted">
+                  &middot; {hardware.cpu.model.split(' ').slice(0, 2).join(' ')}
+                </span>
+              )}
+            </>
+          ) : (
+            <button
+              onClick={() => setView('chat')}
+              className="text-[11px] text-text-secondary hover:text-text flex items-center gap-1"
+              title="Back to chat"
+            >
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                <path d="M10 3L5 8l5 5" stroke="currentColor" strokeWidth="1.5" />
+              </svg>
+              Back to chat
+            </button>
           )}
+
+          {/* View switcher: Library + Settings */}
+          <div className={`flex items-center gap-1 ${view === 'chat' ? '' : 'ml-auto'}`}>
+            <button
+              onClick={() => setView(view === 'library' ? 'chat' : 'library')}
+              className={`p-1 rounded transition-colors ${
+                view === 'library' ? 'text-accent bg-accent-dim' : 'text-text-muted hover:text-text'
+              }`}
+              title="Model library"
+            >
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
+                <path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                <circle cx="4.5" cy="4" r="1" fill="currentColor" />
+                <circle cx="4.5" cy="8" r="1" fill="currentColor" />
+                <circle cx="4.5" cy="12" r="1" fill="currentColor" />
+              </svg>
+            </button>
+            <button
+              onClick={() => setView(view === 'settings' ? 'chat' : 'settings')}
+              className={`p-1 rounded transition-colors ${
+                view === 'settings' ? 'text-accent bg-accent-dim' : 'text-text-muted hover:text-text'
+              }`}
+              title="Settings"
+            >
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
+                <circle cx="8" cy="8" r="2.2" stroke="currentColor" strokeWidth="1.5" />
+                <path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M12.6 3.4l-1.4 1.4M4.8 11.2l-1.4 1.4"
+                      stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+              </svg>
+            </button>
+          </div>
         </div>
 
-        <ChatArea ref={chatRef} messages={active.messages} streaming={streaming} />
-        <InputBar onSend={handleSend} onToolCall={handleToolCall} disabled={streaming} />
+        {view === 'chat' && (
+          <>
+            <ChatArea ref={chatRef} messages={active.messages} streaming={streaming} />
+            <InputBar onSend={handleSend} onToolCall={handleToolCall} disabled={streaming} />
+          </>
+        )}
+        {view === 'library' && <ModelLibrary />}
+        {view === 'settings' && <Settings hardware={hardware} />}
       </div>
     </div>
   );

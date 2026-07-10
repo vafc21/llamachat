@@ -87,6 +87,49 @@ export interface Recommendation {
   ollama_pull: string;
 }
 
+// ── Model library + settings ───────────────────────────────
+
+/** User-tunable app settings, persisted by the backend. */
+export interface AppSettings {
+  benchmark_intensity: BenchmarkIntensity;
+  /** ollama tag to always use, or null to auto-pick the best model. */
+  model_override: string | null;
+  /** Where downloaded models live on disk (display only). */
+  models_dir: string | null;
+  /** True when usage reporting is turned off (it always is — shown for reassurance). */
+  telemetry_off: boolean;
+}
+
+/** Fields the user fills in when adding their own model. */
+export interface CustomModelInput {
+  display_name: string;
+  ollama_pull: string;
+  params_b: number;
+  quality_score?: number;
+  context_default?: number;
+}
+
+/** One entry in the browsable model catalog. */
+export interface CatalogModel {
+  model_id: string;
+  display_name: string;
+  params_b?: number;
+  ollama_pull?: string;
+}
+
+/** The full catalog returned by get_catalog(). */
+export interface ModelCatalog {
+  models: CatalogModel[];
+}
+
+/** Payload of a "download_progress" event. */
+export interface DownloadProgress {
+  tag: string;
+  pct: number;
+  status: string;
+  detail?: string;
+}
+
 export interface ToolCall {
   name: string;
   args: Record<string, unknown>;

@@ -2,6 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod commands;
+mod settings;
 mod sidecar;
 mod state;
 
@@ -53,8 +54,14 @@ fn main() {
             commands::get_consent,
             commands::set_consent,
             commands::start_quick_benchmark,
+            commands::start_benchmark,
             commands::export_data,
             commands::wipe_data,
+            commands::get_settings,
+            commands::set_settings,
+            commands::add_custom_model,
+            commands::remove_custom_model,
+            commands::download_model,
             commands::list_tools,
             commands::execute_tool,
             commands::tool_needs_approval,

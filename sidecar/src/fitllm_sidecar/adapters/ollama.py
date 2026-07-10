@@ -31,11 +31,19 @@ OLLAMA_URL = "http://127.0.0.1:11434"
 HTTP_TIMEOUT = 30
 GEN_TIMEOUT = (30, 600)
 
-# Prompt sets by tier.
+# Prompt sets by tier. Quick is short and cheap; balanced adds a few longer
+# prompts; full is the heaviest, most representative set.
 QUICK_PROMPTS = [
     "In one sentence, what is a large language model?",
     "List three primary colors.",
     "Write a haiku about the ocean.",
+]
+BALANCED_PROMPTS = [
+    "Explain, in a short paragraph, how a neural network learns from data.",
+    "Write a concise product description for a stainless-steel water bottle.",
+    "Summarize the plot of a classic fairy tale in one paragraph.",
+    "Describe three practical tips for writing readable code, with a sentence "
+    "of rationale for each.",
 ]
 FULL_PROMPTS = [
     "Explain how a transformer neural network works, covering attention, "
@@ -50,9 +58,47 @@ FULL_PROMPTS = [
     "application, including endpoints, data models, and error handling.",
 ]
 
-# Output-token caps and a representative context size per tier.
-TIER_MAX_TOKENS = {"quick": 100, "full": 500}
-TIER_CONTEXT = {"quick": 512, "full": 2048}
+# Intensity configuration per tier. Each tier tunes:
+#   prompts   — default prompt set (used when the caller passes prompts=None)
+#   max_tokens— output-token cap per generation (num_predict)
+#   contexts  — context window sizes (num_ctx) to exercise; a benchmark runs
+#               every prompt at every context size. Quick keeps a single,
+#               representative size; balanced/full sweep a couple/several.
+#   repeats   — how many times each (context, prompt) pair is measured; the
+#               samples are averaged so the reported tps/ttft are stable.
+#   warmup    — number of throwaway generations run before measuring, to absorb
+#               model-load / cache warm-up cost so it doesn't skew the averages.
+#
+# quick is intentionally identical to the historical behavior (one pass over
+# QUICK_PROMPTS at 100 tokens, no num_ctx override, no warmup, no repeats) so
+# the existing quick path and its numbers are preserved exactly.
+TIER_CONFIG = {
+    "quick": {
+        "prompts": QUICK_PROMPTS,
+        "max_tokens": 100,
+        "contexts": [512],
+        "repeats": 1,
+        "warmup": 0,
+    },
+    "balanced": {
+        "prompts": BALANCED_PROMPTS,
+        "max_tokens": 200,
+        "contexts": [512, 2048],
+        "repeats": 2,
+        "warmup": 1,
+    },
+    "full": {
+        "prompts": FULL_PROMPTS,
+        "max_tokens": 500,
+        "contexts": [512, 2048, 4096],
+        "repeats": 3,
+        "warmup": 1,
+    },
+}
+
+# Back-compat aliases (some callers/tests referenced these directly).
+TIER_MAX_TOKENS = {t: c["max_tokens"] for t, c in TIER_CONFIG.items()}
+TIER_CONTEXT = {t: max(c["contexts"]) for t, c in TIER_CONFIG.items()}
 
 
 class OllamaAdapter(RuntimeAdapter):
@@ -214,6 +260,37 @@ class OllamaAdapter(RuntimeAdapter):
 
     # -- benchmarking ------------------------------------------------------
 
+    def _generate_once(
+        self, model: str, prompt: str, max_tokens: int, num_ctx: Optional[int]
+    ):
+        """Perform one non-streaming /api/generate call.
+
+        Returns ``(obj, None)`` on success or ``(None, error_str)`` on failure.
+        ``num_ctx`` is only sent to Ollama when not ``None`` — quick keeps the
+        historical request shape (num_predict only) by passing ``None``.
+        """
+        options: dict = {"num_predict": max_tokens}
+        if num_ctx is not None:
+            options["num_ctx"] = num_ctx
+        try:
+            resp = requests.post(
+                f"{self.base_url}/api/generate",
+                json={
+                    "model": model,
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": options,
+                },
+                timeout=GEN_TIMEOUT,
+            )
+            resp.raise_for_status()
+            obj = resp.json()
+        except Exception as exc:
+            return None, str(exc)
+        if obj.get("error"):
+            return None, str(obj["error"])
+        return obj, None
+
     def run_benchmark(
         self,
         model: str,
@@ -223,14 +300,30 @@ class OllamaAdapter(RuntimeAdapter):
     ) -> dict:
         """Benchmark ``model`` on ``prompts`` and return a BenchmarkResult dict.
 
+        The measurement depth is driven by :data:`TIER_CONFIG`:
+        ``quick`` does a single lightweight pass (unchanged historical
+        behavior); ``balanced`` and ``full`` sweep multiple context windows,
+        repeat each measurement, run warmup generations, and report stable
+        averages. The output JSON shape is identical across tiers — only the
+        depth of measurement (and the ``tier`` field) changes.
+
         ``progress`` is an optional ``callback(stage, pct)`` used by serve-mode
         to emit out-of-band progress events.
         """
-        tier = tier if tier in ("quick", "full") else "quick"
+        cfg = TIER_CONFIG.get(tier)
+        if cfg is None:
+            tier = "quick"
+            cfg = TIER_CONFIG[tier]
+
         if prompts is None:
-            prompts = QUICK_PROMPTS if tier == "quick" else FULL_PROMPTS
-        max_tokens = TIER_MAX_TOKENS[tier]
-        context_tested = TIER_CONTEXT[tier]
+            prompts = cfg["prompts"]
+        max_tokens = cfg["max_tokens"]
+        contexts = cfg["contexts"]
+        repeats = max(1, int(cfg["repeats"]))
+        warmup = max(0, int(cfg["warmup"]))
+        # Reported context: the largest window we actually exercise (updated to
+        # the largest one that yields a successful sample, below).
+        context_tested = max(contexts)
 
         if not HAVE_REQUESTS:
             return empty_result(
@@ -251,12 +344,32 @@ class OllamaAdapter(RuntimeAdapter):
         gen_tps_samples: list[float] = []
         ttft_samples: list[float] = []
         load_samples: list[float] = []
+        contexts_ok: list[int] = []
         peak_mem_delta: Optional[float] = None
         succeeded = 0
         last_error: Optional[str] = None
 
-        total = len(prompts)
-        for idx, prompt in enumerate(prompts):
+        # Warmup: throwaway generations to absorb model-load / cache costs so
+        # they don't skew the measured averages. Failures here are ignored.
+        if warmup and prompts:
+            if progress:
+                progress("warmup", 6)
+            for _ in range(warmup):
+                self._generate_once(model, prompts[0], max_tokens, contexts[0])
+
+        # For quick, keep the historical request shape (no num_ctx override).
+        send_num_ctx = tier != "quick"
+
+        # Build the full work list: every context × every prompt × repeats.
+        units = [
+            (ctx, prompt)
+            for ctx in contexts
+            for prompt in prompts
+            for _ in range(repeats)
+        ]
+        total = len(units)
+
+        for idx, (ctx, prompt) in enumerate(units):
             if progress:
                 pct = int(round(10 + (idx / max(total, 1)) * 85))
                 progress(f"benchmark {idx + 1}/{total}", pct)
@@ -267,25 +380,11 @@ class OllamaAdapter(RuntimeAdapter):
                 load_samples.append(load)
 
             mem_before = mem_used_mb()
-            try:
-                resp = requests.post(
-                    f"{self.base_url}/api/generate",
-                    json={
-                        "model": model,
-                        "prompt": prompt,
-                        "stream": False,
-                        "options": {"num_predict": max_tokens},
-                    },
-                    timeout=GEN_TIMEOUT,
-                )
-                resp.raise_for_status()
-                obj = resp.json()
-            except Exception as exc:
-                last_error = str(exc)
-                continue
-
-            if obj.get("error"):
-                last_error = str(obj["error"])
+            obj, err = self._generate_once(
+                model, prompt, max_tokens, ctx if send_num_ctx else None
+            )
+            if obj is None:
+                last_error = err
                 continue
 
             mem_after = mem_used_mb()
@@ -320,10 +419,15 @@ class OllamaAdapter(RuntimeAdapter):
                     (prompt_eval_dur / max(prompt_eval_count, 1)) / 1e6
                 )
 
+            contexts_ok.append(ctx)
             succeeded += 1
 
         if progress:
             progress("aggregating", 97)
+
+        # Report the largest context window that actually produced a sample.
+        if contexts_ok:
+            context_tested = max(contexts_ok)
 
         background_load = (
             sum(load_samples) / len(load_samples) if load_samples else None

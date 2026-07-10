@@ -87,7 +87,7 @@ class RuntimeAdapter(ABC):
         """Benchmark ``model`` and return a ``BenchmarkResult`` dict.
 
         ``prompts`` may be ``None``, in which case the adapter supplies a
-        default set appropriate for ``tier`` ("quick" | "full").
+        default set appropriate for ``tier`` ("quick" | "balanced" | "full").
         """
         raise NotImplementedError
 

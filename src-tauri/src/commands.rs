@@ -1,10 +1,13 @@
 //! Tauri IPC commands — the bridge between the React UI and the core engine.
 //! Command names and payload shapes match `CONTRACT.md`.
 
+use crate::settings::{self, AppSettings, CustomModelInput};
 use crate::sidecar;
 use crate::state::{data_dir, AppState};
 use fitllm_core::{hardware, recommend, HardwareProfile, ModelCatalog, Recommendation};
 use fitllm_core::tools::ToolRequest;
+use std::io::Read;
+use std::process::{Command, Stdio};
 use tauri::{Emitter, Manager, State};
 
 
@@ -59,11 +62,24 @@ pub fn set_consent(state: State<AppState>, granted: bool) -> Result<(), String> 
     Ok(())
 }
 
-/// Kick off the non-blocking quick benchmark. Emits `benchmark_progress`
-/// events as it goes and a final `recommendations_updated` with fresh,
-/// measured recommendations. Returns immediately.
+/// Kick off the non-blocking quick benchmark. Kept for the tray and existing
+/// callers; delegates to [`run_benchmark`] at the "quick" tier.
 #[tauri::command]
 pub fn start_quick_benchmark(app: tauri::AppHandle) {
+    run_benchmark(app, "quick".to_string());
+}
+
+/// Kick off a non-blocking benchmark at the requested intensity
+/// (`quick` | `balanced` | `full`). The tier is passed through to the sidecar.
+#[tauri::command]
+pub fn start_benchmark(app: tauri::AppHandle, intensity: String) {
+    run_benchmark(app, intensity);
+}
+
+/// Shared benchmark driver. Emits `benchmark_progress` events as it goes and a
+/// final `recommendations_updated` with fresh, measured recommendations.
+/// Returns immediately.
+fn run_benchmark(app: tauri::AppHandle, tier: String) {
     std::thread::spawn(move || {
         let emit = |stage: &str, pct: u32, model: &str| {
             app.emit(
@@ -112,7 +128,7 @@ pub fn start_quick_benchmark(app: tauri::AppHandle) {
         for (i, model) in candidates.iter().enumerate() {
             let pct = 10 + (80 * i as u32 / total as u32);
             emit("benchmarking", pct, model);
-            if let Ok(result) = sidecar::quick_benchmark(model) {
+            if let Ok(result) = sidecar::benchmark(model, &tier) {
                 let mut inner = state.0.lock().unwrap();
                 inner.store.save_benchmark(&result).ok();
                 inner.benchmarks.push(result);
@@ -230,4 +246,181 @@ pub fn send_message(
     });
 
     Ok(())
+}
+
+// ── Settings ──────────────────────────────────────────────────
+
+/// Return the current persisted app settings.
+#[tauri::command]
+pub fn get_settings(state: State<AppState>) -> Result<AppSettings, String> {
+    let inner = state.0.lock().map_err(|e| e.to_string())?;
+    Ok(inner.settings.clone())
+}
+
+/// Replace and persist the app settings.
+#[tauri::command]
+pub fn set_settings(state: State<AppState>, settings: AppSettings) -> Result<(), String> {
+    let mut inner = state.0.lock().map_err(|e| e.to_string())?;
+    settings::save_settings(&data_dir(), &settings)?;
+    inner.settings = settings;
+    Ok(())
+}
+
+// ── Custom models ─────────────────────────────────────────────
+
+/// Add a user-defined model. It is normalized into a full catalog entry (so the
+/// recommender rates it like a built-in), persisted, and merged into the
+/// effective catalog. Returns the stable id assigned to it.
+#[tauri::command]
+pub fn add_custom_model(state: State<AppState>, model: CustomModelInput) -> Result<String, String> {
+    let entry = settings::to_catalog_model(&model);
+    let id = entry.id.clone();
+    let mut inner = state.0.lock().map_err(|e| e.to_string())?;
+    // Replace any existing custom model with the same id (idempotent add).
+    inner.custom_models.retain(|m| m.id != id);
+    inner.custom_models.push(entry);
+    settings::save_custom_models(&data_dir(), &inner.custom_models)?;
+    inner.rebuild_catalog();
+    Ok(id)
+}
+
+/// Remove a previously-added custom model by id.
+#[tauri::command]
+pub fn remove_custom_model(state: State<AppState>, id: String) -> Result<(), String> {
+    let mut inner = state.0.lock().map_err(|e| e.to_string())?;
+    inner.custom_models.retain(|m| m.id != id);
+    settings::save_custom_models(&data_dir(), &inner.custom_models)?;
+    inner.rebuild_catalog();
+    Ok(())
+}
+
+// ── Model download ────────────────────────────────────────────
+
+/// Pull an Ollama model in the background via `ollama pull <tag>`, streaming
+/// progress to the UI as `download_progress` events with payload
+/// `{ tag, pct, status, detail }` where `status` is
+/// `"pulling"` | `"done"` | `"error"`. Returns immediately.
+#[tauri::command]
+pub fn download_model(app: tauri::AppHandle, tag: String) {
+    std::thread::spawn(move || {
+        let emit = |pct: Option<f64>, status: &str, detail: &str| {
+            app.emit(
+                "download_progress",
+                serde_json::json!({
+                    "tag": tag, "pct": pct, "status": status, "detail": detail,
+                }),
+            )
+            .ok();
+        };
+
+        emit(None, "pulling", "Starting download…");
+
+        let mut child = match Command::new("ollama")
+            .arg("pull")
+            .arg(&tag)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+        {
+            Ok(c) => c,
+            Err(e) => {
+                emit(
+                    None,
+                    "error",
+                    &format!("Failed to run `ollama pull`: {e}. Is Ollama installed?"),
+                );
+                return;
+            }
+        };
+
+        // ollama writes its progress bar to stderr, updating the same line with
+        // carriage returns; drain stdout on a side thread so it can't block.
+        if let Some(out) = child.stdout.take() {
+            std::thread::spawn(move || {
+                let mut sink = Vec::new();
+                let mut r = out;
+                let _ = r.read_to_end(&mut sink);
+            });
+        }
+
+        if let Some(err) = child.stderr.take() {
+            for chunk in ProgressChunks::new(err) {
+                let text = chunk.trim();
+                if text.is_empty() {
+                    continue;
+                }
+                emit(parse_percent(text), "pulling", text);
+            }
+        }
+
+        match child.wait() {
+            Ok(status) if status.success() => emit(Some(100.0), "done", "Download complete"),
+            Ok(status) => emit(
+                None,
+                "error",
+                &format!("`ollama pull` exited with {status}"),
+            ),
+            Err(e) => emit(None, "error", &format!("Failed waiting on ollama: {e}")),
+        }
+    });
+}
+
+/// Extract a percentage (0-100) from an ollama progress line like
+/// `pulling abcd123... 47%`, if present.
+fn parse_percent(line: &str) -> Option<f64> {
+    for tok in line.split_whitespace() {
+        if let Some(num) = tok.strip_suffix('%') {
+            if let Ok(v) = num.parse::<f64>() {
+                return Some(v.clamp(0.0, 100.0));
+            }
+        }
+    }
+    None
+}
+
+/// Reader adaptor that yields "lines" split on either `\n` or `\r`, so a
+/// carriage-return-updated progress bar surfaces each update instead of
+/// blocking until a newline.
+struct ProgressChunks<R: Read> {
+    inner: R,
+    buf: Vec<u8>,
+    byte: [u8; 1],
+}
+
+impl<R: Read> ProgressChunks<R> {
+    fn new(inner: R) -> Self {
+        ProgressChunks { inner, buf: Vec::new(), byte: [0u8; 1] }
+    }
+}
+
+impl<R: Read> Iterator for ProgressChunks<R> {
+    type Item = String;
+
+    fn next(&mut self) -> Option<String> {
+        loop {
+            match self.inner.read(&mut self.byte) {
+                Ok(0) => {
+                    if self.buf.is_empty() {
+                        return None;
+                    }
+                    let s = String::from_utf8_lossy(&self.buf).to_string();
+                    self.buf.clear();
+                    return Some(s);
+                }
+                Ok(_) => {
+                    let b = self.byte[0];
+                    if b == b'\n' || b == b'\r' {
+                        if self.buf.is_empty() {
+                            continue;
+                        }
+                        let s = String::from_utf8_lossy(&self.buf).to_string();
+                        self.buf.clear();
+                        return Some(s);
+                    }
+                    self.buf.push(b);
+                }
+                Err(_) => return None,
+            }
+        }
+    }
 }

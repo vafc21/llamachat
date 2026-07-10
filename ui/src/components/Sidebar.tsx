@@ -1,13 +1,5 @@
 import type { Conversation, HardwareProfile } from '../types'
-
-// Tauri platform type
-declare global {
-  interface Window {
-    __TAURI__?: {
-      invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
-    };
-  }
-}
+import '../tauri'
 
 interface SidebarProps {
   open: boolean;

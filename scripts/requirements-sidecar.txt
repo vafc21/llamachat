@@ -1,0 +1,16 @@
+# Pinned build/runtime dependencies for freezing the FitLLM sidecar into a
+# single self-contained binary with PyInstaller.
+#
+# Install into a clean virtualenv before running scripts/build-sidecar.sh:
+#     python3 -m venv .venv-build
+#     . .venv-build/bin/activate
+#     pip install -r scripts/requirements-sidecar.txt
+#
+# Runtime deps mirror sidecar/pyproject.toml; psutil is optional at runtime but
+# is bundled so packaged builds report background_load / peak_mem_mb.
+requests==2.32.3
+psutil==6.0.0
+
+# Build tool. PyInstaller 6.x supports macOS 11+ and the target_arch/universal2
+# options referenced by fitllm-sidecar.spec.
+pyinstaller==6.11.1

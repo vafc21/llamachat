@@ -4,7 +4,7 @@ Commands
 --------
 - ``list-adapters``                    → ``{"adapters":[{name,available,detail}]}``
 - ``list-models --adapter <name>``     → ``{"models":[{name,size_mb}]}``
-- ``benchmark --adapter <name> --model <tag> [--tier quick|full]``
+- ``benchmark --adapter <name> --model <tag> [--tier quick|balanced|full]``
                                        → one ``BenchmarkResult`` JSON object
 - ``serve``                            → stdin/stdout JSON-line RPC loop
 
@@ -85,7 +85,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_bench.add_argument("--adapter", default="ollama", help="adapter name (default: ollama)")
     p_bench.add_argument("--model", required=True, help="model tag, e.g. llama3.2:1b")
     p_bench.add_argument(
-        "--tier", default="quick", choices=["quick", "full"], help="benchmark tier"
+        "--tier",
+        default="quick",
+        choices=["quick", "balanced", "full"],
+        help="benchmark intensity: quick (lightweight), balanced (a few "
+        "minutes), full (deepest, most accurate). Default: quick.",
     )
     p_bench.set_defaults(func=cmd_benchmark)
 

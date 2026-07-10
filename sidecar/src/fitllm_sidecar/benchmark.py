@@ -27,7 +27,7 @@ def run_benchmark(
 
     ``progress`` is an optional ``callback(stage, pct)``.
     """
-    tier = tier if tier in ("quick", "full") else "quick"
+    tier = tier if tier in ("quick", "balanced", "full") else "quick"
 
     if progress:
         progress("checking adapter", 2)

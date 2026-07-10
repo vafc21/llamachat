@@ -125,7 +125,7 @@ fn run_benchmark(app: tauri::AppHandle, tier: String) {
         // names the model; measurement depth is a separate knob derived below.
         let installed = sidecar::list_models().unwrap_or_default();
         let state = app.state::<AppState>();
-        let (targets, depth): (Vec<Recommendation>, String) = {
+        let (targets, depths): (Vec<Recommendation>, Vec<String>) = {
             let mut inner = state.0.lock().unwrap();
             if inner.profile.is_none() {
                 if let Ok(p) = hardware::profile() {
@@ -138,22 +138,24 @@ fn run_benchmark(app: tauri::AppHandle, tier: String) {
                 .clone()
                 .map(|p| recommend::plan_levels(&p, &inner.catalog, &inner.benchmarks));
             // Level = which model(s). Depth = how thorough the measurement is.
-            let depth = match tier.as_str() {
-                "quick" => "quick",
-                "balanced" | "standard" => "balanced",
-                _ => "full", // full / max / all
-            }
-            .to_string();
+            // "all" is the all-against-all matrix: every fitting model measured at
+            // EVERY depth, one result per (model, depth) cell.
+            let depths: Vec<String> = match tier.as_str() {
+                "quick" => vec!["quick".into()],
+                "balanced" | "standard" => vec!["balanced".into()],
+                "all" => vec!["quick".into(), "balanced".into(), "full".into()],
+                _ => vec!["full".into()], // full / max
+            };
             // Each setting runs and reports a COHORT of models — not a single
             // pick. Quick = the fast set, Standard = the Great+ set, Full/Max/All
-            // = the whole runnable set (so Full exercises the big models too).
+            // = every model that fits (so Full exercises the big models too).
             let targets = match (plan, tier.as_str()) {
                 (Some(p), "quick") => p.quick_set,
                 (Some(p), "balanced") | (Some(p), "standard") => p.standard_set,
                 (Some(p), _) => p.all, // full / max / all
                 (None, _) => Vec::new(),
             };
-            (targets, depth)
+            (targets, depths)
         };
 
         if targets.is_empty() {
@@ -161,17 +163,19 @@ fn run_benchmark(app: tauri::AppHandle, tier: String) {
             return;
         }
 
-        // Benchmark each model the level named. If it isn't installed, tell the UI
-        // to offer a download — never silently fall back to a smaller installed
-        // model (that silent downgrade was the original bug).
-        let total = targets.len().max(1);
-        for (i, target) in targets.iter().enumerate() {
-            let pct = 10 + (80 * i as u32 / total as u32);
+        // Benchmark each model at each requested depth. For "all" that's the full
+        // model×intensity grid. If a model isn't installed, tell the UI to offer a
+        // download — never silently fall back to a smaller installed model (that
+        // silent downgrade was the original bug).
+        let total = (targets.len() * depths.len()).max(1);
+        let mut done = 0usize;
+        for target in targets.iter() {
             let tag = &target.ollama_pull;
             let is_installed = installed
                 .iter()
                 .any(|iname| iname == tag || iname.starts_with(tag.as_str()));
             if !is_installed {
+                let pct = 10 + (80 * done as u32 / total as u32);
                 app.emit(
                     "benchmark_progress",
                     serde_json::json!({
@@ -183,13 +187,18 @@ fn run_benchmark(app: tauri::AppHandle, tier: String) {
                     }),
                 )
                 .ok();
+                done += depths.len();
                 continue;
             }
-            emit("benchmarking", pct, tag);
-            if let Ok(result) = sidecar::benchmark(tag, &depth) {
-                let mut inner = state.0.lock().unwrap();
-                inner.store.save_benchmark(&result).ok();
-                inner.benchmarks.push(result);
+            for depth in depths.iter() {
+                let pct = 10 + (80 * done as u32 / total as u32);
+                emit("benchmarking", pct, tag);
+                if let Ok(result) = sidecar::benchmark(tag, depth) {
+                    let mut inner = state.0.lock().unwrap();
+                    inner.store.save_benchmark(&result).ok();
+                    inner.benchmarks.push(result);
+                }
+                done += 1;
             }
         }
 

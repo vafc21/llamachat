@@ -61,6 +61,24 @@ pub fn rate_all(
     recs
 }
 
+/// Per-generation GPU throughput multiplier for Apple Silicon, parsed leniently
+/// from the chip brand string ("Apple M4 Max" → M4). Anchored so the M1 == 1.0;
+/// newer chips have materially faster GPU cores + more memory bandwidth than a
+/// raw core-count scale implies. Provisional heuristics — a measured benchmark
+/// always overrides the estimate.
+fn apple_generation_multiplier(chip: &str) -> f64 {
+    let c = chip.to_ascii_lowercase();
+    if c.contains("m4") {
+        1.9
+    } else if c.contains("m3") {
+        1.6
+    } else if c.contains("m2") {
+        1.3
+    } else {
+        1.0 // M1 / unknown
+    }
+}
+
 /// Throughput used for tie-breaking / "fastest" picks (measured beats estimate).
 fn rec_tps(r: &Recommendation) -> f64 {
     r.measured_tokens_per_sec
@@ -108,7 +126,15 @@ pub fn plan_levels(
             .collect()
     };
 
-    let runnable = filter_rank(&Tier::Okay);
+    // `fits` = every model that fits in memory (anything not WontRun), even if
+    // the speed heuristic rates it Slow. This is what Full/Max/All run: "max out
+    // what the machine can run" means memory-fit, not a speed gate — otherwise a
+    // large model the heuristic under-rates gets wrongly excluded (the M4→3B bug).
+    let fits: Vec<Recommendation> = rated
+        .iter()
+        .filter(|r| r.tier != Tier::WontRun)
+        .cloned()
+        .collect();
     let great_plus = filter_rank(&Tier::Great);
     let blazing: Vec<Recommendation> = rated
         .iter()
@@ -116,9 +142,9 @@ pub fn plan_levels(
         .cloned()
         .collect();
 
-    // Quick: best-quality Blazing fit; if nothing is Blazing, the fastest model
-    // that runs at all, so Quick always resolves to something usable.
-    let fastest_runnable = runnable
+    // Fastest model that at least fits — the universal fallback so every tier
+    // resolves to something even on a weak machine.
+    let fastest_fit = fits
         .iter()
         .max_by(|a, b| {
             rec_tps(a)
@@ -126,18 +152,19 @@ pub fn plan_levels(
                 .unwrap_or(std::cmp::Ordering::Equal)
         })
         .cloned();
-    let quick = best_by_quality(&blazing).or(fastest_runnable.clone());
+    let quick = best_by_quality(&blazing).or(fastest_fit.clone());
     // Standard: best-quality model that runs Great or better (fall back to Quick).
     let standard = best_by_quality(&great_plus).or_else(|| quick.clone());
-    // Max: best-quality model that runs at all (fall back to Standard).
-    let max = best_by_quality(&runnable).or_else(|| standard.clone());
+    // Max: best-quality model that FITS — reaches the biggest capable model,
+    // even if the heuristic thinks it's slow (the measured run tells the truth).
+    let max = best_by_quality(&fits).or_else(|| standard.clone());
 
     // Cohorts: each tier RUNS and reports every model in its cohort — it never
     // picks one and stops. Quick = the fast (Blazing) models; Standard = Great+;
-    // Full/Max/All = the whole runnable set. All are best-first already (filtered
-    // from the sorted `rated`). Non-empty fallbacks keep every tier runnable.
+    // Full/Max/All = every model that fits. All best-first (filtered from sorted
+    // `rated`). Non-empty fallbacks keep every tier resolvable.
     let quick_set = if blazing.is_empty() {
-        fastest_runnable.into_iter().collect()
+        fastest_fit.into_iter().collect()
     } else {
         blazing
     };
@@ -151,7 +178,7 @@ pub fn plan_levels(
         quick,
         standard,
         max,
-        all: runnable,
+        all: fits,
         quick_set,
         standard_set,
     }
@@ -209,11 +236,16 @@ struct MachineMemory {
 fn gpu_speed_factor(p: &HardwareProfile) -> f64 {
     if let Some(a) = p.apple_silicon.as_ref() {
         if a.unified_memory {
-            // Apple GPU throughput tracks core count far more than VRAM. Anchor
-            // on the M1 (~7 cores → ~10 tok/s ≈ 0.17× the tensor-core baseline).
+            // Apple GPU throughput tracks core count, but per-core speed and
+            // memory bandwidth improve every generation — so scaling by core
+            // count *alone* (anchored on the M1) underestimates newer chips. An
+            // M4 was being rated like an M1, dragging large models below the
+            // usable-speed bar and leaving only tiny models. Fold in a
+            // per-generation multiplier so an M4 is profiled as an M4.
+            let gen = apple_generation_multiplier(&a.chip);
             return match a.gpu_cores {
-                Some(cores) if cores > 0 => (cores as f64 * 0.024).clamp(0.12, 1.20),
-                _ => 0.40, // unknown Apple GPU: conservative middle.
+                Some(cores) if cores > 0 => (cores as f64 * 0.024 * gen).clamp(0.12, 2.4),
+                _ => 0.40 * gen, // unknown core count: conservative middle, still gen-scaled.
             };
         }
     }
@@ -911,7 +943,38 @@ mod tests {
         let plan = plan_levels(&p, &cat, &[]);
         for pick in [&plan.quick, &plan.standard, &plan.max] {
             let r = pick.as_ref().expect("every level must name a model");
-            assert!(r.tier.rank() >= Tier::Okay.rank(), "{} must run", r.display_name);
+            // Must at least fit in memory (Full/Max may be honestly Slow on a
+            // weak machine — that's fine, it's the biggest that fits).
+            assert_ne!(r.tier, Tier::WontRun, "{} must fit", r.display_name);
         }
+    }
+
+    #[test]
+    fn m4_generation_beats_m1_on_speed() {
+        // Same core count, different generation: the M4's per-core/bandwidth
+        // gains must make it estimate faster than an M1, so large models aren't
+        // wrongly rated Slow on newer Macs.
+        let cat = catalog::load_bundled().unwrap();
+        let mk = |chip: &str| {
+            let apple = Some(AppleSilicon {
+                unified_memory: true,
+                gpu_cores: Some(16),
+                neural_engine: true,
+                chip: chip.into(),
+            });
+            let mut p = profile(32_000, vec![], apple);
+            p.cpu.flags.neon = true;
+            p.backends = vec!["metal".into(), "cpu".into()];
+            let recs = rate_all(&p, &cat, &[]);
+            recs.iter()
+                .find(|r| r.model_id == "llama3.1-8b")
+                .unwrap()
+                .estimated_tokens_per_sec
+                .unwrap()
+        };
+        assert!(
+            mk("Apple M4 Pro") > mk("Apple M1 Pro"),
+            "M4 must estimate faster than M1 at equal core count"
+        );
     }
 }

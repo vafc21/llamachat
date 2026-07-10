@@ -31,7 +31,7 @@ export interface HardwareProfile {
 export type Tier = 'wont_run' | 'slow' | 'okay' | 'great' | 'blazing';
 
 /** How hard FitLLM benchmarks — chosen on first run, changeable in Settings. */
-export type BenchmarkIntensity = 'quick' | 'balanced' | 'full';
+export type BenchmarkIntensity = 'quick' | 'balanced' | 'full' | 'all';
 
 export interface IntensityOption {
   id: BenchmarkIntensity;
@@ -65,6 +65,12 @@ export const INTENSITY_OPTIONS: IntensityOption[] = [
     title: 'Max',
     blurb: 'Push your machine',
     detail: 'Runs the best model your machine can handle at all — big hardware gets a big model, not a tiny one.',
+  },
+  {
+    id: 'all',
+    title: 'All',
+    blurb: 'Test everything',
+    detail: 'Tests every model that fits at every intensity, and reports each result. The most thorough — takes the longest.',
   },
 ];
 

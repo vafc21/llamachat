@@ -117,6 +117,25 @@ emits a result per model; the recommendations view then shows the full per-model
 comparison. The tier card lists the cohort ("Runs & reports N models: …") before
 the user commits.
 
+## Update — profile the M4 properly + all-against-all matrix
+
+Two follow-ups after real-Mac testing still showed a 3B on an M4:
+
+1. **The real root cause was the Apple speed heuristic, not memory fit.** Unified
+   memory already sized big models as fitting, but `gpu_speed_factor` scaled by GPU
+   *core count alone*, anchored on the M1 — so an M4 was estimated like an M1,
+   pushing large models below the usable-speed bar and out of the pick. Fix: a
+   per-generation multiplier parsed from the chip string (M1 1.0 → M2 1.3 → M3 1.6
+   → M4 1.9), so an M4 is profiled as an M4. A measured benchmark still overrides.
+2. **Full/Max/All now select by *memory fit*, not the speed tier.** "Max out what
+   the machine can run" means everything that fits (anything not `WontRun`), even
+   if the heuristic rates it Slow — the measured run then tells the truth. This is
+   robust even if the estimate is off: a large model that fits is never excluded.
+3. **All-against-all matrix.** The `all` mode runs every fitting model at *every*
+   depth (quick, balanced, full) and reports one result per (model, depth) cell —
+   `BenchmarkResult.tier` records the depth so the grid is representable. Exposed
+   as a fourth tier ("All") in the picker.
+
 ## Success check
 
 - On an M4-class profile, `Max` (and usually `Standard`) resolves to a large model,

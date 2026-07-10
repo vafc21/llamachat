@@ -40,24 +40,31 @@ export interface IntensityOption {
   detail: string;
 }
 
+// A level says how far up your hardware to push — i.e. WHICH model runs — not how
+// long the benchmark takes. Each card also shows the concrete model it will run
+// (name + smart/speed scores + headroom), injected at runtime from the recommender's
+// plan_levels; the user can change it before starting. Measurement depth is a
+// separate, secondary toggle. See docs/design/benchmark-levels.md.
+// NOTE: ids are kept stable for now; implementation reconciles balanced->standard,
+// full->max when plan_levels lands.
 export const INTENSITY_OPTIONS: IntensityOption[] = [
   {
     id: 'quick',
     title: 'Quick',
-    blurb: 'A fast check',
-    detail: 'About 30 seconds. Great to get started right away.',
+    blurb: 'Fastest strong fit',
+    detail: 'Runs the fastest model that still runs great on your machine, so you can start now.',
   },
   {
     id: 'balanced',
-    title: 'Balanced',
-    blurb: 'A solid test',
-    detail: 'A few minutes. The recommended default for most people.',
+    title: 'Standard',
+    blurb: 'The everyday best',
+    detail: 'Runs the highest-quality model that stays snappy on your machine. Recommended for most people.',
   },
   {
     id: 'full',
-    title: 'Full',
-    blurb: 'The works',
-    detail: 'Thorough and most accurate. Can take a while to finish.',
+    title: 'Max',
+    blurb: 'Push your machine',
+    detail: 'Runs the best model your machine can handle at all — big hardware gets a big model, not a tiny one.',
   },
 ];
 

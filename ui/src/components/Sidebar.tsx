@@ -1,4 +1,5 @@
 import type { Conversation, HardwareProfile } from '../types'
+import { Logo } from './Logo'
 import '../tauri'
 
 interface SidebarProps {
@@ -28,7 +29,8 @@ export function Sidebar({
     <div className="flex-shrink-0 bg-sidebar border-r border-border flex flex-col"
          style={{ width: 'var(--platform-sidebar-width)' }}>
       {/* Header */}
-      <div className="flex-shrink-0 h-9 border-b border-border flex items-center px-3 gap-2">
+      <div className="flex-shrink-0 h-9 border-b border-border flex items-center px-3 gap-1.5">
+        <Logo size={16} />
         <span className="text-xs font-semibold tracking-wide text-text-secondary">
           FitLLM
         </span>

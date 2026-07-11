@@ -461,6 +461,52 @@ pub fn stop_agent(state: State<AppState>) -> Result<(), String> {
     Ok(())
 }
 
+// ── Permissions (agent setup page) ────────────────────────────
+
+#[cfg(target_os = "macos")]
+fn accessibility_trusted() -> bool {
+    macos_accessibility_client::accessibility::application_is_trusted()
+}
+#[cfg(not(target_os = "macos"))]
+fn accessibility_trusted() -> bool {
+    false
+}
+
+/// Status of the things Agent mode needs, for the setup checklist.
+#[tauri::command]
+pub fn check_permissions() -> serde_json::Value {
+    serde_json::json!({
+        "accessibility": accessibility_trusted(),
+        "ollama": ollama::is_running(),
+    })
+}
+
+/// Prompt for Accessibility permission; returns whether it's now granted.
+#[tauri::command]
+pub fn request_accessibility() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        macos_accessibility_client::accessibility::application_is_trusted_with_prompt()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        false
+    }
+}
+
+/// Open a macOS Privacy settings pane ("accessibility" | "screen_recording" | "automation").
+#[tauri::command]
+pub fn open_settings_pane(pane: String) -> Result<(), String> {
+    let url = match pane.as_str() {
+        "accessibility" => "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+        "screen_recording" => "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
+        "automation" => "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation",
+        _ => return Err(format!("unknown pane: {pane}")),
+    };
+    Command::new("open").arg(url).status().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 // ── Settings ──────────────────────────────────────────────────
 
 /// Return the current persisted app settings.

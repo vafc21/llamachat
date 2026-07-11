@@ -7,6 +7,7 @@ import { ModelLibrary } from './components/ModelLibrary'
 import { Settings } from './components/Settings'
 import { SkillsTab } from './components/SkillsTab'
 import { MemoryTab } from './components/MemoryTab'
+import { WelcomeSteps } from './components/WelcomeSteps'
 import { invoke, listen, isTauri } from './tauri'
 import { MOCK_HARDWARE, tiersFromPlan, mockTiers } from './models'
 import { loadSkills, saveSkills } from './skills'
@@ -36,7 +37,7 @@ function dtoToConversation(d: ConvDto, mkId: () => string): Conversation {
     })),
   };
 }
-type Phase = 'profiling' | 'setup' | 'ready'
+type Phase = 'profiling' | 'setup' | 'welcome' | 'ready'
 
 function uid(): string {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
@@ -75,6 +76,9 @@ export default function App() {
   type Platform = 'linux' | 'macos' | 'windows';
   const [platform, setPlatform] = useState<Platform>('linux');
   const [phase, setPhase] = useState<Phase>('profiling');
+  const [welcomed, setWelcomed] = useState(() => {
+    try { return localStorage.getItem('fitllm.welcomed') === '1'; } catch { return false; }
+  });
   const [conversations, setConversations] = useState<Conversation[]>(INITIAL_CONVERSATIONS);
   const [activeId, setActiveId] = useState(INITIAL_CONVERSATIONS[0].id);
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -188,11 +192,11 @@ export default function App() {
     if (tag) setSelectedModel(tag);
   }, [tiers, userPicked]);
 
-  // Open chat as soon as the Quick model is ready.
+  // When the Quick model is ready: first run → welcome steps, else → chat.
   useEffect(() => {
     if (phase !== 'setup') return;
-    if (tiers[0]?.status === 'ready') setPhase('ready');
-  }, [phase, tiers]);
+    if (tiers[0]?.status === 'ready') setPhase(welcomed ? 'ready' : 'welcome');
+  }, [phase, tiers, welcomed]);
 
   // Agent-mode events → chat messages on the run's conversation.
   useEffect(() => {
@@ -534,7 +538,18 @@ export default function App() {
     });
   }
 
-  if (phase !== 'ready') {
+  if (phase === 'welcome') {
+    return (
+      <WelcomeSteps
+        onFinish={() => {
+          try { localStorage.setItem('fitllm.welcomed', '1'); } catch { /* ignore */ }
+          setWelcomed(true);
+          setPhase('ready');
+        }}
+      />
+    );
+  }
+  if (phase === 'profiling' || phase === 'setup') {
     return (
       <SetupWizard
         phase={phase}

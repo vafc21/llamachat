@@ -3,6 +3,22 @@
   "updated_at": "2026-07-09T00:00:00Z",
   "models": [
     {
+      "id": "llava-7b",
+      "family": "LLaVA",
+      "display_name": "LLaVA 7B (vision)",
+      "params_b": 7.0,
+      "license": "Apache-2.0",
+      "quality_score": 58.0,
+      "quality_source": "approx",
+      "context_default": 4096,
+      "context_max": 4096,
+      "quants": [
+        { "name": "Q4_K_M", "bits": 4.5, "size_mb": 4700, "ollama_tag": "llava:7b" }
+      ],
+      "ollama_pull": "llava:7b",
+      "tags": ["vision", "multimodal", "screenshot", "agent"]
+    },
+    {
       "id": "tinyllama-1.1b",
       "family": "TinyLlama",
       "display_name": "TinyLlama 1.1B Chat",

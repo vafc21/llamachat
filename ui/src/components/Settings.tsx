@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import type { AppSettings, ModelCatalog, CatalogModel, BenchmarkIntensity, HardwareProfile } from '../types'
+import { AgentSetup } from './AgentSetup'
 import { INTENSITY_OPTIONS } from '../types'
 import { invoke, isTauri } from '../tauri'
 
@@ -154,6 +155,14 @@ export function Settings({ hardware }: Props) {
           <p className="text-[10px] text-text-muted mt-1 font-mono truncate" title={memoryDir}>
             Currently: {memoryDir || '—'}
           </p>
+        </Section>
+
+        {/* Agent abilities & permissions */}
+        <Section
+          title="Agent abilities"
+          hint="Enable these to let the agent control your Mac. Green ✓ means it's ready."
+        >
+          <AgentSetup />
         </Section>
 
         {/* Agent perception */}

@@ -16,6 +16,8 @@ function defaultSettings(hardware: HardwareProfile | null): AppSettings {
     model_override: null,
     models_dir: hardware?.storage.models_dir ?? null,
     memory_dir: null,
+    perception: 'accessibility',
+    vision_model: null,
     telemetry_off: true,
   };
 }
@@ -151,6 +153,51 @@ export function Settings({ hardware }: Props) {
           />
           <p className="text-[10px] text-text-muted mt-1 font-mono truncate" title={memoryDir}>
             Currently: {memoryDir || '—'}
+          </p>
+        </Section>
+
+        {/* Agent perception */}
+        <Section
+          title="How the agent sees your screen"
+          hint="Agent mode needs to perceive the screen to click things. Text models work best with the accessibility tree."
+        >
+          <div className="space-y-2">
+            {([
+              { id: 'accessibility', title: 'Accessibility tree', desc: 'Reads on-screen elements as text + moves the real mouse. Fast, works with your text models.' },
+              { id: 'vision', title: 'Screenshot vision', desc: 'A vision model describes a screenshot to the agent. More general, but needs a vision model and is slower.' },
+            ]).map((opt) => {
+              const active = (settings.perception || 'accessibility') === opt.id;
+              return (
+                <button
+                  key={opt.id}
+                  onClick={() => update({ perception: opt.id })}
+                  className={`w-full text-left rounded-lg p-3 border transition-colors ${
+                    active ? 'border-accent bg-accent-dim' : 'border-border bg-surface hover:border-accent/40'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className={`w-3.5 h-3.5 rounded-full border ${active ? 'border-accent bg-accent' : 'border-text-muted'}`} />
+                    <span className="text-[13px] font-medium text-text">{opt.title}</span>
+                  </div>
+                  <p className="text-[11px] text-text-muted mt-1 pl-5">{opt.desc}</p>
+                </button>
+              );
+            })}
+          </div>
+          {settings.perception === 'vision' && (
+            <div className="mt-2">
+              <label className="text-[11px] text-text font-medium">Vision model</label>
+              <input
+                value={settings.vision_model ?? ''}
+                onChange={(e) => update({ vision_model: e.target.value || null })}
+                placeholder="llava (pull it in the Model Library first)"
+                className="w-full mt-1 bg-bg border border-border rounded px-2 py-2 text-[12px] text-text
+                           placeholder:text-text-muted focus:border-accent outline-none font-mono"
+              />
+            </div>
+          )}
+          <p className="text-[10px] text-text-muted mt-2">
+            Controlling the mouse/keyboard needs Accessibility permission (System Settings ▸ Privacy &amp; Security ▸ Accessibility); screenshots need Screen Recording.
           </p>
         </Section>
 

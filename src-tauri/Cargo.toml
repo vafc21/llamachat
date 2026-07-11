@@ -20,6 +20,11 @@ serde_json.workspace = true
 anyhow.workspace = true
 chrono.workspace = true
 dirs = "5"
+# Real mouse/keyboard control for Agent mode (native CGEvent on macOS).
+enigo = "0.6"
+# Screenshot → vision-model describe (opt-in perception).
+base64 = "0.22"
+reqwest = { version = "0.12", features = ["json", "blocking", "rustls-tls"], default-features = false }
 
 [features]
 # this feature is used for production builds or when a dev server is not specified,

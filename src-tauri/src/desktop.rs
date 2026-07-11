@@ -1,0 +1,192 @@
+//! Real desktop control for Agent mode.
+//!
+//! - Native mouse/keyboard via `enigo` (you see the cursor move).
+//! - `read_screen`: the frontmost app's accessibility tree as text, so a
+//!   text-only model knows what's on screen and where (roles + labels + x,y).
+//! - `describe_screen`: optional screenshot → a local vision model describes it
+//!   as text for the main model (perception = "vision").
+//!
+//! macOS needs Accessibility permission (mouse/keys/AX read) and Screen
+//! Recording (screenshots). Errors say so.
+
+use serde_json::Value;
+
+/// Actions handled here (the rest of the `computer` tool stays in fitllm-core).
+pub const DESKTOP_ACTIONS: &[&str] = &[
+    "read_screen", "read_ui", "screen", "mouse_move", "move", "move_mouse",
+    "click", "left_click", "double_click", "right_click", "drag", "scroll",
+];
+
+pub fn is_desktop_action(action: &str) -> bool {
+    DESKTOP_ACTIONS.contains(&action)
+}
+
+#[cfg(target_os = "macos")]
+pub fn control(action: &str, args: &Value) -> Result<String, String> {
+    mac::control(action, args)
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn control(_action: &str, _args: &Value) -> Result<String, String> {
+    Err("Desktop control is only available on macOS.".into())
+}
+
+/// Screenshot the screen and have a local vision model describe it as text.
+pub fn describe_screen(vision_model: &str) -> Result<String, String> {
+    use base64::Engine;
+    let path = std::env::temp_dir().join("fitllm-agent-screen.png");
+    let ok = std::process::Command::new("screencapture")
+        .args(["-x", &path.to_string_lossy()])
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    if !ok {
+        return Err("Screenshot failed — grant FitLLM Screen Recording permission in System Settings ▸ Privacy.".into());
+    }
+    let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    let body = serde_json::json!({
+        "model": vision_model,
+        "prompt": "You are the eyes of another AI agent. Describe this screen factually and concisely: the frontmost app, visible windows, and the key clickable elements (buttons, fields, links) with roughly where they are. Do not speculate.",
+        "images": [b64],
+        "stream": false,
+    });
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(180))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let resp = client
+        .post("http://127.0.0.1:11434/api/generate")
+        .json(&body)
+        .send()
+        .map_err(|e| format!("vision request failed: {e}"))?;
+    let v: Value = resp.json().map_err(|e| e.to_string())?;
+    v.get("response")
+        .and_then(|r| r.as_str())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| {
+            let err = v.get("error").and_then(|e| e.as_str()).unwrap_or("no description");
+            format!("Vision model \"{vision_model}\" returned nothing ({err}). Is it a vision model, and pulled?")
+        })
+}
+
+#[cfg(target_os = "macos")]
+mod mac {
+    use enigo::{Axis, Button, Coordinate, Direction, Enigo, Mouse, Settings};
+    use serde_json::Value;
+    use std::process::Command;
+
+    fn enigo() -> Result<Enigo, String> {
+        Enigo::new(&Settings::default()).map_err(|e| {
+            format!("Input control unavailable ({e}). Grant FitLLM Accessibility permission: System Settings ▸ Privacy & Security ▸ Accessibility.")
+        })
+    }
+
+    fn coords(args: &Value) -> Result<(i32, i32), String> {
+        match (args.get("x").and_then(|v| v.as_f64()), args.get("y").and_then(|v| v.as_f64())) {
+            (Some(x), Some(y)) => Ok((x as i32, y as i32)),
+            _ => Err("Needs x and y pixel coordinates — call read_screen first to get element positions.".into()),
+        }
+    }
+
+    pub fn control(action: &str, args: &Value) -> Result<String, String> {
+        match action {
+            "read_screen" | "read_ui" | "screen" => read_screen(),
+            "mouse_move" | "move" | "move_mouse" => {
+                let (x, y) = coords(args)?;
+                enigo()?.move_mouse(x, y, Coordinate::Abs).map_err(|e| e.to_string())?;
+                Ok(format!("Moved cursor to {x},{y}."))
+            }
+            "click" | "left_click" | "double_click" | "right_click" => {
+                let (x, y) = coords(args)?;
+                let mut e = enigo()?;
+                e.move_mouse(x, y, Coordinate::Abs).map_err(|er| er.to_string())?;
+                let button = if action == "right_click" { Button::Right } else { Button::Left };
+                let times = if action == "double_click" { 2 } else { 1 };
+                for _ in 0..times {
+                    e.button(button, Direction::Click).map_err(|er| er.to_string())?;
+                }
+                Ok(format!("Clicked at {x},{y}."))
+            }
+            "drag" => {
+                let (x, y) = coords(args)?;
+                let x2 = args.get("x2").and_then(|v| v.as_f64()).ok_or("drag needs x2 and y2")? as i32;
+                let y2 = args.get("y2").and_then(|v| v.as_f64()).ok_or("drag needs x2 and y2")? as i32;
+                let mut e = enigo()?;
+                e.move_mouse(x, y, Coordinate::Abs).map_err(|er| er.to_string())?;
+                e.button(Button::Left, Direction::Press).map_err(|er| er.to_string())?;
+                e.move_mouse(x2, y2, Coordinate::Abs).map_err(|er| er.to_string())?;
+                e.button(Button::Left, Direction::Release).map_err(|er| er.to_string())?;
+                Ok(format!("Dragged from {x},{y} to {x2},{y2}."))
+            }
+            "scroll" => {
+                let amount = args.get("amount").and_then(|v| v.as_f64())
+                    .or_else(|| args.get("y").and_then(|v| v.as_f64()))
+                    .unwrap_or(5.0) as i32;
+                let dir = args.get("direction").and_then(|v| v.as_str()).unwrap_or("down");
+                let a = if dir == "up" { -amount.abs() } else { amount.abs() };
+                enigo()?.scroll(a, Axis::Vertical).map_err(|e| e.to_string())?;
+                Ok(format!("Scrolled {dir}."))
+            }
+            _ => Err(format!("Unknown desktop action \"{action}\".")),
+        }
+    }
+
+    /// Frontmost app's interactive UI elements as text (role: label @ x,y).
+    pub fn read_screen() -> Result<String, String> {
+        let script = r#"
+tell application "System Events"
+  set frontApp to first application process whose frontmost is true
+  set out to "Frontmost app: " & (name of frontApp) & linefeed
+  set winName to ""
+  try
+    set winName to name of front window of frontApp
+  end try
+  set out to out & "Window: " & winName & linefeed & "Clickable elements (role: label @ x,y):" & linefeed
+  set n to 0
+  try
+    set els to entire contents of front window of frontApp
+    repeat with e in els
+      if n is greater than 45 then exit repeat
+      try
+        set r to (role of e) as text
+        if r is in {"AXButton", "AXTextField", "AXTextArea", "AXCheckBox", "AXRadioButton", "AXPopUpButton", "AXMenuButton", "AXLink", "AXComboBox"} then
+          set lbl to ""
+          try
+            set lbl to (description of e) as text
+          end try
+          if lbl is "" then
+            try
+              set lbl to (name of e) as text
+            end try
+          end if
+          if lbl is "" then
+            try
+              set lbl to (value of e) as text
+            end try
+          end if
+          set p to position of e
+          set out to out & r & ": " & lbl & " @ " & (item 1 of p) & "," & (item 2 of p) & linefeed
+          set n to n + 1
+        end if
+      end try
+    end repeat
+  end try
+  if n is 0 then set out to out & "(No accessibility elements exposed — this app may need the vision perception mode.)"
+  return out
+end tell
+"#;
+        let out = Command::new("osascript")
+            .arg("-e")
+            .arg(script)
+            .output()
+            .map_err(|e| e.to_string())?;
+        if out.status.success() {
+            Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+        } else {
+            let err = String::from_utf8_lossy(&out.stderr);
+            Err(format!("read_screen failed — grant Accessibility permission. ({})", err.trim()))
+        }
+    }
+}

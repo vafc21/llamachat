@@ -21,8 +21,19 @@ pub struct AppSettings {
     /// `None` = the app data dir.
     #[serde(default)]
     pub memory_dir: Option<String>,
+    /// How Agent mode perceives the screen: "accessibility" (read UI as text —
+    /// works with text models) or "vision" (screenshot → vision model describes).
+    #[serde(default = "default_perception")]
+    pub perception: String,
+    /// Vision model to describe screenshots when perception = "vision".
+    #[serde(default)]
+    pub vision_model: Option<String>,
     /// When true (the default), no telemetry is ever collected.
     pub telemetry_off: bool,
+}
+
+fn default_perception() -> String {
+    "accessibility".to_string()
 }
 
 impl Default for AppSettings {
@@ -32,6 +43,8 @@ impl Default for AppSettings {
             model_override: None,
             models_dir: None,
             memory_dir: None,
+            perception: default_perception(),
+            vision_model: None,
             telemetry_off: true,
         }
     }

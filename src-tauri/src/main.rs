@@ -3,6 +3,7 @@
 
 mod agent;
 mod commands;
+mod desktop;
 mod memory;
 mod ollama;
 mod settings;

@@ -21,7 +21,7 @@ use tauri::{Emitter, Manager};
 
 const MAX_STEPS: usize = 12;
 
-fn agent_system_prompt(tools_prompt: &str, memory: &str, plan_mode: bool) -> String {
+fn agent_system_prompt(tools_prompt: &str, memory: &str, plan_mode: bool, perception: &str) -> String {
     let base = if plan_mode {
         "You are FitLLM's agent, able to control this Mac. The user wants a PLAN only — do NOT act. \
          Reply with a short numbered plan of the steps/tools you would use. Do not output any tool JSON."
@@ -39,7 +39,23 @@ fn agent_system_prompt(tools_prompt: &str, memory: &str, plan_mode: bool) -> Str
          Run a command:      {\"tool\": \"shell\", \"args\": {\"command\": \"ls -la\"}}"
             .to_string()
     };
-    let mut s = format!("{base}\n\n{tools_prompt}");
+    let desktop = if plan_mode {
+        String::new()
+    } else {
+        let see = if perception == "vision" {
+            "read_screen returns a vision model's plain-text DESCRIPTION of the screen."
+        } else {
+            "read_screen returns on-screen elements as text `role: label @ x,y`; use those x,y to click."
+        };
+        format!(
+            "\n\nThe `computer` tool ALSO controls the mouse and reads the screen:\n\
+             - read_screen — see what's on screen. {see}\n\
+             - click / double_click / right_click — need x and y pixel coordinates (get them from read_screen).\n\
+             - mouse_move (x,y), drag (x,y,x2,y2), scroll (direction: up|down).\n\
+             To operate an app: open_app, then read_screen, then click the element you want by its x,y."
+        )
+    };
+    let mut s = format!("{base}\n\n{tools_prompt}{desktop}");
     if !memory.trim().is_empty() {
         s.push_str(&format!("\n\nWhat you know about the user:\n{}", memory.trim()));
     }
@@ -114,7 +130,7 @@ pub fn run(app: tauri::AppHandle, mut messages: Vec<Value>, model: String, mode:
 
     // Build the system prompt and reset run flags. In non-plan modes the user
     // chose to let the agent act, so unlock destructive tools for this run.
-    let sys = {
+    let (sys, perception, vision_model) = {
         let mut inner = match state.0.lock() {
             Ok(i) => i,
             Err(_) => {
@@ -130,7 +146,9 @@ pub fn run(app: tauri::AppHandle, mut messages: Vec<Value>, model: String, mode:
         }
         let tp = inner.tools.system_prompt();
         let mem = crate::memory::read_memory(&inner.settings.memory_dir);
-        agent_system_prompt(&tp, &mem, plan_mode)
+        let perception = inner.settings.perception.clone();
+        let vision_model = inner.settings.vision_model.clone().unwrap_or_else(|| "llava".into());
+        (agent_system_prompt(&tp, &mem, plan_mode, &perception), perception, vision_model)
     };
 
     let stopped = || state.0.lock().map(|i| i.agent_stop).unwrap_or(false);
@@ -187,21 +205,39 @@ pub fn run(app: tauri::AppHandle, mut messages: Vec<Value>, model: String, mode:
         }
 
         emit("agent_step", json!({ "n": step + 1, "tool": tool, "args": args }));
-        let result = {
+
+        // Desktop control (mouse / read_screen) is handled natively; everything
+        // else goes through the tool registry.
+        let action = args.get("action").and_then(|v| v.as_str()).unwrap_or("");
+        // Route by ACTION, not tool name — small models call it "computer" or
+        // "desktop" interchangeably. read_screen/click/mouse/scroll always go native.
+        let (ok, text) = if crate::desktop::is_desktop_action(action) {
+            let r = if matches!(action, "read_screen" | "read_ui" | "screen") && perception == "vision" {
+                crate::desktop::describe_screen(&vision_model)
+            } else {
+                crate::desktop::control(action, &args)
+            };
+            match r {
+                Ok(t) => (true, t),
+                Err(e) => (false, format!("ERROR: {e}")),
+            }
+        } else {
             match state.0.lock() {
-                Ok(inner) => inner.tools.execute(&ToolRequest { name: tool.clone(), args: args.clone() }),
+                Ok(inner) => {
+                    let result = inner.tools.execute(&ToolRequest { name: tool.clone(), args: args.clone() });
+                    if result.ok {
+                        (true, result.output.unwrap_or_else(|| "(done)".into()))
+                    } else {
+                        (false, format!("ERROR: {}", result.error.unwrap_or_else(|| "failed".into())))
+                    }
+                }
                 Err(_) => {
                     emit("agent_error", json!({ "error": "state busy" }));
                     break;
                 }
             }
         };
-        let text = if result.ok {
-            result.output.clone().unwrap_or_else(|| "(done)".into())
-        } else {
-            format!("ERROR: {}", result.error.clone().unwrap_or_else(|| "failed".into()))
-        };
-        emit("agent_result", json!({ "tool": tool, "ok": result.ok, "text": text }));
+        emit("agent_result", json!({ "tool": tool, "ok": ok, "text": text }));
         // Trim long tool output before feeding it back to the (small) model.
         let fed = if text.len() > 4000 { format!("{}\n…(truncated)", &text[..4000]) } else { text };
         messages.push(json!({ "role": "user", "content": format!("Result of `{tool}`:\n{fed}") }));

@@ -175,6 +175,10 @@ export interface AppSettings {
   models_dir: string | null;
   /** Directory for chats + memory.md (markdown). null = app data dir. */
   memory_dir: string | null;
+  /** How Agent mode perceives the screen: 'accessibility' | 'vision'. */
+  perception: string;
+  /** Vision model used to describe screenshots when perception = 'vision'. */
+  vision_model: string | null;
   /** True when usage reporting is turned off (it always is — shown for reassurance). */
   telemetry_off: boolean;
 }

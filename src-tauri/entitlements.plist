@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!--
+    The Python sidecar is a PyInstaller onefile binary that unpacks its own
+    Python.framework to a temp dir and dlopens it at runtime. Tauri re-signs the
+    sidecar with the app's (ad-hoc) identity, which otherwise makes macOS reject
+    that framework for a Team-ID mismatch. This entitlement lets the sidecar load
+    libraries signed by a different identity. Applied to the app bundle and its
+    nested binaries during signing.
+  -->
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+</dict>
+</plist>

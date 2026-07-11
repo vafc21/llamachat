@@ -10,11 +10,43 @@ use crate::types::Gpu;
 /// no GPU tooling is present (a CPU-only machine), never an error.
 pub fn detect() -> Vec<Gpu> {
     let mut gpus = Vec::new();
+    gpus.extend(detect_apple());
     gpus.extend(detect_nvidia());
     gpus.extend(detect_amd());
     #[cfg(target_os = "linux")]
     gpus.extend(detect_intel_igpu());
     gpus
+}
+
+// ---------------------------------------------------------------------------
+// Apple Silicon (Metal)
+// ---------------------------------------------------------------------------
+
+/// The integrated Apple Silicon GPU. Reported so the UI shows e.g. "Apple M4
+/// GPU" (with Metal) instead of falling back to "CPU only". Marked integrated
+/// with no dedicated VRAM: it shares the unified-memory pool, which the
+/// recommender sizes via `apple_silicon.unified_memory` — so this entry is inert
+/// for model-fit math (the recommender ignores integrated GPUs' VRAM).
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+fn detect_apple() -> Vec<Gpu> {
+    let chip = util::run("sysctl", &["-n", "machdep.cpu.brand_string"])
+        .unwrap_or_else(|| "Apple Silicon".to_string());
+    vec![Gpu {
+        vendor: "Apple".to_string(),
+        model: format!("{chip} GPU"),
+        vram_total_mb: None,
+        vram_free_mb: None,
+        driver_version: None,
+        cuda_version: None,
+        compute_capability: None,
+        backend: "metal".to_string(),
+        is_integrated: true,
+    }]
+}
+
+#[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+fn detect_apple() -> Vec<Gpu> {
+    Vec::new()
 }
 
 // ---------------------------------------------------------------------------

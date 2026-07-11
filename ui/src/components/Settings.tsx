@@ -15,6 +15,7 @@ function defaultSettings(hardware: HardwareProfile | null): AppSettings {
     benchmark_intensity: intensity,
     model_override: null,
     models_dir: hardware?.storage.models_dir ?? null,
+    memory_dir: null,
     telemetry_off: true,
   };
 }
@@ -26,6 +27,7 @@ interface Props {
 export function Settings({ hardware }: Props) {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [catalog, setCatalog] = useState<CatalogModel[]>([]);
+  const [memoryDir, setMemoryDir] = useState('');
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
@@ -34,6 +36,7 @@ export function Settings({ hardware }: Props) {
       setSettings(s ?? defaultSettings(hardware));
       const cat = await invoke<ModelCatalog>('get_catalog');
       setCatalog(cat?.models ?? []);
+      setMemoryDir((await invoke<string>('get_memory_dir')) ?? '');
     }
     load();
   }, [hardware]);
@@ -131,6 +134,24 @@ export function Settings({ hardware }: Props) {
                           font-mono truncate" title={settings.models_dir ?? ''}>
             {settings.models_dir ?? 'Not set'}
           </div>
+        </Section>
+
+        {/* Where chats & memory live */}
+        <Section
+          title="Where chats & memory are stored"
+          hint="Your conversations and memory.md are saved here as editable markdown files."
+        >
+          <input
+            value={settings.memory_dir ?? ''}
+            onChange={(e) => update({ memory_dir: e.target.value || null })}
+            onBlur={async () => setMemoryDir((await invoke<string>('get_memory_dir')) ?? '')}
+            placeholder={memoryDir || 'Default app data folder'}
+            className="w-full bg-bg border border-border rounded px-2 py-2 text-[12px] text-text
+                       placeholder:text-text-muted focus:border-accent outline-none font-mono"
+          />
+          <p className="text-[10px] text-text-muted mt-1 font-mono truncate" title={memoryDir}>
+            Currently: {memoryDir || '—'}
+          </p>
         </Section>
 
         {/* Privacy */}

@@ -1,37 +1,37 @@
-// ── Tiny Tauri bridge ──────────────────────────────────────
-// Wraps window.__TAURI__ so components can call backend commands and
-// listen for events, and quietly no-op in a plain browser dev build.
+// ── Tauri bridge (v2) ──────────────────────────────────────
+// Uses the @tauri-apps/api package so IPC actually works in the packaged app.
+// (Tauri v2 does NOT inject a global `window.__TAURI__` unless withGlobalTauri
+// is set, and even then the shape differs — the package is the reliable path.)
+// In a plain browser dev build (`npm run dev`, no Tauri) invoke/listen no-op to
+// null so callers fall back to mock/empty state and keep the dev build alive.
 
-declare global {
-  interface Window {
-    __TAURI__?: {
-      invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
-      event?: {
-        listen: (
-          event: string,
-          handler: (e: { payload: unknown }) => void
-        ) => Promise<() => void>;
-      };
-    };
-  }
-}
+import { invoke as tauriInvoke, isTauri as tauriIsTauri } from '@tauri-apps/api/core'
+import { listen as tauriListen } from '@tauri-apps/api/event'
 
 /** True when running inside the Tauri shell (not a plain browser tab). */
 export function isTauri(): boolean {
-  return typeof window !== 'undefined' && !!window.__TAURI__?.invoke;
+  try {
+    return tauriIsTauri();
+  } catch {
+    return false;
+  }
 }
 
 /**
- * Call a backend command. Returns `null` when not running under Tauri so
- * callers can fall back to mock/empty state and keep the dev build alive.
+ * Call a backend command. Returns `null` when not running under Tauri, or when
+ * the command errors (logged) — callers fall back to mock/empty state.
  */
 export async function invoke<T>(
   cmd: string,
   args?: Record<string, unknown>
 ): Promise<T | null> {
-  const t = window.__TAURI__;
-  if (!t?.invoke) return null;
-  return (await t.invoke(cmd, args)) as T;
+  if (!isTauri()) return null;
+  try {
+    return await tauriInvoke<T>(cmd, args);
+  } catch (e) {
+    console.error(`invoke("${cmd}") failed:`, e);
+    return null;
+  }
 }
 
 /**
@@ -42,7 +42,11 @@ export async function listen<T>(
   event: string,
   handler: (payload: T) => void
 ): Promise<(() => void) | null> {
-  const ev = window.__TAURI__?.event;
-  if (!ev?.listen) return null;
-  return ev.listen(event, (e) => handler(e.payload as T));
+  if (!isTauri()) return null;
+  try {
+    return await tauriListen<T>(event, (e) => handler(e.payload));
+  } catch (e) {
+    console.error(`listen("${event}") failed:`, e);
+    return null;
+  }
 }

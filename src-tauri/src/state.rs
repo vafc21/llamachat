@@ -6,7 +6,7 @@ use fitllm_core::{
     tools::{ToolLimits, ToolRegistry},
     BenchmarkResult, CatalogModel, HardwareProfile, ModelCatalog,
 };
-use fitllm_core::tools::{ShellTool, FilesystemTool, ProcessTool, DesktopTool};
+use fitllm_core::tools::{ShellTool, FilesystemTool, ProcessTool, DesktopTool, ComputerTool};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
@@ -34,6 +34,10 @@ pub struct Inner {
     pub settings: AppSettings,
     /// Tool registry with safety policies.
     pub tools: ToolRegistry,
+    /// Agent-mode control: Ask-mode approval decision (Some(true/false) once the
+    /// user responds) and a Stop flag for Auto/Bypass runs.
+    pub agent_decision: Option<bool>,
+    pub agent_stop: bool,
 }
 
 impl Inner {
@@ -67,6 +71,7 @@ impl AppState {
         tools.register(Box::new(FilesystemTool::new(ToolLimits::default())));
         tools.register(Box::new(ProcessTool::new(ToolLimits::default())));
         tools.register(Box::new(DesktopTool::new()));
+        tools.register(Box::new(ComputerTool::new()));
 
         Ok(AppState(Mutex::new(Inner {
             store,
@@ -78,6 +83,8 @@ impl AppState {
             consent_granted,
             settings,
             tools,
+            agent_decision: None,
+            agent_stop: false,
         })))
     }
 }

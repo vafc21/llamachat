@@ -1,182 +1,32 @@
-import { useState, useEffect } from 'react'
-import type { HardwareProfile, Recommendation, BenchmarkIntensity, LevelPlan } from '../types'
-import { INTENSITY_OPTIONS, cohortForIntensity } from '../types'
-import { invoke } from '../tauri'
-
-const INTENSITY_KEY = 'fitllm.benchmarkIntensity'
-
-// Mock hardware data — real version calls the Tauri backend
-const MOCK_HARDWARE: HardwareProfile = {
-  cpu: {
-    model: 'AMD Ryzen 5 5500',
-    vendor: 'AuthenticAMD',
-    physical_cores: 6,
-    logical_cores: 12,
-    max_clock_mhz: 4507,
-    flags: { avx2: true, avx512: false, fma: true, f16c: true, neon: false },
-  },
-  gpus: [
-    {
-      vendor: 'NVIDIA',
-      model: 'GeForce GTX 1080',
-      vram_total_mb: 8192,
-      vram_free_mb: 6305,
-      backend: 'cuda',
-      cuda_version: '13.0',
-    },
-  ],
-  memory: { total_mb: 31372, available_mb: 23512 },
-  storage: { models_dir: '~/.cache/fitllm/models', free_mb: 839995 },
-  os: { name: 'Ubuntu', version: '26.04', arch: 'x86_64' },
-  backends: ['cuda', 'cpu'],
-  detected_at: new Date().toISOString(),
-};
-
-const MOCK_RECS: Recommendation[] = [
-  {
-    model_id: 'llama3.2-3b',
-    display_name: 'Llama 3.2 3B',
-    params_b: 3.2,
-    quality_score: 63,
-    intelligence_score: 6.3,
-    speed_score: 10,
-    quant: 'Q8_0',
-    tier: 'blazing',
-    estimated_tokens_per_sec: 120,
-    measured_tokens_per_sec: null,
-    memory_fit: {
-      required_mb: 3521,
-      gpu_available_mb: 8192,
-      ram_available_mb: 31372,
-      fits_gpu: true,
-      offload: false,
-      gpu_layers_fraction: 1.0,
-    },
-    context_comfortable: 131072,
-    why: 'Blazing: ~120 tok/s on GPU, fits fully in 8GB VRAM, 128k context.',
-    ollama_pull: 'llama3.2:3b',
-  },
-];
-
-// Dev-only fallback plan (browser build without a Tauri backend) so the tier
-// picker still demonstrates escalating, per-tier models. Real builds get the
-// hardware-sized plan from `get_benchmark_plan`.
-const MOCK_STANDARD: Recommendation = {
-  ...MOCK_RECS[0],
-  model_id: 'gemma2-9b',
-  display_name: 'Gemma 2 9B',
-  params_b: 9.2,
-  intelligence_score: 7.4,
-  speed_score: 8,
-  tier: 'great',
-  ollama_pull: 'gemma2:9b',
-  why: 'Great: strong everyday quality that stays snappy on this machine.',
-};
-const MOCK_MAX: Recommendation = {
-  ...MOCK_RECS[0],
-  model_id: 'qwen2.5-32b',
-  display_name: 'Qwen2.5 32B',
-  params_b: 32.5,
-  intelligence_score: 8.4,
-  speed_score: 5,
-  tier: 'okay',
-  ollama_pull: 'qwen2.5:32b',
-  why: 'Okay: the biggest model this machine can run — pushes the hardware.',
-};
-const MOCK_PLAN: LevelPlan = {
-  quick: MOCK_RECS[0],
-  standard: MOCK_STANDARD,
-  max: MOCK_MAX,
-  quick_set: [MOCK_RECS[0]],
-  standard_set: [MOCK_STANDARD, MOCK_RECS[0]],
-  all: [MOCK_MAX, MOCK_STANDARD, MOCK_RECS[0]],
-};
-
-type Step = 'profiling' | 'intensity' | 'recommendation' | 'downloading' | 'done';
+import type { HardwareProfile, TierModel } from '../types'
+import { downloadGb, modelBlurb } from '../models'
 
 interface Props {
-  onComplete: (hw: HardwareProfile, model: string) => void;
+  /** 'profiling' while detecting hardware, 'setup' while pulling models. */
+  phase: 'profiling' | 'setup';
+  hardware: HardwareProfile | null;
+  tiers: TierModel[];
+  /** Continue to chat manually (offered if the Quick model fails to download). */
+  onContinue: () => void;
+  /** Open the full model catalog (all AIs) to pick or add a custom one. */
+  onBrowseAll: () => void;
 }
 
-export function SetupWizard({ onComplete }: Props) {
-  const [step, setStep] = useState<Step>('profiling');
-  const [hardware, setHardware] = useState<HardwareProfile | null>(null);
-  const [rec, setRec] = useState<Recommendation | null>(null);
-  const [progress, setProgress] = useState(0);
-  const [eta, setEta] = useState('');
-  const [intensity, setIntensity] = useState<BenchmarkIntensity>('balanced');
-  const [plan, setPlan] = useState<LevelPlan | null>(null);
-
-  // Simulate hardware detection, then ask how hard to benchmark.
-  useEffect(() => {
-    if (step !== 'profiling') return;
-    const timer = setTimeout(() => {
-      setHardware(MOCK_HARDWARE);
-      setRec(MOCK_RECS[0]);
-      setStep('intensity');
-    }, 1200);
-    return () => clearTimeout(timer);
-  }, [step]);
-
-  // On the tier step, fetch the hardware-sized plan so each tier can show the
-  // exact model it will run (name + scores) BEFORE the user commits. In a plain
-  // browser dev build `invoke` returns null and we fall back to the mock recs.
-  useEffect(() => {
-    if (step !== 'intensity') return;
-    let alive = true;
-    invoke<LevelPlan>('get_benchmark_plan')
-      .then((p) => {
-        if (!alive) return;
-        setPlan(p ?? MOCK_PLAN);
-      })
-      .catch(() => alive && setPlan(MOCK_PLAN));
-    return () => {
-      alive = false;
-    };
-  }, [step]);
-
-  function confirmIntensity() {
-    try {
-      localStorage.setItem(INTENSITY_KEY, intensity);
-    } catch { /* storage may be unavailable; the default still applies */ }
-    setStep('recommendation');
-  }
-
-  // Simulate download
-  function handleDownload() {
-    if (!rec) return;
-    setStep('downloading');
-    setProgress(0);
-
-    const sizeMB = rec.memory_fit.required_mb;
-    const totalMs = Math.min(sizeMB * 2, 15000); // simulate network speed
-
-    const start = Date.now();
-    const iv = setInterval(() => {
-      const elapsed = Date.now() - start;
-      const pct = Math.min(Math.round((elapsed / totalMs) * 100), 99);
-      setProgress(pct);
-
-      const remaining = totalMs - elapsed;
-      if (remaining > 0) {
-        const secs = Math.ceil(remaining / 1000);
-        setEta(`${secs}s remaining`);
-      }
-    }, 200);
-
-    setTimeout(() => {
-      clearInterval(iv);
-      setProgress(100);
-      setEta('');
-      setTimeout(() => setStep('done'), 500);
-    }, totalMs);
-  }
+/**
+ * First-run onboarding — purely presentational. App.tsx drives the real work
+ * (hardware detection via `get_hardware_profile`, auto-downloading the three
+ * tier models) and feeds the live state in as props. Chat opens automatically
+ * the moment the Quick model is ready.
+ */
+export function SetupWizard({ phase, hardware, tiers, onContinue, onBrowseAll }: Props) {
+  const quick = tiers[0];
+  const quickFailed = quick?.status === 'error';
+  const totalGb = tiers.reduce((sum, t) => sum + (parseFloat(downloadGb(t.rec)) || 0), 0);
 
   return (
     <div className="h-full flex items-center justify-center bg-bg">
       <div className="w-full max-w-md">
-        {/* Step 1: Profiling */}
-        {step === 'profiling' && (
+        {phase === 'profiling' && (
           <div className="text-center space-y-4">
             <div className="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin mx-auto" />
             <div>
@@ -188,184 +38,108 @@ export function SetupWizard({ onComplete }: Props) {
           </div>
         )}
 
-        {/* Step 1.5: Benchmark intensity */}
-        {step === 'intensity' && (
+        {phase === 'setup' && (
           <div className="space-y-5">
+            {/* Hardware summary — real, detected values */}
+            {hardware && (
+              <div className="border border-border rounded-lg p-4 bg-surface">
+                <div className="text-[10px] text-text-muted uppercase tracking-wide mb-3">Your machine</div>
+                <div className="grid grid-cols-2 gap-2 text-[12px]">
+                  <Row label="CPU" value={`${hardware.cpu.model} (${hardware.cpu.physical_cores}C/${hardware.cpu.logical_cores}T)`} />
+                  <Row
+                    label="GPU"
+                    value={
+                      hardware.gpus[0]
+                        ? `${hardware.gpus[0].model}${hardware.gpus[0].vram_total_mb ? ` · ${(hardware.gpus[0].vram_total_mb / 1024).toFixed(0)}GB` : ''}`
+                        : 'Integrated'
+                    }
+                  />
+                  <Row label="RAM" value={`${(hardware.memory.total_mb / 1024).toFixed(0)}GB (${(hardware.memory.available_mb / 1024).toFixed(0)}GB free)`} />
+                  <Row label="Backend" value={hardware.backends.map((b) => b.toUpperCase()).join(' · ')} />
+                </div>
+              </div>
+            )}
+
+            {/* Auto-download of the three tiers */}
             <div>
-              <p className="text-sm text-text font-medium">Pick how far to push your machine</p>
+              <p className="text-sm text-text font-medium">Setting up your models</p>
               <p className="text-[11px] text-text-muted mt-1">
-                Each level runs a different model, sized to your hardware — shown on each option below. You can change it later in Settings.
+                Downloading a Quick, Smart, and Best model sized to your machine
+                {totalGb > 0 ? ` (~${totalGb.toFixed(1)} GB total)` : ''}. Chat opens as soon as Quick is
+                ready — the rest finish in the background.
               </p>
             </div>
 
             <div className="space-y-2">
-              {INTENSITY_OPTIONS.map((opt) => {
-                const active = intensity === opt.id;
-                const cohort = cohortForIntensity(plan, opt.id);
-                return (
-                  <button
-                    key={opt.id}
-                    onClick={() => setIntensity(opt.id)}
-                    className={`w-full text-left rounded-lg p-3 border transition-colors ${
-                      active
-                        ? 'border-accent bg-accent-dim'
-                        : 'border-border bg-surface hover:border-accent/40'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-[13px] font-medium text-text">
-                        {opt.title} <span className="text-text-muted font-normal">· {opt.blurb}</span>
-                      </span>
-                      <span
-                        className={`w-3.5 h-3.5 rounded-full border ${
-                          active ? 'border-accent bg-accent' : 'border-text-muted'
-                        }`}
-                      />
-                    </div>
-                    <p className="text-[11px] text-text-muted mt-1">{opt.detail}</p>
-                    {cohort.length > 0 ? (
-                      <div className="mt-2 space-y-1">
-                        <span className="text-[11px] text-text font-medium">
-                          Runs &amp; reports {cohort.length} model{cohort.length === 1 ? '' : 's'}:
-                        </span>
-                        <div className="space-y-0.5">
-                          {cohort.slice(0, 4).map((m) => (
-                            <div key={m.model_id} className="flex items-center justify-between text-[11px]">
-                              <span className="text-text">{m.display_name}</span>
-                              <span className="text-text-muted">
-                                smart {m.intelligence_score.toFixed(0)}/10 · fast {m.speed_score.toFixed(0)}/10
-                              </span>
-                            </div>
-                          ))}
-                          {cohort.length > 4 && (
-                            <div className="text-[11px] text-text-muted">+{cohort.length - 4} more</div>
-                          )}
-                        </div>
-                      </div>
-                    ) : (
-                      <p className="mt-2 text-[11px] text-text-muted italic">Sizing models to your machine…</p>
-                    )}
-                  </button>
-                );
-              })}
+              {tiers.map((t) => (
+                <DownloadRow key={t.tier} t={t} />
+              ))}
+              {tiers.length === 0 && (
+                <p className="text-[11px] text-text-muted italic">Sizing models to your machine…</p>
+              )}
             </div>
 
+            {/* Custom: browse the entire catalog of AIs */}
             <button
-              onClick={confirmIntensity}
-              className="w-full py-2.5 bg-accent text-white text-[13px] font-medium rounded-lg
-                         hover:opacity-90 transition-opacity"
+              onClick={onBrowseAll}
+              className="w-full py-2 text-[12px] text-text-secondary rounded-lg border border-border
+                         hover:border-border-strong hover:text-text transition-colors"
             >
-              Continue
-            </button>
-          </div>
-        )}
-
-        {/* Step 2: Recommendation */}
-        {step === 'recommendation' && hardware && rec && (
-          <div className="space-y-5">
-            {/* Hardware summary */}
-            <div className="border border-border rounded-lg p-4 bg-surface">
-              <div className="text-[10px] text-text-muted uppercase tracking-wide mb-3">
-                Your machine
-              </div>
-              <div className="grid grid-cols-2 gap-2 text-[12px]">
-                <Row label="CPU" value={`${hardware.cpu.model} (${hardware.cpu.physical_cores}C/${hardware.cpu.logical_cores}T)`} />
-                <Row label="GPU" value={`${hardware.gpus[0].model} · ${(hardware.gpus[0].vram_total_mb! / 1024).toFixed(0)}GB`} />
-                <Row label="RAM" value={`${(hardware.memory.total_mb / 1024).toFixed(0)}GB (${(hardware.memory.available_mb / 1024).toFixed(0)}GB free)`} />
-                <Row label="Backend" value={hardware.backends.map(b => b.toUpperCase()).join(' · ')} />
-              </div>
-            </div>
-
-            {/* Recommendation */}
-            <div className="border border-accent/30 rounded-lg p-4 bg-accent-dim">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-[10px] text-text-muted uppercase tracking-wide">
-                  Best model for your machine
-                </span>
-                <span className="text-[10px] text-accent font-medium">
-                  Blazing
-                </span>
-              </div>
-              <div className="text-sm font-medium text-text mb-1">
-                {rec.display_name} · {rec.quant}
-              </div>
-              <p className="text-[11px] text-text-secondary leading-relaxed">
-                {rec.why}
-              </p>
-              <div className="mt-3 grid grid-cols-2 gap-3">
-                <ScoreBar label="Intelligence" score={rec.intelligence_score} />
-                <ScoreBar label="Speed" score={rec.speed_score} />
-              </div>
-              <div className="flex gap-3 mt-3 text-[10px] text-text-muted">
-                <span>{rec.memory_fit.required_mb}MB download</span>
-                <span>~{rec.estimated_tokens_per_sec?.toFixed(0)} tok/s</span>
-              </div>
-            </div>
-
-            <button
-              onClick={handleDownload}
-              className="w-full py-2.5 bg-accent text-white text-[13px] font-medium rounded-lg
-                         hover:opacity-90 transition-opacity"
-            >
-              Download & Start
+              Custom — browse all models &amp; pick your own →
             </button>
 
-            <p className="text-[10px] text-text-muted text-center">
-              Downloads ~{rec.memory_fit.required_mb}MB. Nothing leaves your device.
-            </p>
-          </div>
-        )}
-
-        {/* Step 3: Downloading */}
-        {step === 'downloading' && (
-          <div className="space-y-4">
-            <div>
-              <p className="text-sm text-text font-medium">Downloading model</p>
-              <p className="text-[11px] text-text-muted mt-0.5">
-                {rec?.display_name} · {rec?.quant} · {rec?.ollama_pull}
-              </p>
-            </div>
-
-            {/* Progress bar */}
-            <div className="space-y-1.5">
-              <div className="h-1 bg-white/[0.04] rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-accent rounded-full transition-all duration-300"
-                  style={{ width: `${progress}%` }}
-                />
+            {quickFailed && (
+              <div className="space-y-2">
+                <p className="text-[11px] text-red-400">
+                  Couldn't download the Quick model{quick?.detail ? `: ${quick.detail}` : '.'}
+                </p>
+                <button
+                  onClick={onContinue}
+                  className="w-full py-2 bg-accent text-white text-[13px] font-medium rounded-lg hover:opacity-90 transition-opacity"
+                >
+                  Continue to chat anyway
+                </button>
               </div>
-              <div className="flex justify-between text-[10px] text-text-muted">
-                <span>{progress}%</span>
-                <span>{eta}</span>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Step 4: Done — transitions to chat */}
-        {step === 'done' && (
-          <div className="text-center space-y-4 animate-fade-in">
-            <div className="w-8 h-8 rounded-full bg-accent-dim flex items-center justify-center mx-auto">
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                <path d="M3 8l3 3 7-7" stroke="var(--color-accent)" strokeWidth="2" />
-              </svg>
-            </div>
-            <div>
-              <p className="text-sm text-text font-medium">Ready</p>
-              <p className="text-[11px] text-text-muted mt-1">
-                {rec?.display_name} is loaded and ready.
-              </p>
-            </div>
-            <button
-              onClick={() => hardware && rec && onComplete(hardware, rec.ollama_pull)}
-              className="px-6 py-2 bg-accent text-white text-[13px] font-medium rounded-lg
-                         hover:opacity-90 transition-opacity"
-            >
-              Start
-            </button>
+            )}
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/** One tier's card: what the model is, how big, its scores, and download state. */
+function DownloadRow({ t }: { t: TierModel }) {
+  const done = t.status === 'ready';
+  const failed = t.status === 'error';
+  return (
+    <div className="border border-border rounded-lg p-3 bg-surface">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-[12px] text-text font-medium flex items-center gap-1.5">
+            <span>{t.icon}</span> {t.label}
+            <span className="text-text-muted font-normal">· {t.rec.display_name}</span>
+          </div>
+          {/* Explain the model */}
+          <p className="text-[11px] text-text-muted mt-0.5 leading-snug">{modelBlurb(t.rec)}</p>
+        </div>
+        <span className={`text-[10px] flex-shrink-0 ${done ? 'text-emerald-400' : failed ? 'text-red-400' : 'text-text-muted'}`}>
+          {done ? 'Ready' : failed ? 'Failed' : t.status === 'downloading' ? `${Math.round(t.pct)}%` : 'Queued'}
+        </span>
+      </div>
+
+      {/* Size + scores */}
+      <div className="flex items-center gap-3 mt-2 text-[10px] text-text-muted">
+        <span className="text-text">{downloadGb(t.rec)} GB download</span>
+        <span>smart {t.rec.intelligence_score.toFixed(0)}/10</span>
+        <span>fast {t.rec.speed_score.toFixed(0)}/10</span>
+      </div>
+
+      {!done && !failed && (
+        <div className="mt-2 h-1 bg-white/[0.04] rounded-full overflow-hidden">
+          <div className="h-full bg-accent rounded-full transition-all duration-300" style={{ width: `${t.pct}%` }} />
+        </div>
+      )}
     </div>
   );
 }

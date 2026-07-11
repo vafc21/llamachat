@@ -155,9 +155,16 @@ pub fn plan_levels(
     let quick = best_by_quality(&blazing).or(fastest_fit.clone());
     // Standard: best-quality model that runs Great or better (fall back to Quick).
     let standard = best_by_quality(&great_plus).or_else(|| quick.clone());
-    // Max: best-quality model that FITS — reaches the biggest capable model,
-    // even if the heuristic thinks it's slow (the measured run tells the truth).
-    let max = best_by_quality(&fits).or_else(|| standard.clone());
+    // Max/Best: best-quality model that fits FULLY in GPU/unified memory (no CPU
+    // spill). A model that must offload to CPU technically "fits" but crawls
+    // (e.g. a 22B on a 16GB Mac), so it makes a poor default Best. Fall back to
+    // any fitting model, then Standard, so the tier always resolves. Oversized
+    // models stay reachable via the full catalog, flagged as slow.
+    let fits_fully: Vec<Recommendation> =
+        fits.iter().filter(|r| r.memory_fit.fits_gpu).cloned().collect();
+    let max = best_by_quality(&fits_fully)
+        .or_else(|| best_by_quality(&fits))
+        .or_else(|| standard.clone());
 
     // Cohorts: each tier RUNS and reports every model in its cohort — it never
     // picks one and stops. Quick = the fast (Blazing) models; Standard = Great+;
@@ -289,9 +296,14 @@ impl MachineMemory {
         let gpu_factor = gpu_speed_factor(p);
 
         if unified {
-            // Unified memory: the "GPU" can address (most of) system RAM.
+            // Unified memory is shared with the OS, window server, and the
+            // model's KV cache — you can't dedicate all of it to weights. A model
+            // that *technically* fits the full pool spills to CPU in practice
+            // (e.g. a 22B on a 16GB Mac). Reserve headroom so "fits GPU" means
+            // "actually runs fully on Metal".
+            let usable = ((ram_mb as f64) * 0.72) as u64;
             return MachineMemory {
-                gpu_mb: ram_mb,
+                gpu_mb: usable,
                 ram_mb,
                 unified: true,
                 has_gpu: true,

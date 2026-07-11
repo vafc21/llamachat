@@ -140,6 +140,30 @@ export function cohortForIntensity(
   return plan.all;
 }
 
+// ── Auto-downloaded model tiers (onboarding + bottom picker) ─
+
+/** The three tiers we auto-download and expose in the chat model picker. */
+export type TierId = 'quick' | 'smart' | 'best';
+
+/** Download/readiness state of a tier's model. */
+export type ModelStatus = 'pending' | 'downloading' | 'ready' | 'error';
+
+/** A tier model the app pulls on first run and lets you switch between. */
+export interface TierModel {
+  tier: TierId;
+  /** Short human label: "Quick" | "Smart" | "Best". */
+  label: string;
+  /** Emoji marker shown in the picker. */
+  icon: string;
+  /** The concrete model (name, scores, ollama_pull tag). */
+  rec: Recommendation;
+  status: ModelStatus;
+  /** Download progress 0-100. */
+  pct: number;
+  /** Last status line or error detail. */
+  detail?: string;
+}
+
 // ── Model library + settings ───────────────────────────────
 
 /** User-tunable app settings, persisted by the backend. */
@@ -149,8 +173,26 @@ export interface AppSettings {
   model_override: string | null;
   /** Where downloaded models live on disk (display only). */
   models_dir: string | null;
+  /** Directory for chats + memory.md (markdown). null = app data dir. */
+  memory_dir: string | null;
   /** True when usage reporting is turned off (it always is — shown for reassurance). */
   telemetry_off: boolean;
+}
+
+/** One message in a persisted conversation (markdown transcript). */
+export interface ConvMsgDto {
+  role: string;
+  content: string;
+  timestamp: string;
+}
+
+/** A persisted conversation, round-tripped to/from a markdown file. */
+export interface ConvDto {
+  id: string;
+  title: string;
+  createdAt: string;
+  systemPrompt?: string;
+  messages: ConvMsgDto[];
 }
 
 /** Fields the user fills in when adding their own model. */
@@ -204,4 +246,19 @@ export interface Conversation {
   title: string;
   messages: Message[];
   createdAt: string;
+  /** Optional system-prompt override for this conversation (from /system). */
+  systemPrompt?: string;
+}
+
+/** A user-defined skill, invocable in chat as /<name> (like Claude Code skills). */
+export interface Skill {
+  id: string;
+  /** Slash-invocable slug, e.g. "summarize" → /summarize. Lowercase, no spaces. */
+  name: string;
+  /** Human-readable title shown in the Skills tab and command menu. */
+  title: string;
+  /** Instructions injected as the system prompt when the skill is invoked. */
+  instructions: string;
+  /** One-line description shown in the command menu. */
+  description?: string;
 }

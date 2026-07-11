@@ -1,7 +1,10 @@
 // Prevents an extra console window on Windows in release.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod agent;
 mod commands;
+mod memory;
+mod ollama;
 mod settings;
 mod sidecar;
 mod state;
@@ -45,6 +48,12 @@ fn main() {
                     _ => {}
                 })
                 .build(app)?;
+
+            // Warm up Ollama in the background so the first model download / chat
+            // doesn't pay the server cold-start cost.
+            std::thread::spawn(|| {
+                let _ = ollama::ensure_running();
+            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -63,6 +72,16 @@ fn main() {
             commands::add_custom_model,
             commands::remove_custom_model,
             commands::download_model,
+            commands::list_installed_models,
+            commands::save_conversation,
+            commands::list_conversations,
+            commands::delete_conversation,
+            commands::get_memory,
+            commands::set_memory,
+            commands::get_memory_dir,
+            commands::run_agent,
+            commands::approve_agent,
+            commands::stop_agent,
             commands::list_tools,
             commands::execute_tool,
             commands::tool_needs_approval,

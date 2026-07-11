@@ -69,11 +69,19 @@ function writeCustomTags(tags: Set<string>) {
 
 type SortKey = 'intelligence' | 'speed';
 
-export function ModelLibrary() {
+interface ModelLibraryProps {
+  /** Selected tag currently used for chat (highlighted). */
+  selectedModel?: string;
+  /** Pick a downloaded model to chat with; returns to chat. */
+  onUseModel?: (tag: string) => void;
+}
+
+export function ModelLibrary({ selectedModel, onUseModel }: ModelLibraryProps = {}) {
   const [models, setModels] = useState<Recommendation[]>([]);
   const [loading, setLoading] = useState(true);
   const [sortKey, setSortKey] = useState<SortKey>('intelligence');
   const [progress, setProgress] = useState<Record<string, DownloadProgress>>({});
+  const [installed, setInstalled] = useState<Set<string>>(new Set());
   const [customTags, setCustomTags] = useState<Set<string>>(() => readCustomTags());
   const [showAdd, setShowAdd] = useState(false);
 
@@ -81,6 +89,8 @@ export function ModelLibrary() {
     setLoading(true);
     const recs = await invoke<Recommendation[]>('get_recommendations');
     setModels(recs && recs.length ? recs : MOCK_RECS);
+    const inst = await invoke<string[]>('list_installed_models');
+    if (inst) setInstalled(new Set(inst));
     setLoading(false);
   }, []);
 
@@ -91,6 +101,7 @@ export function ModelLibrary() {
     let unlisten: (() => void) | null = null;
     listen<DownloadProgress>('download_progress', (p) => {
       setProgress((prev) => ({ ...prev, [p.tag]: p }));
+      if (p.status === 'done') setInstalled((prev) => new Set(prev).add(p.tag));
     }).then((u) => { unlisten = u; });
     return () => { unlisten?.(); };
   }, []);
@@ -207,8 +218,11 @@ export function ModelLibrary() {
             rec={rec}
             progress={progress[rec.ollama_pull]}
             isCustom={customTags.has(rec.ollama_pull)}
+            isInstalled={installed.has(rec.ollama_pull)}
+            isActive={selectedModel === rec.ollama_pull}
             onDownload={() => handleDownload(rec.ollama_pull)}
             onRemove={() => handleRemove(rec)}
+            onUse={onUseModel ? () => onUseModel(rec.ollama_pull) : undefined}
           />
         ))}
       </div>
@@ -217,16 +231,19 @@ export function ModelLibrary() {
 }
 
 function ModelRow({
-  rec, progress, isCustom, onDownload, onRemove,
+  rec, progress, isCustom, isInstalled, isActive, onDownload, onRemove, onUse,
 }: {
   rec: Recommendation;
   progress?: DownloadProgress;
   isCustom: boolean;
+  isInstalled: boolean;
+  isActive: boolean;
   onDownload: () => void;
   onRemove: () => void;
+  onUse?: () => void;
 }) {
   const downloading = !!progress && progress.pct < 100 && progress.status !== 'done';
-  const done = progress?.pct === 100 || progress?.status === 'done';
+  const done = isInstalled || progress?.pct === 100 || progress?.status === 'done';
   const sizeGb = rec.memory_fit.required_mb ? (rec.memory_fit.required_mb / 1024).toFixed(1) : null;
 
   return (
@@ -246,6 +263,11 @@ function ModelRow({
               {TIER_LABEL[rec.tier]}
             </span>
             {sizeGb && <span className="text-[10px] text-text-muted">{sizeGb} GB download</span>}
+            {rec.memory_fit.offload && (
+              <span className="text-[10px] text-warning" title="Larger than your memory — runs partly on CPU, so it's slow.">
+                ⚠ slow — larger than your memory
+              </span>
+            )}
           </div>
         </div>
 
@@ -259,7 +281,19 @@ function ModelRow({
               Download
             </button>
           )}
-          {done && (
+          {done && isActive && (
+            <span className="text-[11px] text-accent font-medium px-2">In use</span>
+          )}
+          {done && !isActive && onUse && (
+            <button
+              onClick={onUse}
+              className="px-3 py-1.5 rounded text-[12px] font-medium bg-accent text-white
+                         hover:opacity-90 transition-opacity"
+            >
+              Use in chat
+            </button>
+          )}
+          {done && !isActive && !onUse && (
             <span className="text-[11px] text-success font-medium px-2">Installed</span>
           )}
           {isCustom && (

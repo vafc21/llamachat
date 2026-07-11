@@ -6,11 +6,13 @@ pub mod shell;
 pub mod filesystem;
 pub mod process;
 pub mod desktop;
+pub mod computer;
 
 pub use shell::ShellTool;
 pub use filesystem::FilesystemTool;
 pub use process::ProcessTool;
 pub use desktop::DesktopTool;
+pub use computer::ComputerTool;
 
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -133,6 +135,11 @@ impl ToolRegistry {
 
     pub fn register(&mut self, tool: Box<dyn Tool>) {
         self.tools.push(tool);
+    }
+
+    /// Allow or forbid destructive tools (kept in sync with the user's consent).
+    pub fn set_destructive_allowed(&mut self, allowed: bool) {
+        self.destructive_allowed = allowed;
     }
 
     pub fn list_tools(&self) -> Vec<ToolInfo> {

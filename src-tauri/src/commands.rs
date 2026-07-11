@@ -1,6 +1,8 @@
 //! Tauri IPC commands — the bridge between the React UI and the core engine.
 //! Command names and payload shapes match `CONTRACT.md`.
 
+use crate::memory::{self, ConvDto};
+use crate::ollama;
 use crate::settings::{self, AppSettings, CustomModelInput};
 use crate::sidecar;
 use crate::state::{data_dir, AppState};
@@ -9,6 +11,12 @@ use fitllm_core::tools::ToolRequest;
 use std::io::Read;
 use std::process::{Command, Stdio};
 use tauri::{Emitter, Manager, State};
+
+/// Plain conversational system prompt used for chat when the caller doesn't
+/// supply one (e.g. from a skill or `/system`).
+const DEFAULT_CHAT_PROMPT: &str = "You are FitLLM, a helpful AI assistant running locally on the \
+    user's machine. Reply directly and conversationally in plain language. Be concise and accurate. \
+    Do not output JSON, function calls, or tool syntax unless the user explicitly asks for code.";
 
 
 /// Detect (or return the cached) hardware profile. Read-only.
@@ -69,6 +77,8 @@ pub fn get_consent(state: State<AppState>) -> Result<bool, String> {
 pub fn set_consent(state: State<AppState>, granted: bool) -> Result<(), String> {
     let mut inner = state.0.lock().map_err(|e| e.to_string())?;
     inner.consent_granted = granted;
+    // Keep the tool registry in sync so destructive tools (shell) unlock immediately.
+    inner.tools.set_destructive_allowed(granted);
     let path = data_dir().join("consent");
     if granted {
         std::fs::write(path, chrono::Utc::now().to_rfc3339()).ok();
@@ -281,37 +291,173 @@ pub fn get_tool_system_prompt(state: State<AppState>) -> Result<String, String> 
 pub fn send_message(
     app: tauri::AppHandle,
     state: State<AppState>,
-    message: String,
+    messages: Vec<serde_json::Value>,
+    model: Option<String>,
+    system: Option<String>,
 ) -> Result<(), String> {
-    let (model_tag, messages, system_prompt) = {
+    let (model_tag, system_prompt) = {
         let inner = state.0.lock().map_err(|e| e.to_string())?;
         let profile = inner.profile.clone();
         let catalog = inner.catalog.clone();
         let benchmarks = inner.benchmarks.clone();
-        let sys = inner.tools.system_prompt();
 
-        // Pick best model from recommendations, or fall back
-        let model = if let Some(p) = profile {
-            let recs = recommend::rate_all(&p, &catalog, &benchmarks);
-            recs.first()
-                .map(|r| r.ollama_pull.clone())
-                .unwrap_or_else(|| "llama3.2:1b".into())
+        // System prompt: caller override (a skill or /system), else a plain
+        // conversational default. The tool-calling prompt is NOT used here — it
+        // makes models emit raw tool JSON for every message. Long-term memory
+        // (memory.md) is auto-injected so the model always "knows" saved facts.
+        let base_sys = match system {
+            Some(s) if !s.trim().is_empty() => s,
+            _ => DEFAULT_CHAT_PROMPT.to_string(),
+        };
+        let mem = memory::read_memory(&inner.settings.memory_dir);
+        let sys = if mem.trim().is_empty() {
+            base_sys
         } else {
-            "llama3.2:1b".into()
+            format!(
+                "{base_sys}\n\nWhat you know about the user (their saved memory — use it when relevant, don't recite it verbatim):\n{}",
+                mem.trim()
+            )
         };
 
-        let msgs = vec![serde_json::json!({"role": "user", "content": message})];
-        (model, msgs, sys)
+        // Honour the model the UI selected (the picker); otherwise pick the best
+        // model from recommendations, or fall back to a tiny default.
+        let model = match model {
+            Some(m) if !m.trim().is_empty() => m,
+            _ => {
+                if let Some(p) = profile {
+                    let recs = recommend::rate_all(&p, &catalog, &benchmarks);
+                    recs.first()
+                        .map(|r| r.ollama_pull.clone())
+                        .unwrap_or_else(|| "llama3.2:1b".into())
+                } else {
+                    "llama3.2:1b".into()
+                }
+            }
+        };
+
+        (model, sys)
     };
 
-    // Run in background thread to not block the main thread
+    // Run in background thread to not block the main thread.
     std::thread::spawn(move || {
-        let _ = sidecar::chat(&model_tag, &messages, &system_prompt, |token| {
+        // Make sure Ollama is reachable before we try to chat.
+        if let Err(e) = ollama::ensure_running() {
+            let _ = app.emit("chat_token", format!("⚠️ {e}"));
+            let _ = app.emit("chat_done", true);
+            return;
+        }
+        if let Err(e) = sidecar::chat(&model_tag, &messages, &system_prompt, |token| {
             let _ = app.emit("chat_token", token.to_string());
-        });
+        }) {
+            let _ = app.emit(
+                "chat_token",
+                format!(
+                    "⚠️ Couldn't reach the model \"{model_tag}\": {e}\n\nIt may still be \
+                     downloading, or Ollama isn't running yet — try again in a moment."
+                ),
+            );
+        }
         let _ = app.emit("chat_done", true);
     });
 
+    Ok(())
+}
+
+/// Which Ollama models are already downloaded locally (by tag), so the UI can
+/// show tier readiness without re-pulling. Ensures the server is up first.
+#[tauri::command]
+pub fn list_installed_models() -> Result<Vec<String>, String> {
+    ollama::ensure_running().ok();
+    sidecar::list_models().map_err(|e| e.to_string())
+}
+
+// ── Markdown memory: chats + long-term memory.md ──────────────
+
+/// Persist one chat as a markdown transcript under the memory dir.
+#[tauri::command]
+pub fn save_conversation(state: State<AppState>, conversation: ConvDto) -> Result<(), String> {
+    let dir = state.0.lock().map_err(|e| e.to_string())?.settings.memory_dir.clone();
+    memory::save_conversation(&dir, &conversation)
+}
+
+/// Load every saved chat (newest first).
+#[tauri::command]
+pub fn list_conversations(state: State<AppState>) -> Result<Vec<ConvDto>, String> {
+    let dir = state.0.lock().map_err(|e| e.to_string())?.settings.memory_dir.clone();
+    Ok(memory::list_conversations(&dir))
+}
+
+/// Delete a saved chat's markdown file.
+#[tauri::command]
+pub fn delete_conversation(state: State<AppState>, id: String) -> Result<(), String> {
+    let dir = state.0.lock().map_err(|e| e.to_string())?.settings.memory_dir.clone();
+    memory::delete_conversation(&dir, &id)
+}
+
+/// Read the long-term memory.md (facts injected into every chat).
+#[tauri::command]
+pub fn get_memory(state: State<AppState>) -> Result<String, String> {
+    let dir = state.0.lock().map_err(|e| e.to_string())?.settings.memory_dir.clone();
+    Ok(memory::read_memory(&dir))
+}
+
+/// Replace the long-term memory.md.
+#[tauri::command]
+pub fn set_memory(state: State<AppState>, content: String) -> Result<(), String> {
+    let dir = state.0.lock().map_err(|e| e.to_string())?.settings.memory_dir.clone();
+    memory::write_memory(&dir, &content)
+}
+
+/// The resolved memory root directory (for display in Settings).
+#[tauri::command]
+pub fn get_memory_dir(state: State<AppState>) -> Result<String, String> {
+    let dir = state.0.lock().map_err(|e| e.to_string())?.settings.memory_dir.clone();
+    Ok(memory::root(&dir).to_string_lossy().to_string())
+}
+
+// ── Agent mode (tool-use loop) ────────────────────────────────
+
+/// Start an agent run in the background. `mode` is plan | ask | auto | bypass.
+/// Emits agent_* events; returns immediately.
+#[tauri::command]
+pub fn run_agent(
+    app: tauri::AppHandle,
+    state: State<AppState>,
+    messages: Vec<serde_json::Value>,
+    model: Option<String>,
+    mode: String,
+) -> Result<(), String> {
+    let model_tag = {
+        let inner = state.0.lock().map_err(|e| e.to_string())?;
+        match model {
+            Some(m) if !m.trim().is_empty() => m,
+            _ => inner
+                .profile
+                .clone()
+                .map(|p| {
+                    recommend::rate_all(&p, &inner.catalog, &inner.benchmarks)
+                        .first()
+                        .map(|r| r.ollama_pull.clone())
+                        .unwrap_or_else(|| "llama3.2:1b".into())
+                })
+                .unwrap_or_else(|| "llama3.2:1b".into()),
+        }
+    };
+    std::thread::spawn(move || crate::agent::run(app, messages, model_tag, mode));
+    Ok(())
+}
+
+/// Answer an Ask-mode approval prompt.
+#[tauri::command]
+pub fn approve_agent(state: State<AppState>, approved: bool) -> Result<(), String> {
+    state.0.lock().map_err(|e| e.to_string())?.agent_decision = Some(approved);
+    Ok(())
+}
+
+/// Stop the running agent after the current step.
+#[tauri::command]
+pub fn stop_agent(state: State<AppState>) -> Result<(), String> {
+    state.0.lock().map_err(|e| e.to_string())?.agent_stop = true;
     Ok(())
 }
 
@@ -382,7 +528,22 @@ pub fn download_model(app: tauri::AppHandle, tag: String) {
 
         emit(None, "pulling", "Starting download…");
 
-        let mut child = match Command::new("ollama")
+        // A GUI-launched app has a minimal PATH and the Ollama server may be
+        // down; make sure it's running and resolve the binary's real path.
+        if let Err(e) = ollama::ensure_running() {
+            emit(None, "error", &e);
+            return;
+        }
+        let Some(ollama_bin) = ollama::ollama_bin() else {
+            emit(
+                None,
+                "error",
+                "Ollama not found. Install it from https://ollama.com/download",
+            );
+            return;
+        };
+
+        let mut child = match Command::new(&ollama_bin)
             .arg("pull")
             .arg(&tag)
             .stdout(Stdio::piped())

@@ -17,6 +17,10 @@ pub struct AppSettings {
     pub model_override: Option<String>,
     /// Override directory where models are stored.
     pub models_dir: Option<String>,
+    /// Override directory where chats + memory.md are stored (markdown files).
+    /// `None` = the app data dir.
+    #[serde(default)]
+    pub memory_dir: Option<String>,
     /// When true (the default), no telemetry is ever collected.
     pub telemetry_off: bool,
 }
@@ -27,6 +31,7 @@ impl Default for AppSettings {
             benchmark_intensity: "balanced".to_string(),
             model_override: None,
             models_dir: None,
+            memory_dir: None,
             telemetry_off: true,
         }
     }

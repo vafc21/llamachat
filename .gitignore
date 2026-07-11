@@ -15,3 +15,6 @@ __pycache__
 /build
 src-tauri/binaries/
 .venv-build
+
+# Tauri-generated capability schemas (per-platform build output)
+/src-tauri/gen/schemas/

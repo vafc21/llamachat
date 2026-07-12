@@ -1,8 +1,8 @@
 # -*- mode: python ; coding: utf-8 -*-
 """PyInstaller spec for the LlamaChat sidecar.
 
-Freezes the ``fitllm_sidecar`` package into a single self-contained binary
-named ``fitllm-sidecar`` (no system Python required at runtime). This lets the
+Freezes the ``llamachat_sidecar`` package into a single self-contained binary
+named ``llamachat-sidecar`` (no system Python required at runtime). This lets the
 macOS .dmg (and other bundles) ship the sidecar as a Tauri external binary.
 
 Build (from the repo root)::
@@ -11,10 +11,10 @@ Build (from the repo root)::
 
 or directly::
 
-    pyinstaller --clean --noconfirm scripts/fitllm-sidecar.spec
+    pyinstaller --clean --noconfirm scripts/llamachat-sidecar.spec
 
-The entry point is ``scripts/fitllm_sidecar_entry.py``, which imports and runs
-``fitllm_sidecar.__main__:main`` — equivalent to ``python -m fitllm_sidecar``.
+The entry point is ``scripts/llamachat_sidecar_entry.py``, which imports and runs
+``llamachat_sidecar.__main__:main`` — equivalent to ``python -m llamachat_sidecar``.
 """
 
 import os
@@ -24,7 +24,7 @@ import os
 # the spec works regardless of the current working directory.
 REPO_ROOT = os.path.abspath(os.path.join(SPECPATH, ".."))
 SIDECAR_SRC = os.path.join(REPO_ROOT, "sidecar", "src")
-ENTRY = os.path.join(SPECPATH, "fitllm_sidecar_entry.py")
+ENTRY = os.path.join(SPECPATH, "llamachat_sidecar_entry.py")
 
 
 block_cipher = None
@@ -39,14 +39,14 @@ a = Analysis(
     # runtime deps and submodules explicitly so a stripped analysis never
     # drops them.
     hiddenimports=[
-        "fitllm_sidecar",
-        "fitllm_sidecar.__main__",
-        "fitllm_sidecar.benchmark",
-        "fitllm_sidecar.server",
-        "fitllm_sidecar.sysmon",
-        "fitllm_sidecar.adapters",
-        "fitllm_sidecar.adapters.base",
-        "fitllm_sidecar.adapters.ollama",
+        "llamachat_sidecar",
+        "llamachat_sidecar.__main__",
+        "llamachat_sidecar.benchmark",
+        "llamachat_sidecar.server",
+        "llamachat_sidecar.sysmon",
+        "llamachat_sidecar.adapters",
+        "llamachat_sidecar.adapters.base",
+        "llamachat_sidecar.adapters.ollama",
         "requests",
         "psutil",
     ],
@@ -69,7 +69,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name="fitllm-sidecar",
+    name="llamachat-sidecar",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

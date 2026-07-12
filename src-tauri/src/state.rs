@@ -1,19 +1,19 @@
 //! Shared application state held behind a mutex and injected into every command.
 
 use crate::settings::{self, AppSettings};
-use fitllm_core::{
+use llamachat_core::{
     catalog, store::Store,
     tools::{ToolLimits, ToolRegistry},
     BenchmarkResult, CatalogModel, HardwareProfile, ModelCatalog,
 };
-use fitllm_core::tools::{ShellTool, FilesystemTool, ProcessTool, DesktopTool, ComputerTool};
+use llamachat_core::tools::{ShellTool, FilesystemTool, ProcessTool, DesktopTool, ComputerTool};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
 /// Where LlamaChat keeps its local SQLite store and settings.
 pub fn data_dir() -> PathBuf {
     let base = dirs::data_dir().unwrap_or_else(|| PathBuf::from("."));
-    base.join("fitllm")
+    base.join("llamachat")
 }
 
 pub struct Inner {
@@ -55,7 +55,7 @@ impl AppState {
     pub fn init() -> anyhow::Result<AppState> {
         let dir = data_dir();
         std::fs::create_dir_all(&dir).ok();
-        let store = Store::open(&dir.join("fitllm.db"))?;
+        let store = Store::open(&dir.join("llamachat.db"))?;
         let base_catalog = catalog::load_bundled()?;
         let custom_models = settings::load_custom_models(&dir);
         let catalog = settings::merged_catalog(&base_catalog, &custom_models);

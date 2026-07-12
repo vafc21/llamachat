@@ -1178,56 +1178,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9844ddc3a6e533d62bba727eb6c28b5d360921d5175e9ff0f1e621a5c590a4d5"
 
 [[package]]
-name = "fitllm"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "base64 0.22.1",
- "chrono",
- "dirs 5.0.1",
- "enigo",
- "fitllm-core",
- "macos-accessibility-client",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-shell",
- "uiautomation",
-]
-
-[[package]]
-name = "fitllm-cli"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "crossterm",
- "fitllm-core",
- "ratatui",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "fitllm-core"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "chrono",
- "enigo",
- "reqwest 0.12.28",
- "rusqlite",
- "serde",
- "serde_json",
- "sysinfo",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
-]
-
-[[package]]
 name = "fixedbitset"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2332,6 +2282,56 @@ name = "litrs"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
+
+[[package]]
+name = "llamachat"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "chrono",
+ "dirs 5.0.1",
+ "enigo",
+ "llamachat-core",
+ "macos-accessibility-client",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-shell",
+ "uiautomation",
+]
+
+[[package]]
+name = "llamachat-cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "crossterm",
+ "llamachat-core",
+ "ratatui",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "llamachat-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "enigo",
+ "reqwest 0.12.28",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sysinfo",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+]
 
 [[package]]
 name = "lock_api"

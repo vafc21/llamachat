@@ -1,4 +1,4 @@
-"""CLI entry point: ``python -m fitllm_sidecar <command> [args]``.
+"""CLI entry point: ``python -m llamachat_sidecar <command> [args]``.
 
 Commands
 --------
@@ -69,7 +69,7 @@ def cmd_dev_server(args) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="fitllm_sidecar",
+        prog="llamachat_sidecar",
         description="LlamaChat benchmark sidecar — talks to local LLM runtimes (Ollama).",
     )
     sub = parser.add_subparsers(dest="command", required=True)

@@ -6,8 +6,8 @@ use crate::ollama;
 use crate::settings::{self, AppSettings, CustomModelInput};
 use crate::sidecar;
 use crate::state::{data_dir, AppState};
-use fitllm_core::{hardware, recommend, HardwareProfile, LevelPlan, ModelCatalog, Recommendation};
-use fitllm_core::tools::ToolRequest;
+use llamachat_core::{hardware, recommend, HardwareProfile, LevelPlan, ModelCatalog, Recommendation};
+use llamachat_core::tools::ToolRequest;
 use std::io::Read;
 use std::process::{Command, Stdio};
 use tauri::{Emitter, Manager, State};
@@ -244,11 +244,11 @@ pub fn wipe_data(state: State<AppState>) -> Result<(), String> {
     inner.benchmarks.clear();
     inner.profile = None;
     let dir = data_dir();
-    std::fs::remove_file(dir.join("fitllm.db")).ok();
+    std::fs::remove_file(dir.join("llamachat.db")).ok();
     std::fs::remove_file(dir.join("consent")).ok();
     inner.consent_granted = false;
     // Reopen a fresh store so the app keeps working after a wipe.
-    if let Ok(store) = fitllm_core::store::Store::open(&dir.join("fitllm.db")) {
+    if let Ok(store) = llamachat_core::store::Store::open(&dir.join("llamachat.db")) {
         inner.store = store;
     }
     Ok(())

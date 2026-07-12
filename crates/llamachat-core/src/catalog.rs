@@ -9,7 +9,7 @@ use anyhow::{Context, Result};
 
 /// The raw JSON of the bundled catalog, embedded at compile time.
 ///
-/// The path is resolved relative to *this source file* (`crates/fitllm-core/src/`),
+/// The path is resolved relative to *this source file* (`crates/llamachat-core/src/`),
 /// so three `..` hops reach the workspace root where `catalog/` lives.
 const BUNDLED_JSON: &str = include_str!("../../../catalog/models.json");
 

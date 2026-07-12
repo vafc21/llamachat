@@ -278,7 +278,7 @@ mod tests {
     #[test]
     fn persists_to_disk() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("fitllm.db");
+        let path = dir.path().join("llamachat.db");
         {
             let s = Store::open(&path).unwrap();
             s.save_profile(&sample_profile()).unwrap();

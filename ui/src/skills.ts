@@ -4,7 +4,7 @@
 
 import type { Skill } from './types'
 
-const KEY = 'fitllm.skills';
+const KEY = 'llamachat.skills';
 
 export function skillUid(): string {
   return 'sk-xxxxxxxx'.replace(/x/g, () => ((Math.random() * 16) | 0).toString(16));

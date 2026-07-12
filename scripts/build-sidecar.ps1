@@ -1,5 +1,5 @@
 # Build the LlamaChat Python sidecar into a single self-contained binary
-# (fitllm-sidecar.exe) on Windows, then stage it where Tauri's bundler expects
+# (llamachat-sidecar.exe) on Windows, then stage it where Tauri's bundler expects
 # an external binary.
 #
 # Usage (from anywhere):
@@ -11,19 +11,19 @@
 #     pip install -r scripts/requirements-sidecar.txt
 #
 # Output:
-#   dist\fitllm-sidecar.exe                          (raw PyInstaller onefile)
-#   src-tauri\binaries\fitllm-sidecar-<triple>.exe   (Tauri externalBin naming)
+#   dist\llamachat-sidecar.exe                          (raw PyInstaller onefile)
+#   src-tauri\binaries\llamachat-sidecar-<triple>.exe   (Tauri externalBin naming)
 #
 # Tauri v2 requires external binaries to carry the target-triple suffix on disk
-# (e.g. fitllm-sidecar-x86_64-pc-windows-msvc.exe); the suffix is stripped when
-# copied into the app. tauri.conf.json references the base "binaries/fitllm-sidecar".
+# (e.g. llamachat-sidecar-x86_64-pc-windows-msvc.exe); the suffix is stripped when
+# copied into the app. tauri.conf.json references the base "binaries/llamachat-sidecar".
 
 $ErrorActionPreference = "Stop"
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RepoRoot  = Split-Path -Parent $ScriptDir
-$Spec      = Join-Path $ScriptDir "fitllm-sidecar.spec"
-$BinName   = "fitllm-sidecar"
+$Spec      = Join-Path $ScriptDir "llamachat-sidecar.spec"
+$BinName   = "llamachat-sidecar"
 $DestDir   = Join-Path $RepoRoot "src-tauri\binaries"
 
 Set-Location $RepoRoot

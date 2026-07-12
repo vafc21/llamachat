@@ -4,7 +4,7 @@
 //! Tauri crate. Both are persisted as plain JSON files in the app `data_dir()`
 //! so they survive restarts and never phone home.
 
-use fitllm_core::{CatalogModel, ModelCatalog, Quant};
+use llamachat_core::{CatalogModel, ModelCatalog, Quant};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 

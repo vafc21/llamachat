@@ -24,7 +24,7 @@ from .benchmark import run_benchmark
 from .sysmon import cpu_load, mem_used_mb
 
 # ── Agent tool system prompt ─────────────────────────────────────
-# Mirrors ToolRegistry::system_prompt() in fitllm-core (crates/fitllm-core/
+# Mirrors ToolRegistry::system_prompt() in llamachat-core (crates/llamachat-core/
 # src/tools/mod.rs). Kept in sync so the sidecar's /agent endpoint drives the
 # same shell/file/process/desktop tools the Rust agent loop understands.
 TOOL_SYSTEM_PROMPT = """You have access to the following tools. To use a tool, output a JSON object with "tool" and "args":
@@ -171,7 +171,7 @@ def _start_http_server(port: int = 9199) -> None:
         def log_message(self, *args):
             pass  # quiet
 
-    print(f"fitllm-sidecar HTTP dev server: http://localhost:{port}")
+    print(f"llamachat-sidecar HTTP dev server: http://localhost:{port}")
     HTTPServer(("0.0.0.0", port), Handler).serve_forever()
 
 

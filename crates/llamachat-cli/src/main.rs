@@ -1,6 +1,6 @@
-//! LlamaChat CLI (`fitllm`).
+//! LlamaChat CLI (`llamachat`).
 //!
-//! A thin, scriptable front door to the pure-Rust `fitllm-core` engine. It lets
+//! A thin, scriptable front door to the pure-Rust `llamachat-core` engine. It lets
 //! you exercise every piece of the Phase 1 core — hardware profiling, the model
 //! catalog, the recommendation engine, and the local store — without building
 //! the Tauri desktop shell (and therefore without needing webkit2gtk installed).
@@ -13,15 +13,15 @@ use std::io::IsTerminal;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
-use fitllm_core::{catalog, hardware, recommend, store::Store, Recommendation};
-use fitllm_core::tools::{ShellTool, FilesystemTool, ProcessTool, DesktopTool, ToolLimits, ToolRegistry, ToolRequest};
+use llamachat_core::{catalog, hardware, recommend, store::Store, Recommendation};
+use llamachat_core::tools::{ShellTool, FilesystemTool, ProcessTool, DesktopTool, ToolLimits, ToolRegistry, ToolRequest};
 
 mod tui;
 
 /// LlamaChat — profile your machine and see which local LLMs will actually run on it.
 #[derive(Debug, Parser)]
 #[command(
-    name = "fitllm",
+    name = "llamachat",
     version,
     about = "Profile your machine and rate which local LLMs will run on it, from \"won't run\" to \"blazing\".",
     long_about = None,
@@ -36,7 +36,7 @@ struct Cli {
 enum Command {
     /// Launch the interactive terminal UI (animated onboarding + live ratings).
     ///
-    /// This is also what you get by running `fitllm` with no arguments in a
+    /// This is also what you get by running `llamachat` with no arguments in a
     /// terminal. Use the subcommands below for scriptable JSON output.
     Tui {
         /// Render the UI to a fixed-size buffer and print it as text, then exit.
@@ -81,7 +81,7 @@ fn main() -> Result<()> {
         Some(Command::StoreInfo) => cmd_store_info(),
         Some(Command::Tools { tool, args }) => cmd_tools(tool, args),
         None => {
-            // Bare `fitllm` in a terminal launches the interactive UI (like
+            // Bare `llamachat` in a terminal launches the interactive UI (like
             // `claude` does); piped/redirected, it prints the scriptable summary.
             if std::io::stdout().is_terminal() && std::io::stdin().is_terminal() {
                 tui::run()
@@ -93,7 +93,7 @@ fn main() -> Result<()> {
     }
 }
 
-/// `fitllm tui` — launch the interactive terminal UI, or (with --selftest) dump
+/// `llamachat tui` — launch the interactive terminal UI, or (with --selftest) dump
 /// a rendered screen as text for headless verification.
 fn cmd_tui(selftest: bool, screen: &str, size: &str) -> Result<()> {
     if !selftest {
@@ -119,21 +119,21 @@ fn cmd_tui(selftest: bool, screen: &str, size: &str) -> Result<()> {
     Ok(())
 }
 
-/// `fitllm profile` — run the hardware profiler and dump the normalized profile.
+/// `llamachat profile` — run the hardware profiler and dump the normalized profile.
 fn cmd_profile() -> Result<()> {
     let profile = hardware::profile().context("hardware profiling failed")?;
     println!("{}", serde_json::to_string_pretty(&profile)?);
     Ok(())
 }
 
-/// `fitllm catalog` — load the bundled catalog and dump it.
+/// `llamachat catalog` — load the bundled catalog and dump it.
 fn cmd_catalog() -> Result<()> {
     let catalog = catalog::load_bundled().context("loading bundled catalog failed")?;
     println!("{}", serde_json::to_string_pretty(&catalog)?);
     Ok(())
 }
 
-/// `fitllm recommend` — heuristic ratings for every catalog model on this box.
+/// `llamachat recommend` — heuristic ratings for every catalog model on this box.
 ///
 /// Benchmarks are intentionally empty here: without an on-device benchmark run
 /// the engine falls back to spec heuristics, which is exactly the "provisional"
@@ -161,7 +161,7 @@ fn cmd_recommend() -> Result<()> {
     Ok(())
 }
 
-/// `fitllm store-info` — prove the local store round-trips a profile.
+/// `llamachat store-info` — prove the local store round-trips a profile.
 fn cmd_store_info() -> Result<()> {
     let store = Store::open_in_memory().context("opening in-memory store failed")?;
     let profile = hardware::profile().context("hardware profiling failed")?;
@@ -189,13 +189,13 @@ fn cmd_store_info() -> Result<()> {
     Ok(())
 }
 
-/// Printed when `fitllm` is run with no subcommand.
+/// Printed when `llamachat` is run with no subcommand.
 fn print_summary() {
     println!(
-        "fitllm {} — which local LLMs will run on your machine?\n",
+        "llamachat {} — which local LLMs will run on your machine?\n",
         env!("CARGO_PKG_VERSION")
     );
-    println!("USAGE:\n    fitllm [SUBCOMMAND]   (no subcommand in a terminal launches the interactive UI)\n");
+    println!("USAGE:\n    llamachat [SUBCOMMAND]   (no subcommand in a terminal launches the interactive UI)\n");
     println!("SUBCOMMANDS:");
     println!("    tui           Launch the interactive terminal UI (animated onboarding + ratings)");
     println!("    profile       Detect hardware and print the HardwareProfile as JSON");
@@ -204,10 +204,10 @@ fn print_summary() {
     println!("    store-info    Round-trip a profile through the local store");
     println!("    tools         List available tools or test one with --args '{{\"key\":\"val\"}}'");
     println!("    help          Print detailed help for any subcommand\n");
-    println!("Run `fitllm <SUBCOMMAND> --help` for more information.");
+    println!("Run `llamachat <SUBCOMMAND> --help` for more information.");
 }
 
-/// `fitllm tools` — list tools or test one.
+/// `llamachat tools` — list tools or test one.
 fn cmd_tools(tool_name: Option<String>, args_json: String) -> Result<()> {
     let limits = ToolLimits::default();
     let mut registry = ToolRegistry::new(limits, true);

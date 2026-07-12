@@ -1,6 +1,6 @@
 //! The LlamaChat interactive terminal UI.
 //!
-//! A Claude-Code-style TUI front door to the `fitllm-core` engine: an animated
+//! A Claude-Code-style TUI front door to the `llamachat-core` engine: an animated
 //! llama mascot, an arrow-key onboarding wizard, and a live view of the real
 //! hardware profile + ranked model recommendations for *this* machine. Nothing
 //! here is mocked — every number comes from `hardware::profile()`,
@@ -23,7 +23,7 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
-use fitllm_core::{catalog, hardware, recommend, HardwareProfile, Recommendation};
+use llamachat_core::{catalog, hardware, recommend, HardwareProfile, Recommendation};
 
 use theme::Theme;
 
@@ -306,7 +306,7 @@ fn event_loop(terminal: &mut ratatui::DefaultTerminal) -> Result<()> {
 }
 
 /// Render the current UI to a fixed-size in-memory buffer and return it as text.
-/// Used by `fitllm tui --selftest` to verify layout without a live terminal
+/// Used by `llamachat tui --selftest` to verify layout without a live terminal
 /// (handy in CI and on headless hosts). Runs detection synchronously first so
 /// the Main screen shows real data.
 pub fn selftest(width: u16, height: u16, screen: Screen, tab: usize) -> Result<String> {

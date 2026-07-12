@@ -2,7 +2,7 @@
 
 Talks to a local Ollama server over its HTTP API at
 ``http://127.0.0.1:11434``. Requires ``requests``; uses ``psutil`` when
-available (via :mod:`fitllm_sidecar.sysmon`) for background-load and memory
+available (via :mod:`llamachat_sidecar.sysmon`) for background-load and memory
 sampling, degrading to ``None`` for those fields otherwise.
 """
 

@@ -14,7 +14,7 @@
 use crate::ollama;
 use crate::sidecar;
 use crate::state::AppState;
-use fitllm_core::tools::ToolRequest;
+use llamachat_core::tools::ToolRequest;
 use serde_json::{json, Value};
 use std::time::{Duration, Instant};
 use tauri::{Emitter, Manager};
@@ -57,10 +57,10 @@ fn agent_system_prompt(tools_prompt: &str, memory: &str, plan_mode: bool, percep
         format!(
             "\n\nThe `computer` tool ALSO controls the mouse and reads the screen:\n\
              - read_screen — see what's on screen. {see}\n\
-             - To see a SPECIFIC app (even while LlamaChat's own window is focused), pass its name: {{\"action\": \"read_screen\", \"app\": \"Discord\"}} — this brings that app forward and reads IT. Always target the app you are working with by name; LlamaChat's own window (app \"fitllm\") is NEVER the target.\n\
+             - To see a SPECIFIC app (even while LlamaChat's own window is focused), pass its name: {{\"action\": \"read_screen\", \"app\": \"Discord\"}} — this brings that app forward and reads IT. Always target the app you are working with by name; LlamaChat's own window (app \"llamachat\") is NEVER the target.\n\
              - click / double_click / right_click — need x and y pixel coordinates (get them from read_screen).\n\
              - mouse_move (x,y), drag (x,y,x2,y2), scroll (direction: up|down).\n\
-             To operate an app: read_screen with app=\"<that app>\" to bring it forward and see its elements, then click one by its x,y, then type. If read_screen shows app \"fitllm\"/LlamaChat, you targeted the wrong window — re-read with the app name.\n\
+             To operate an app: read_screen with app=\"<that app>\" to bring it forward and see its elements, then click one by its x,y, then type. If read_screen shows app \"llamachat\"/LlamaChat, you targeted the wrong window — re-read with the app name.\n\
              To MESSAGE someone in a chat app (Discord, Messages, Slack): separate the recipient from the text — \"say hi to claw\" means message=\"hi\", recipient=\"claw\". Steps, one at a time, read_screen between each: 1) open the app, 2) read_screen it, 3) find and click that person's conversation in the list, 4) click the message input box, 5) type ONLY the message, 6) press Return. NEVER type before you have clicked the right conversation and its message box.\n\
              If read_screen returns almost nothing (only window buttons — common for Electron apps like Discord), the accessibility tree is empty: say you cannot see the app's contents and that screenshot-vision mode is needed. Do NOT guess coordinates or claim you sent a message you cannot see."
         )

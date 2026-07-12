@@ -77,11 +77,11 @@ export default function App() {
   const [platform, setPlatform] = useState<Platform>('linux');
   const [phase, setPhase] = useState<Phase>('profiling');
   const [welcomed, setWelcomed] = useState(() => {
-    try { return localStorage.getItem('fitllm.welcomed') === '1'; } catch { return false; }
+    try { return localStorage.getItem('llamachat.welcomed') === '1'; } catch { return false; }
   });
   const [conversations, setConversations] = useState<Conversation[]>(INITIAL_CONVERSATIONS);
   const [activeId, setActiveId] = useState(() => {
-    try { return localStorage.getItem('fitllm.activeId') || INITIAL_CONVERSATIONS[0].id; }
+    try { return localStorage.getItem('llamachat.activeId') || INITIAL_CONVERSATIONS[0].id; }
     catch { return INITIAL_CONVERSATIONS[0].id; }
   });
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -123,7 +123,7 @@ export default function App() {
         // Restore the conversation the user was last on, if it still exists.
         let want = convs[0].id;
         try {
-          const s = localStorage.getItem('fitllm.activeId');
+          const s = localStorage.getItem('llamachat.activeId');
           if (s && convs.some((c) => c.id === s)) want = s;
         } catch { /* ignore */ }
         setActiveId(want);
@@ -133,7 +133,7 @@ export default function App() {
 
   // Remember the active conversation across restarts.
   useEffect(() => {
-    try { localStorage.setItem('fitllm.activeId', activeId); } catch { /* ignore */ }
+    try { localStorage.setItem('llamachat.activeId', activeId); } catch { /* ignore */ }
   }, [activeId]);
 
   // Auto-save conversations to markdown (debounced; only non-empty ones).
@@ -215,7 +215,7 @@ export default function App() {
     // mid-onboarding (e.g. to grant Screen Recording, which requires an app
     // restart) it doesn't re-run the flow and re-append their memory. We still
     // show the welcome once this session (don't flip in-memory `welcomed`).
-    try { localStorage.setItem('fitllm.welcomed', '1'); } catch { /* ignore */ }
+    try { localStorage.setItem('llamachat.welcomed', '1'); } catch { /* ignore */ }
     setPhase('welcome');
   }, [phase, tiers, welcomed]);
 
@@ -563,7 +563,7 @@ export default function App() {
     return (
       <WelcomeSteps
         onFinish={() => {
-          try { localStorage.setItem('fitllm.welcomed', '1'); } catch { /* ignore */ }
+          try { localStorage.setItem('llamachat.welcomed', '1'); } catch { /* ignore */ }
           setWelcomed(true);
           setPhase('ready');
         }}

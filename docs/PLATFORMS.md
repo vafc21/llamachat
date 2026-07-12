@@ -9,7 +9,7 @@ fallback.**
 ## Layout
 
 ```
-crates/fitllm-core/      Pure-Rust engine — already cross-platform
+crates/llamachat-core/      Pure-Rust engine — already cross-platform
   src/hardware/          cpu / gpu / storage / apple / util — cfg per OS
   src/tools/             shell, process, filesystem, computer (open_app/type/…), desktop (screenshot)
 src-tauri/               Tauri desktop shell
@@ -50,9 +50,9 @@ Download the `.msi` / `-setup.exe` from the run's **Artifacts**.
 | Agent mouse/keyboard | `src-tauri/src/desktop.rs` | `mod mac` (enigo) | ✅ shared `mod input` (enigo) | ✅ shared `mod input` (enigo) |
 | Agent screen read (`read_screen`) | `src-tauri/src/desktop.rs` | ✅ AX tree via `osascript` | ✅ `mod windows` — UI Automation (`uiautomation`) | ⏳ `mod linux` — TODO AT-SPI |
 | Screenshot (vision perception) | `src-tauri/src/desktop.rs` `screenshot_to` | ✅ `screencapture` | ✅ PowerShell `CopyFromScreen` | ✅ `grim`/`scrot`/`import` |
-| App launch / type / keys | `crates/fitllm-core/src/tools/computer.rs` | ✅ `open -a` / `osascript` | ✅ Start-Menu/App-Paths launch, `enigo` type/keys | ⏳ TODO (`xdg-open`, `xdotool`) |
+| App launch / type / keys | `crates/llamachat-core/src/tools/computer.rs` | ✅ `open -a` / `osascript` | ✅ Start-Menu/App-Paths launch, `enigo` type/keys | ⏳ TODO (`xdg-open`, `xdotool`) |
 | Permissions checklist | `src-tauri/src/commands.rs` | ✅ TCC (Accessibility, Screen Recording) | ✅ n/a → reported granted | ✅ n/a → reported granted |
-| Hardware profile | `crates/fitllm-core/src/hardware/` | ✅ | ✅ | ✅ |
+| Hardware profile | `crates/llamachat-core/src/hardware/` | ✅ | ✅ | ✅ |
 
 Legend: ✅ implemented · ⏳ scaffolded stub, needs a native implementation.
 
@@ -82,7 +82,7 @@ All platforms need: **Rust** (stable), **Node 20+**, **Python 3.11+**, and the
 # 1. Frontend deps
 npm --prefix ui install
 
-# 2. Python sidecar → src-tauri/binaries/fitllm-sidecar-<triple>[.exe]
+# 2. Python sidecar → src-tauri/binaries/llamachat-sidecar-<triple>[.exe]
 pip install -r scripts/requirements-sidecar.txt
 scripts/build-sidecar.sh          # macOS / Linux
 pwsh scripts/build-sidecar.ps1    # Windows
@@ -107,11 +107,11 @@ Cargo workspace): `.dmg`/`.app` on macOS, `.msi`/NSIS `-setup.exe` on Windows,
 > SAC) during a normal `cargo build`, so it dodges the block:
 > ```powershell
 > npm --prefix ui run build                         # build ui/dist
-> cargo build -p fitllm --features custom-protocol  # embeds the frontend
-> Copy-Item src-tauri\binaries\fitllm-sidecar-*.exe target\debug\fitllm-sidecar.exe
+> cargo build -p llamachat --features custom-protocol  # embeds the frontend
+> Copy-Item src-tauri\binaries\llamachat-sidecar-*.exe target\debug\llamachat-sidecar.exe
 > ```
-> `target\debug\fitllm.exe` is then a self-contained, double-clickable app (no
-> dev server needed) — copy it plus `fitllm-sidecar.exe` anywhere.
+> `target\debug\llamachat.exe` is then a self-contained, double-clickable app (no
+> dev server needed) — copy it plus `llamachat-sidecar.exe` anywhere.
 >
 > For an **optimized release build or a signed `.msi`/`-setup.exe` installer**,
 > use `cargo tauri dev` for local development and produce the installers on CI
@@ -136,7 +136,7 @@ Windows is a first-class target alongside macOS:
    `uiautomation` crate, mirroring `mod mac`. The COM/UIA work runs on a
    dedicated MTA thread. When the tree exposes nothing useful it emits the
    "no elements" marker and the agent auto-switches to screenshot-vision.
-2. **App control** — `crates/fitllm-core/src/tools/computer.rs` implements
+2. **App control** — `crates/llamachat-core/src/tools/computer.rs` implements
    `open_app` (resolves Start-Menu shortcuts fuzzily, then App-Paths tokens, via
    `Start-Process`), `quit_app` (`taskkill`), `open_url`/`search_web`, and
    `type`/`key`/`click` via `enigo` (native SendInput — no permission prompt).

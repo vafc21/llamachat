@@ -1,5 +1,5 @@
 [package]
-name = "fitllm-cli"
+name = "llamachat-cli"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,11 +8,11 @@ repository.workspace = true
 description = "LlamaChat CLI: exercise the core engine (hardware profile, catalog, recommendations) without the desktop shell."
 
 [[bin]]
-name = "fitllm"
+name = "llamachat"
 path = "src/main.rs"
 
 [dependencies]
-fitllm-core = { path = "../fitllm-core" }
+llamachat-core = { path = "../llamachat-core" }
 serde.workspace = true
 serde_json.workspace = true
 anyhow.workspace = true

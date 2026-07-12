@@ -2,15 +2,15 @@
 
 This file pins the interfaces between the parallel-built modules. **Do not
 change a shared type or signature without updating this file.** The canonical
-Rust definitions live in `crates/fitllm-core/src/types.rs`.
+Rust definitions live in `crates/llamachat-core/src/types.rs`.
 
 ## Repo layout
 
 ```
-fitllm/
+llamachat/
   Cargo.toml                 # workspace; default-members = core + cli (build w/o webkit)
   crates/
-    fitllm-core/             # pure-Rust lib: types, hardware, catalog, recommend, store
+    llamachat-core/             # pure-Rust lib: types, hardware, catalog, recommend, store
       src/
         types.rs             # SHARED TYPES — owned by lead, do not edit signatures
         lib.rs               # module decls — owned by lead
@@ -18,7 +18,7 @@ fitllm/
         catalog.rs           # OWNER: catalog/recommend agent
         recommend.rs         # OWNER: catalog/recommend agent
         store.rs             # OWNER: catalog/recommend agent
-    fitllm-cli/              # OWNER: catalog/recommend agent (bin that ties core together)
+    llamachat-cli/              # OWNER: catalog/recommend agent (bin that ties core together)
   catalog/models.json        # OWNER: catalog/recommend agent (bundled model data)
   sidecar/                   # OWNER: sidecar agent (Python benchmark orchestration)
   ui/                        # OWNER: ui agent (React + Tailwind + Vite)
@@ -63,12 +63,12 @@ contract with the Python sidecar and the UI.
 The sidecar is a Python package under `sidecar/`. It runs two ways:
 
 1. **CLI (for testing / standalone):**
-   - `python -m fitllm_sidecar list-adapters` → prints `{"adapters":[{"name","available","detail"}]}`
-   - `python -m fitllm_sidecar list-models --adapter ollama` → `{"models":[{"name","size_mb"}]}`
-   - `python -m fitllm_sidecar benchmark --adapter ollama --model <tag> [--tier quick|full]`
+   - `python -m llamachat_sidecar list-adapters` → prints `{"adapters":[{"name","available","detail"}]}`
+   - `python -m llamachat_sidecar list-models --adapter ollama` → `{"models":[{"name","size_mb"}]}`
+   - `python -m llamachat_sidecar benchmark --adapter ollama --model <tag> [--tier quick|full]`
      → prints one `BenchmarkResult` JSON object (see types.rs shape).
 
-2. **Serve mode (spawned by Tauri as a sidecar):** `python -m fitllm_sidecar serve`
+2. **Serve mode (spawned by Tauri as a sidecar):** `python -m llamachat_sidecar serve`
    - Reads newline-delimited JSON requests on stdin, writes newline-delimited
      JSON responses on stdout.
    - Request: `{"id": <int>, "method": <str>, "params": {...}}`

@@ -6,7 +6,7 @@ new backend is meant to be "one file" — subclass this and implement the five
 methods below.
 
 The dict returned by :meth:`run_benchmark` MUST match the ``BenchmarkResult``
-shape defined in ``crates/fitllm-core/src/types.rs``::
+shape defined in ``crates/llamachat-core/src/types.rs``::
 
     {
       "model": str, "adapter": str, "ok": bool, "error": Optional[str],

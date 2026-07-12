@@ -1,9 +1,9 @@
-# fitllm-sidecar
+# llamachat-sidecar
 
 Python benchmark sidecar for **LlamaChat**. It orchestrates on-device LLM
 benchmarks and talks to runtime backends (Phase 1: **Ollama**) over HTTP, then
 emits `BenchmarkResult` JSON whose shape matches
-`crates/fitllm-core/src/types.rs` so the Rust core can deserialize it directly.
+`crates/llamachat-core/src/types.rs` so the Rust core can deserialize it directly.
 
 ## Running
 
@@ -12,13 +12,13 @@ The package lives under `src/`. With no install step, run it by pointing
 
 ```bash
 # from the sidecar/ directory
-PYTHONPATH=src python -m fitllm_sidecar list-adapters
-PYTHONPATH=src python -m fitllm_sidecar list-models --adapter ollama
-PYTHONPATH=src python -m fitllm_sidecar benchmark --adapter ollama --model llama3.2:1b --tier quick
-PYTHONPATH=src python -m fitllm_sidecar serve
+PYTHONPATH=src python -m llamachat_sidecar list-adapters
+PYTHONPATH=src python -m llamachat_sidecar list-models --adapter ollama
+PYTHONPATH=src python -m llamachat_sidecar benchmark --adapter ollama --model llama3.2:1b --tier quick
+PYTHONPATH=src python -m llamachat_sidecar serve
 ```
 
-Or install it (`pip install -e .`) to get the `fitllm-sidecar` console script.
+Or install it (`pip install -e .`) to get the `llamachat-sidecar` console script.
 
 ## Benchmark intensity tiers
 
@@ -44,13 +44,13 @@ all samples, so higher tiers yield more stable numbers.
   largest window it actually managed).
 
 Tier config lives in `TIER_CONFIG` in
-`src/fitllm_sidecar/adapters/ollama.py`.
+`src/llamachat_sidecar/adapters/ollama.py`.
 
 ## Packaging (frozen single-file binary)
 
 To ship a self-contained sidecar in the macOS `.dmg` (and other bundles) with
 **no system Python required**, freeze it with PyInstaller into a binary named
-`fitllm-sidecar`.
+`llamachat-sidecar`.
 
 ```bash
 # from the repo root
@@ -61,33 +61,33 @@ scripts/build-sidecar.sh
 
 This produces:
 
-- `dist/fitllm-sidecar` — the raw PyInstaller onefile binary.
-- `src-tauri/binaries/fitllm-sidecar-<target-triple>` — staged for Tauri.
+- `dist/llamachat-sidecar` — the raw PyInstaller onefile binary.
+- `src-tauri/binaries/llamachat-sidecar-<target-triple>` — staged for Tauri.
 
 Tauri v2 bundles it as an **external binary**. `src-tauri/tauri.conf.json`
 declares:
 
 ```json
-"bundle": { "externalBin": ["binaries/fitllm-sidecar"] }
+"bundle": { "externalBin": ["binaries/llamachat-sidecar"] }
 ```
 
 On disk the file must carry the Rust target-triple suffix
-(e.g. `fitllm-sidecar-aarch64-apple-darwin`); the build script adds it
+(e.g. `llamachat-sidecar-aarch64-apple-darwin`); the build script adds it
 automatically from `rustc -vV` (override with `FITLLM_SIDECAR_TRIPLE`). When the
 app is bundled, the triple suffix is stripped and the binary lands **next to the
-app executable** (on macOS: `LlamaChat.app/Contents/MacOS/fitllm-sidecar`).
+app executable** (on macOS: `LlamaChat.app/Contents/MacOS/llamachat-sidecar`).
 
-The frozen binary takes the same argv as `python -m fitllm_sidecar`, e.g.:
+The frozen binary takes the same argv as `python -m llamachat_sidecar`, e.g.:
 
 ```bash
-./fitllm-sidecar benchmark --adapter ollama --model llama3.2:1b --tier full
-./fitllm-sidecar serve
+./llamachat-sidecar benchmark --adapter ollama --model llama3.2:1b --tier full
+./llamachat-sidecar serve
 ```
 
 Relevant files:
 
-- `scripts/fitllm-sidecar.spec` — PyInstaller spec (entry, hidden imports).
-- `scripts/fitllm_sidecar_entry.py` — launcher that runs `fitllm_sidecar.__main__:main`.
+- `scripts/llamachat-sidecar.spec` — PyInstaller spec (entry, hidden imports).
+- `scripts/llamachat_sidecar_entry.py` — launcher that runs `llamachat_sidecar.__main__:main`.
 - `scripts/build-sidecar.sh` — freeze + stage script.
 - `scripts/requirements-sidecar.txt` — pinned build/runtime deps.
 

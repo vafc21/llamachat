@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build the LlamaChat Python sidecar into a single self-contained binary named
-# `fitllm-sidecar` (no system Python needed at runtime), then stage it where
+# `llamachat-sidecar` (no system Python needed at runtime), then stage it where
 # Tauri's bundler expects an external binary.
 #
 # Usage (from anywhere):
@@ -11,19 +11,19 @@
 #     pip install -r scripts/requirements-sidecar.txt
 #
 # Output:
-#   dist/fitllm-sidecar                         (raw PyInstaller onefile binary)
-#   src-tauri/binaries/fitllm-sidecar-<triple>  (Tauri externalBin naming)
+#   dist/llamachat-sidecar                         (raw PyInstaller onefile binary)
+#   src-tauri/binaries/llamachat-sidecar-<triple>  (Tauri externalBin naming)
 #
 # Tauri v2 requires external binaries to carry the *target triple* suffix on
-# disk (e.g. fitllm-sidecar-aarch64-apple-darwin); the suffix is stripped when
+# disk (e.g. llamachat-sidecar-aarch64-apple-darwin); the suffix is stripped when
 # the binary is copied into the app bundle. tauri.conf.json references the base
-# name "binaries/fitllm-sidecar".
+# name "binaries/llamachat-sidecar".
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-SPEC="${SCRIPT_DIR}/fitllm-sidecar.spec"
-BIN_NAME="fitllm-sidecar"
+SPEC="${SCRIPT_DIR}/llamachat-sidecar.spec"
+BIN_NAME="llamachat-sidecar"
 DEST_DIR="${REPO_ROOT}/src-tauri/binaries"
 
 cd "${REPO_ROOT}"

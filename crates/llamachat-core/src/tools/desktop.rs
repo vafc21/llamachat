@@ -121,7 +121,7 @@ impl Tool for DesktopTool {
             "screenshot" => {
                 let path = args["path"]
                     .as_str()
-                    .unwrap_or(&format!("/tmp/fitllm-screenshot-{}.png",
+                    .unwrap_or(&format!("/tmp/llamachat-screenshot-{}.png",
                         std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH)
                             .unwrap_or_default()

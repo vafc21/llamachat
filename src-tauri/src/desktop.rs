@@ -11,7 +11,7 @@
 
 use serde_json::Value;
 
-/// Actions handled here (the rest of the `computer` tool stays in fitllm-core).
+/// Actions handled here (the rest of the `computer` tool stays in llamachat-core).
 pub const DESKTOP_ACTIONS: &[&str] = &[
     "read_screen", "read_ui", "screen", "mouse_move", "move", "move_mouse",
     "click", "left_click", "double_click", "right_click", "drag", "scroll",
@@ -41,7 +41,7 @@ pub fn control(action: &str, args: &Value) -> Result<String, String> {
 /// is shared across all OSes.
 pub fn describe_screen(vision_model: &str) -> Result<String, String> {
     use base64::Engine;
-    let path = std::env::temp_dir().join("fitllm-agent-screen.png");
+    let path = std::env::temp_dir().join("llamachat-agent-screen.png");
     if !screenshot_to(&path.to_string_lossy()) {
         return Err("Screenshot failed — grant Screen Recording permission (macOS: System Settings ▸ Privacy) or ensure a screenshot tool is installed (Linux: grim/scrot/imagemagick).".into());
     }

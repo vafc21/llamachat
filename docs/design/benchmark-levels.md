@@ -83,7 +83,7 @@ can only ever name a model that actually runs at that comfort level on this box.
 
 ## Surfaces to change (implementation plan)
 
-- **`crates/fitllm-core/src/recommend.rs`** — add `plan_levels(...) -> LevelPlan`
+- **`crates/llamachat-core/src/recommend.rs`** — add `plan_levels(...) -> LevelPlan`
   and a `LevelPlan` type in `types.rs` (each entry: model id, display name,
   intelligence 1–10, speed 1–10, fit tier, headroom, `why`). Pure function, unit-
   testable with fixture profiles (add an M4-like fixture whose `Max` is not a 3B).

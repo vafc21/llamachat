@@ -61,7 +61,7 @@ export function MessageBubble({ msg }: { msg: Message }) {
 /** Full markdown rendering (GitHub-flavored) styled to match the app. */
 function Markdown({ content }: { content: string }) {
   return (
-    <div className="fitllm-md space-y-2">
+    <div className="llamachat-md space-y-2">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{

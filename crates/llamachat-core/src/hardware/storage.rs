@@ -28,7 +28,7 @@ pub fn detect() -> Storage {
 ///
 /// Order of preference:
 /// 1. `FITLLM_MODELS_DIR` env var (explicit user override).
-/// 2. `<home>/.cache/fitllm/models` — the default on Linux/macOS. (On Windows
+/// 2. `<home>/.cache/llamachat/models` — the default on Linux/macOS. (On Windows
 ///    this still lands under the user profile via `home_dir()`.)
 /// 3. A platform-sensible fallback if the home directory can't be resolved.
 fn models_dir() -> PathBuf {
@@ -36,17 +36,17 @@ fn models_dir() -> PathBuf {
         return PathBuf::from(dir);
     }
     if let Some(home) = util::home_dir() {
-        return home.join(".cache").join("fitllm").join("models");
+        return home.join(".cache").join("llamachat").join("models");
     }
     // Last-resort fallbacks when even $HOME is unset.
-    // TODO(windows): prefer %LOCALAPPDATA%\fitllm\models once we resolve it.
+    // TODO(windows): prefer %LOCALAPPDATA%\llamachat\models once we resolve it.
     #[cfg(windows)]
     {
-        PathBuf::from(r"C:\Users\Default\.cache\fitllm\models")
+        PathBuf::from(r"C:\Users\Default\.cache\llamachat\models")
     }
     #[cfg(not(windows))]
     {
-        PathBuf::from("/root/.cache/fitllm/models")
+        PathBuf::from("/root/.cache/llamachat/models")
     }
 }
 

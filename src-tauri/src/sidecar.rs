@@ -11,7 +11,7 @@
 //! Phase 2 concern; see the README.
 
 use anyhow::{anyhow, Context, Result};
-use fitllm_core::BenchmarkResult;
+use llamachat_core::BenchmarkResult;
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
@@ -21,11 +21,11 @@ fn sidecar_dir() -> Option<PathBuf> {
     // 1. Env override (set by packagers).
     if let Ok(p) = std::env::var("FITLLM_SIDECAR_DIR") {
         let pb = PathBuf::from(p);
-        if pb.join("fitllm_sidecar").is_dir() {
+        if pb.join("llamachat_sidecar").is_dir() {
             return Some(pb);
         }
     }
-    // 2. Walk up from the current exe and cwd looking for `sidecar/fitllm_sidecar`.
+    // 2. Walk up from the current exe and cwd looking for `sidecar/llamachat_sidecar`.
     let mut candidates: Vec<PathBuf> = Vec::new();
     if let Ok(exe) = std::env::current_exe() {
         candidates.extend(exe.ancestors().map(|a| a.join("sidecar")));
@@ -36,15 +36,15 @@ fn sidecar_dir() -> Option<PathBuf> {
     }
     candidates
         .into_iter()
-        .find(|c| c.join("fitllm_sidecar").is_dir())
+        .find(|c| c.join("llamachat_sidecar").is_dir())
 }
 
 fn python() -> String {
     std::env::var("FITLLM_PYTHON").unwrap_or_else(|_| "python3".to_string())
 }
 
-/// Locate the bundled, frozen `fitllm-sidecar` binary that ships next to the app
-/// executable in a packaged build (`LlamaChat.app/Contents/MacOS/fitllm-sidecar`).
+/// Locate the bundled, frozen `llamachat-sidecar` binary that ships next to the app
+/// executable in a packaged build (`LlamaChat.app/Contents/MacOS/llamachat-sidecar`).
 /// Packagers can point at it explicitly with `FITLLM_SIDECAR_BIN`.
 fn bundled_bin() -> Option<PathBuf> {
     if let Ok(p) = std::env::var("FITLLM_SIDECAR_BIN") {
@@ -54,13 +54,13 @@ fn bundled_bin() -> Option<PathBuf> {
         }
     }
     let exe = std::env::current_exe().ok()?;
-    let name = if cfg!(windows) { "fitllm-sidecar.exe" } else { "fitllm-sidecar" };
+    let name = if cfg!(windows) { "llamachat-sidecar.exe" } else { "llamachat-sidecar" };
     let cand = exe.parent()?.join(name);
     cand.is_file().then_some(cand)
 }
 
 /// Build a `Command` that runs the sidecar, preferring the bundled frozen binary
-/// and falling back to `python -m fitllm_sidecar` from the repo `sidecar/` dir in
+/// and falling back to `python -m llamachat_sidecar` from the repo `sidecar/` dir in
 /// dev. The frozen binary takes args straight through; the Python fallback needs
 /// the module invocation and its working directory.
 fn sidecar_command() -> Result<Command> {
@@ -70,7 +70,7 @@ fn sidecar_command() -> Result<Command> {
     let dir = sidecar_dir()
         .ok_or_else(|| anyhow!("sidecar not found: no bundled binary and no sidecar/ dir"))?;
     let mut c = Command::new(python());
-    c.arg("-m").arg("fitllm_sidecar").current_dir(&dir);
+    c.arg("-m").arg("llamachat_sidecar").current_dir(&dir);
     Ok(c)
 }
 

@@ -87,7 +87,7 @@ for the free (open-source) path to code-signed, warning-free downloads.
 +-------------------------------------------------------------+
 ```
 
-The **core engine** is pure Rust with no GUI dependencies, so it builds and runs anywhere (CI, headless servers, machines without webkit2gtk). The **Tauri shell** and the **`fitllm` CLI** both depend on it. Benchmark orchestration lives in a **Python sidecar** so a new runtime backend is one Python file.
+The **core engine** is pure Rust with no GUI dependencies, so it builds and runs anywhere (CI, headless servers, machines without webkit2gtk). The **Tauri shell** and the **`llamachat` CLI** both depend on it. Benchmark orchestration lives in a **Python sidecar** so a new runtime backend is one Python file.
 
 See [`SPEC.md`](./SPEC.md) for the full design and [`CONTRACT.md`](./CONTRACT.md) for the frozen inter-module interfaces.
 
@@ -98,20 +98,20 @@ See [`SPEC.md`](./SPEC.md) for the full design and [`CONTRACT.md`](./CONTRACT.md
 | Layer | Choice |
 |---|---|
 | Desktop shell | [Tauri](https://tauri.app/) — small, fast, cross-platform binary |
-| Core engine | Rust (`fitllm-core`) — hardware probing, catalog, recommender, store |
-| CLI | Rust (`fitllm-cli`) + [clap](https://docs.rs/clap) |
-| Benchmark sidecar | Python 3.11+ (`fitllm_sidecar`) |
+| Core engine | Rust (`llamachat-core`) — hardware probing, catalog, recommender, store |
+| CLI | Rust (`llamachat-cli`) + [clap](https://docs.rs/clap) |
+| Benchmark sidecar | Python 3.11+ (`llamachat_sidecar`) |
 | UI | React + Tailwind + Vite |
 | Local store | SQLite (bundled via `rusqlite`, no server) |
 
 ### Workspace layout
 
 ```
-fitllm/
+llamachat/
   Cargo.toml               # workspace; default-members = core + cli (build w/o webkit)
   crates/
-    fitllm-core/           # pure-Rust lib: types, hardware, catalog, recommend, store
-    fitllm-cli/            # `fitllm` binary — exercises the core without the GUI
+    llamachat-core/           # pure-Rust lib: types, hardware, catalog, recommend, store
+    llamachat-cli/            # `llamachat` binary — exercises the core without the GUI
   catalog/models.json      # bundled model data
   sidecar/                 # Python benchmark orchestration
   ui/                      # React + Tailwind + Vite dashboard
@@ -140,30 +140,30 @@ cargo build
 Try the CLI:
 
 ```bash
-cargo run -p fitllm-cli               # interactive terminal UI (in a real terminal)
-cargo run -p fitllm-cli -- tui        # ...the same UI, explicitly
-cargo run -p fitllm-cli -- profile    # detect hardware, print JSON
-cargo run -p fitllm-cli -- catalog    # print the bundled model catalog
-cargo run -p fitllm-cli -- recommend  # ranked recommendations (best-first), JSON
-cargo run -p fitllm-cli -- store-info # round-trip a profile through the store
+cargo run -p llamachat-cli               # interactive terminal UI (in a real terminal)
+cargo run -p llamachat-cli -- tui        # ...the same UI, explicitly
+cargo run -p llamachat-cli -- profile    # detect hardware, print JSON
+cargo run -p llamachat-cli -- catalog    # print the bundled model catalog
+cargo run -p llamachat-cli -- recommend  # ranked recommendations (best-first), JSON
+cargo run -p llamachat-cli -- store-info # round-trip a profile through the store
 ```
 
-The installed binary is named `fitllm`.
+The installed binary is named `llamachat`.
 
 #### Terminal UI
 
-Running `fitllm` in a terminal (or `fitllm tui`) launches a full-screen,
+Running `llamachat` in a terminal (or `llamachat tui`) launches a full-screen,
 Claude-Code-style interface built on [ratatui](https://ratatui.rs): an animated
 llama mascot, an arrow-key onboarding wizard (theme → live hardware profiling →
 Ollama check), then a tabbed view of your machine and every catalog model rated
 **Won't run → Blazing** for *this* box — all driven by the same core engine, no
-mock data. Piped or redirected (non-interactive), `fitllm` prints the scriptable
+mock data. Piped or redirected (non-interactive), `llamachat` prints the scriptable
 help summary instead, and the JSON subcommands above are unchanged.
 
 Verify the layout without a live terminal (handy on headless hosts / CI):
 
 ```bash
-fitllm tui --selftest --screen main --size 100x30   # splash|theme|profiling|ollama|models|hardware|about
+llamachat tui --selftest --screen main --size 100x30   # splash|theme|profiling|ollama|models|hardware|about
 ```
 
 ### 2. UI
@@ -181,7 +181,7 @@ The UI ships a typed **mock data layer** (`ui/src/lib/api.ts`) so it renders wit
 ```bash
 cd sidecar
 pip install -e .
-python -m fitllm_sidecar list-adapters
+python -m llamachat_sidecar list-adapters
 ```
 
 ### 4. Tauri desktop shell
@@ -189,7 +189,7 @@ python -m fitllm_sidecar list-adapters
 The full desktop app needs the platform webview toolkit. On Linux that means webkit2gtk and friends (see the table below):
 
 ```bash
-cargo build -p fitllm
+cargo build -p llamachat
 ```
 
 > On hosts without webkit2gtk, plain `cargo build` still works — it builds only the pure-Rust core + CLI, because they are the workspace's `default-members`.
@@ -242,9 +242,9 @@ Phase 1 (MVP) scope and where each piece currently stands:
 
 Phase 1 is functionally complete. Try it:
 ```bash
-cargo run -p fitllm-cli -- profile     # real hardware data
-cargo run -p fitllm-cli -- recommend   # ranked model recommendations
-python -m fitllm_sidecar benchmark --adapter ollama --model llama3.2:1b --tier quick
+cargo run -p llamachat-cli -- profile     # real hardware data
+cargo run -p llamachat-cli -- recommend   # ranked model recommendations
+python -m llamachat_sidecar benchmark --adapter ollama --model llama3.2:1b --tier quick
 ```
 
 ---

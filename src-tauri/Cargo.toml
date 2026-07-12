@@ -1,18 +1,18 @@
 [package]
-name = "fitllm"
+name = "llamachat"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
 description = "LlamaChat desktop shell (Tauri): profiles your machine and rates which LLMs it can run."
-default-run = "fitllm"
+default-run = "llamachat"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-fitllm-core = { path = "../crates/fitllm-core" }
+llamachat-core = { path = "../crates/llamachat-core" }
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-shell = "2"
 serde.workspace = true

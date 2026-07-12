@@ -6,7 +6,7 @@
 //!   permission); clicking needs `cliclick`; apps launch via `open -a`.
 //! - **Windows**: text/keys/click via `enigo` (native SendInput, no extra
 //!   permission); apps launch by resolving Start-Menu shortcuts / App-Paths.
-//! - **Other**: degrades gracefully so `fitllm-core` still builds/tests.
+//! - **Other**: degrades gracefully so `llamachat-core` still builds/tests.
 
 use crate::tools::{Tool, ToolInfo, ToolParam, ToolResult, ToolSafety};
 

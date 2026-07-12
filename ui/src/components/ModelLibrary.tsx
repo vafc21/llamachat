@@ -51,7 +51,7 @@ const MOCK_RECS: Recommendation[] = [
   },
 ];
 
-const CUSTOM_TAGS_KEY = 'fitllm.customTags';
+const CUSTOM_TAGS_KEY = 'llamachat.customTags';
 
 function readCustomTags(): Set<string> {
   try {

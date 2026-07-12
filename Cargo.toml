@@ -1,15 +1,15 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/fitllm-core",
-    "crates/fitllm-cli",
-    "src-tauri",  # needs webkit2gtk to build; `cargo build -p fitllm-cli` for core-only
+    "crates/llamachat-core",
+    "crates/llamachat-cli",
+    "src-tauri",  # needs webkit2gtk to build; `cargo build -p llamachat-cli` for core-only
 ]
 # `cargo build` on hosts without webkit2gtk builds only the pure-Rust core + CLI.
-# The Tauri shell (src-tauri) is built explicitly with `cargo build -p fitllm`.
+# The Tauri shell (src-tauri) is built explicitly with `cargo build -p llamachat`.
 default-members = [
-    "crates/fitllm-core",
-    "crates/fitllm-cli",
+    "crates/llamachat-core",
+    "crates/llamachat-cli",
 ]
 
 [workspace.package]
@@ -17,7 +17,7 @@ version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
 authors = ["LlamaChat contributors"]
-repository = "https://github.com/vafc21/fitllm"
+repository = "https://github.com/vafc21/llamachat"
 
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }

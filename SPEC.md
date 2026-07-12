@@ -225,7 +225,7 @@ Keep it lightweight and truly cross-platform — that is the constraint that mat
 - Ollama adapter with quick benchmark.
 - Static bundled model catalog + 5-tier recommendation engine.
 - SQLite local store.
-- CLI (`fitllm profile|catalog|recommend|store-info`).
+- CLI (`llamachat profile|catalog|recommend|store-info`).
 - Dashboard UI showing hardware + recommendations.
 
 **Phase 2 (Assistant — current):**

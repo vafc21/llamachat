@@ -7,7 +7,7 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, List, ListItem, ListState, Paragraph, Tabs, Wrap};
 use ratatui::Frame;
 
-use fitllm_core::{HardwareProfile, Recommendation};
+use llamachat_core::{HardwareProfile, Recommendation};
 
 use super::theme::{tier_badge, tier_color, Palette, Theme};
 use super::{llama, App, Ollama, Screen, TABS};
@@ -356,8 +356,8 @@ fn detail_panel(r: &Recommendation, p: &Palette) -> Paragraph<'static> {
         Span::styled(format!("{}  ", r.tier.label()), Style::default().fg(color).add_modifier(Modifier::BOLD)),
         Span::styled(
             match r.source {
-                fitllm_core::RatingSource::Measured => "· measured".to_string(),
-                fitllm_core::RatingSource::Heuristic => "· estimated".to_string(),
+                llamachat_core::RatingSource::Measured => "· measured".to_string(),
+                llamachat_core::RatingSource::Heuristic => "· estimated".to_string(),
             },
             Style::default().fg(p.dim),
         ),

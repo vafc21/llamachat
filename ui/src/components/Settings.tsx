@@ -4,7 +4,7 @@ import { AgentSetup } from './AgentSetup'
 import { INTENSITY_OPTIONS } from '../types'
 import { invoke, isTauri } from '../tauri'
 
-const INTENSITY_KEY = 'fitllm.benchmarkIntensity'
+const INTENSITY_KEY = 'llamachat.benchmarkIntensity'
 
 function defaultSettings(hardware: HardwareProfile | null): AppSettings {
   let intensity: BenchmarkIntensity = 'balanced';

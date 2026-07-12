@@ -54,5 +54,5 @@ and publisher metadata. No third-party or unrelated binaries are signed.
 
 LlamaChat is local-first and collects **no** telemetry or personal data by
 default; nothing leaves the user's device unless they explicitly opt in. See the
-project [README](../README.md) for details. The signing process itself collects
+[Privacy Policy](../PRIVACY.md) for details. The signing process itself collects
 no end-user data.

@@ -1,0 +1,85 @@
+name: build
+
+# Cross-platform build for LlamaChat (macOS / Linux / Windows).
+# Structure only — tune signing/notarization and caching as needed.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            triple: aarch64-apple-darwin
+            sidecar: bash scripts/build-sidecar.sh
+          - os: ubuntu-latest
+            triple: x86_64-unknown-linux-gnu
+            sidecar: bash scripts/build-sidecar.sh
+          - os: windows-latest
+            triple: x86_64-pc-windows-msvc
+            sidecar: pwsh scripts/build-sidecar.ps1
+    runs-on: ${{ matrix.os }}
+    env:
+      FITLLM_SIDECAR_TRIPLE: ${{ matrix.triple }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Tauri's Linux runtime deps + libxdo for enigo input control.
+      - name: Install Linux system deps
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev \
+            patchelf libxdo-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.triple }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install UI dependencies
+        run: npm --prefix ui install
+
+      - name: Build Python sidecar
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r scripts/requirements-sidecar.txt
+          ${{ matrix.sidecar }}
+        shell: bash
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2" --locked
+
+      - name: Build app
+        run: cargo tauri build
+        env:
+          # CI has no dev certificate — ad-hoc sign on macOS. Locally the repo
+          # config uses a real Apple Development identity (see tauri.conf.json).
+          APPLE_SIGNING_IDENTITY: ${{ matrix.os == 'macos-latest' && '-' || '' }}
+
+      - name: Upload bundles
+        uses: actions/upload-artifact@v4
+        with:
+          name: llamachat-${{ matrix.os }}
+          path: |
+            target/release/bundle/**/*.dmg
+            target/release/bundle/**/*.msi
+            target/release/bundle/**/*-setup.exe
+            target/release/bundle/**/*.deb
+            target/release/bundle/**/*.AppImage
+            target/release/bundle/**/*.rpm
+          if-no-files-found: ignore

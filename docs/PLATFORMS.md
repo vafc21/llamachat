@@ -22,8 +22,21 @@ scripts/
   build-sidecar.sh       freeze sidecar on macOS / Linux
   build-sidecar.ps1      freeze sidecar on Windows
 ui/                      React + Vite frontend (platform-agnostic)
-.github/workflows/build.yml   3-OS matrix build
+ci/build.yml             3-OS matrix build (see "CI" below to activate)
 ```
+
+## CI
+
+The 3-OS matrix build workflow lives at **`ci/build.yml`**. To activate it as a
+GitHub Action, move it into place — this needs a token with the `workflow` scope:
+
+```bash
+gh auth refresh -h github.com -s workflow      # one-time: grant workflow scope
+mkdir -p .github/workflows && git mv ci/build.yml .github/workflows/build.yml
+git commit -m "ci: activate 3-OS build workflow" && git push
+```
+
+It builds macOS/Windows/Linux bundles in parallel and uploads them as artifacts.
 
 ### Where the OS-specific code is
 

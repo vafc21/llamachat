@@ -1,14 +1,21 @@
 import { useState } from 'react'
 import { invoke } from '../tauri'
 
+/**
+ * Memory-transfer prompt — mirrors Claude's "import memory" flow: it asks the
+ * user's EXISTING assistant to dump everything it already knows about them, with
+ * no interview. Paste the result and it lands in memory.md.
+ */
 const SEED_PROMPT =
-  "You're helping set up my personal local AI assistant, which remembers facts about me across conversations. " +
-  "Interview me: ask 6–8 short questions, ONE at a time, covering my name, what I do, current projects, the tools/tech I use, " +
-  "how I like an assistant to respond (tone, length), and anything else worth remembering. " +
-  'After I answer, output a concise bullet list written in the second person (e.g. "- Your name is …", "- You prefer …") ' +
-  "that I can paste straight into my assistant's memory. Only output the bullet list at the end.";
+  "I'm moving to a new personal AI assistant and want to bring my context with me. " +
+  "Based only on what you already know and remember about me — our past conversations, saved memories, and any custom instructions — " +
+  "write a single summary I can hand to my new assistant. Do NOT ask me any questions; just use what you already know. " +
+  "Cover: who I am (name, role, location if known), what I'm currently working on (projects and goals), the tools and technologies I use, " +
+  "how I like an assistant to communicate (tone, length, format), and any other durable facts or preferences worth remembering. " +
+  'Write it as a concise bulleted list in the second person (e.g. "- Your name is …", "- You prefer …"). ' +
+  "Skip anything you're unsure about, and output only the list.";
 
-/** First-run: copy a prompt into ChatGPT/Claude, paste the result back to seed memory.md. */
+/** First-run: transfer your memory from another assistant into memory.md. No questions asked. */
 export function MemorySeed({ onNext, onSkip }: { onNext: () => void; onSkip: () => void }) {
   const [copied, setCopied] = useState(false);
   const [pasted, setPasted] = useState('');
@@ -33,10 +40,11 @@ export function MemorySeed({ onNext, onSkip }: { onNext: () => void; onSkip: () 
   return (
     <div className="space-y-4">
       <div>
-        <p className="text-sm text-text font-medium">Seed your assistant's memory <span className="text-text-muted font-normal">· optional</span></p>
+        <p className="text-sm text-text font-medium">Bring your memory over <span className="text-text-muted font-normal">· optional</span></p>
         <p className="text-[11px] text-text-muted mt-1 leading-relaxed">
-          Copy the prompt below into <span className="text-text-secondary">ChatGPT or Claude</span>. It'll interview you and hand back
-          a summary. Paste that summary here and LlamaChat will remember it in every chat. You can skip this and add memories anytime.
+          Already use <span className="text-text-secondary">ChatGPT, Claude, or Gemini</span>? Copy the prompt below into it — it'll
+          summarize what it already knows about you (no questions to answer) and hand back a list. Paste that here and LlamaChat
+          remembers it in every chat. No other assistant? Just skip — you can add memories anytime with <span className="text-text-secondary">/remember</span>.
         </p>
       </div>
 
@@ -51,7 +59,7 @@ export function MemorySeed({ onNext, onSkip }: { onNext: () => void; onSkip: () 
       </div>
 
       <div>
-        <label className="text-[11px] text-text font-medium">Paste the summary here</label>
+        <label className="text-[11px] text-text font-medium">Paste what it gives you back</label>
         <textarea
           value={pasted}
           onChange={(e) => setPasted(e.target.value)}
@@ -70,7 +78,7 @@ export function MemorySeed({ onNext, onSkip }: { onNext: () => void; onSkip: () 
             pasted.trim() && !saving ? 'bg-accent text-white hover:opacity-90' : 'bg-white/[0.04] text-text-muted border border-border cursor-not-allowed'
           }`}
         >
-          Save & continue
+          Save &amp; continue
         </button>
         <button onClick={onSkip} className="px-4 py-2 rounded-lg text-[13px] text-text-secondary hover:text-text border border-border">
           Skip

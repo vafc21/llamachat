@@ -96,8 +96,11 @@ fn screenshot_to(path: &str) -> bool {
          $bmp.Save('{}');",
         path.replace('\\', "\\\\").replace('\'', "''")
     );
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000; // don't flash a console window
     std::process::Command::new("powershell")
         .args(["-NoProfile", "-Command", &ps])
+        .creation_flags(CREATE_NO_WINDOW)
         .status()
         .map(|s| s.success())
         .unwrap_or(false)
@@ -393,25 +396,265 @@ mod input {
     }
 }
 
-// ── Windows (scaffold) ────────────────────────────────────────────────────
+// ── Windows ───────────────────────────────────────────────────────────────
+// Native accessibility read via UI Automation: the target window's element tree
+// as "AXRole: label @ x,y" lines, mirroring the macOS AX reader in `mod mac`.
+// When the tree exposes nothing useful (or UIA is unavailable) it emits the
+// "no elements" marker so the agent auto-switches to screenshot vision
+// (see agent.rs::ax_is_empty + desktop::describe_screen).
 #[cfg(target_os = "windows")]
 mod windows {
     use serde_json::Value;
+    use std::time::Duration;
+    use uiautomation::types::{Handle, TreeScope};
+    use uiautomation::UIAutomation;
+
+    type Hwnd = isize;
+    type Lparam = isize;
+
+    #[link(name = "user32")]
+    extern "system" {
+        fn GetForegroundWindow() -> Hwnd;
+        fn SetForegroundWindow(hwnd: Hwnd) -> i32;
+        fn IsWindowVisible(hwnd: Hwnd) -> i32;
+        fn GetWindowTextW(hwnd: Hwnd, lp: *mut u16, cch: i32) -> i32;
+        fn GetWindowTextLengthW(hwnd: Hwnd) -> i32;
+        fn EnumWindows(cb: extern "system" fn(Hwnd, Lparam) -> i32, lparam: Lparam) -> i32;
+    }
+
+    const EMPTY: &str = "Frontmost app: (unknown)\nWindow: \nClickable elements (role: label @ x,y):\n(No accessibility elements exposed — this app may need the vision perception mode.)";
 
     pub fn control(action: &str, args: &Value) -> Result<String, String> {
         match action {
-            "read_screen" | "read_ui" | "screen" => read_screen(args),
+            "read_screen" | "read_ui" | "screen" => {
+                let app = args
+                    .get("app")
+                    .and_then(|v| v.as_str())
+                    .or_else(|| args.get("target").and_then(|v| v.as_str()))
+                    .or_else(|| args.get("window").and_then(|v| v.as_str()))
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty());
+                read_screen(app)
+            }
             _ => super::input::control(action, args),
         }
     }
 
-    /// TODO(windows): read the foreground window's UI Automation tree (element
-    /// roles + names + screen rects) into "AXRole: label @ x,y" lines, mirroring
-    /// the macOS AX reader in `mod mac`. A good path is the `uiautomation` crate.
-    /// Until then we return the "no elements" marker so the agent auto-switches
-    /// to screenshot vision (see agent.rs::ax_is_empty + desktop::describe_screen).
-    fn read_screen(_args: &Value) -> Result<String, String> {
-        Ok("Frontmost app: (unknown)\nWindow: \nClickable elements (role: label @ x,y):\n(No accessibility elements exposed — this app may need the vision perception mode.)".into())
+    fn norm(s: &str) -> String {
+        s.chars().filter(|c| c.is_alphanumeric()).flat_map(|c| c.to_lowercase()).collect()
+    }
+
+    fn window_title(hwnd: Hwnd) -> String {
+        unsafe {
+            let len = GetWindowTextLengthW(hwnd);
+            if len <= 0 {
+                return String::new();
+            }
+            let mut buf = vec![0u16; (len + 1) as usize];
+            let n = GetWindowTextW(hwnd, buf.as_mut_ptr(), buf.len() as i32);
+            if n <= 0 {
+                String::new()
+            } else {
+                String::from_utf16_lossy(&buf[..n as usize])
+            }
+        }
+    }
+
+    extern "system" fn collect_cb(hwnd: Hwnd, lparam: Lparam) -> i32 {
+        unsafe {
+            if IsWindowVisible(hwnd) != 0 {
+                let title = window_title(hwnd);
+                if !title.is_empty() {
+                    let v = &mut *(lparam as *mut Vec<(Hwnd, String)>);
+                    v.push((hwnd, title));
+                }
+            }
+        }
+        1 // TRUE — keep enumerating
+    }
+
+    fn list_windows() -> Vec<(Hwnd, String)> {
+        let mut v: Vec<(Hwnd, String)> = Vec::new();
+        unsafe {
+            EnumWindows(collect_cb, &mut v as *mut _ as Lparam);
+        }
+        v
+    }
+
+    /// Best-matching visible top-level window by title (exact > prefix >
+    /// substring), never LlamaChat's own window.
+    fn find_window(want: &str) -> Option<Hwnd> {
+        let w = norm(want);
+        if w.len() < 2 {
+            return None;
+        }
+        let mut best: Option<(u8, Hwnd)> = None;
+        for (hwnd, title) in list_windows() {
+            let n = norm(&title);
+            if n.is_empty() || n.contains("llamachat") {
+                continue;
+            }
+            let rank = if n == w {
+                0
+            } else if n.starts_with(&w) || w.starts_with(n.as_str()) {
+                1
+            } else if n.contains(&w) || w.contains(n.as_str()) {
+                2
+            } else {
+                continue;
+            };
+            if best.as_ref().is_none_or(|(r, _)| rank < *r) {
+                best = Some((rank, hwnd));
+                if rank == 0 {
+                    break;
+                }
+            }
+        }
+        best.map(|(_, h)| h)
+    }
+
+    /// Launch an app by name (Start-Process resolves Start-Menu/App-Paths/PATH),
+    /// hidden console. Used when the requested app isn't already open.
+    fn launch(target: &str) {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let esc = target.replace('\'', "''");
+        let _ = std::process::Command::new("powershell")
+            .args(["-NoProfile", "-Command", &format!("Start-Process -FilePath '{esc}'")])
+            .creation_flags(CREATE_NO_WINDOW)
+            .status();
+    }
+
+    /// Resolve the window to read: a named app is found by title (launched first
+    /// if not open) and brought to the foreground; otherwise the current
+    /// foreground window.
+    fn resolve_hwnd(app: Option<&str>) -> Hwnd {
+        let Some(a) = app else {
+            return unsafe { GetForegroundWindow() };
+        };
+        let mut h = find_window(a);
+        if h.is_none() {
+            launch(a);
+            std::thread::sleep(Duration::from_millis(1200));
+            h = find_window(a);
+        }
+        match h {
+            Some(h) => {
+                unsafe {
+                    SetForegroundWindow(h);
+                }
+                std::thread::sleep(Duration::from_millis(250));
+                h
+            }
+            None => unsafe { GetForegroundWindow() },
+        }
+    }
+
+    fn read_screen(app: Option<&str>) -> Result<String, String> {
+        let hwnd = resolve_hwnd(app);
+        if hwnd == 0 {
+            return Ok(EMPTY.to_string());
+        }
+        let title = window_title(hwnd);
+        let app_label = app.map(|s| s.to_string()).unwrap_or_else(|| {
+            if title.is_empty() { "(unknown)".to_string() } else { title.clone() }
+        });
+        // COM/UI Automation on a dedicated thread → clean MTA apartment, and no
+        // interference with the webview's STA main thread. Only a String crosses
+        // back, so the non-Send UIA handles never escape the thread.
+        std::thread::spawn(move || read_tree(hwnd, app_label, title))
+            .join()
+            .unwrap_or_else(|_| Ok(EMPTY.to_string()))
+    }
+
+    /// Interactive / editable control types worth surfacing (by `ControlType`
+    /// Debug name), mirroring the macOS clickable-role whitelist.
+    fn is_interactive(ct: &str) -> bool {
+        matches!(
+            ct,
+            "Button"
+                | "Edit"
+                | "CheckBox"
+                | "RadioButton"
+                | "ComboBox"
+                | "Hyperlink"
+                | "MenuItem"
+                | "ListItem"
+                | "TabItem"
+                | "TreeItem"
+                | "SplitButton"
+                | "Document"
+        )
+    }
+
+    fn read_tree(hwnd: Hwnd, app_label: String, title: String) -> Result<String, String> {
+        let header = format!(
+            "Frontmost app: {app_label}\nWindow: {title}\nClickable elements (role: label @ x,y):\n"
+        );
+        let unavailable = |why: String| {
+            Ok(format!(
+                "{header}(No accessibility elements exposed — {why}. Use vision perception mode.)"
+            ))
+        };
+
+        let automation = match UIAutomation::new() {
+            Ok(a) => a,
+            Err(e) => return unavailable(format!("UI Automation unavailable: {e}")),
+        };
+        let root = match automation.element_from_handle(Handle::from(hwnd)) {
+            Ok(el) => el,
+            Err(e) => return unavailable(format!("could not read window: {e}")),
+        };
+        let cond = match automation.create_true_condition() {
+            Ok(c) => c,
+            Err(e) => return unavailable(format!("condition error: {e}")),
+        };
+        let els = root.find_all(TreeScope::Descendants, &cond).unwrap_or_default();
+
+        let mut out = header.clone();
+        let mut n = 0usize;
+        for el in els {
+            if n >= 60 {
+                break;
+            }
+            let Ok(control) = el.get_control_type() else { continue };
+            let ct = format!("{control:?}");
+            if !is_interactive(&ct) {
+                continue;
+            }
+            let mut label = el.get_name().unwrap_or_default().trim().to_string();
+            if label.is_empty() {
+                if let Ok(lz) = el.get_localized_control_type() {
+                    label = lz.trim().to_string();
+                }
+            }
+            // Drop window-chrome buttons so a chrome-only window falls through to
+            // vision (matches the macOS close/minimize/zoom exclusion).
+            if ct == "Button"
+                && matches!(
+                    label.to_lowercase().as_str(),
+                    "minimize" | "maximize" | "restore" | "close" | "system"
+                )
+            {
+                continue;
+            }
+            // Skip nameless non-editable controls (noise).
+            if label.is_empty() && ct != "Edit" {
+                continue;
+            }
+            let Ok(rect) = el.get_bounding_rectangle() else { continue };
+            if rect.get_width() <= 0 || rect.get_height() <= 0 {
+                continue;
+            }
+            let x = (rect.get_left() + rect.get_right()) / 2;
+            let y = (rect.get_top() + rect.get_bottom()) / 2;
+            out.push_str(&format!("AX{ct}: {label} @ {x},{y}\n"));
+            n += 1;
+        }
+        if n == 0 {
+            out.push_str("(No accessibility elements exposed — this app may need the vision perception mode.)");
+        }
+        Ok(out)
     }
 }
 

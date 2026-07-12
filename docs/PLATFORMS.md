@@ -2,8 +2,9 @@
 
 LlamaChat is a single Tauri v2 app that targets all three desktop OSes from one
 codebase. This document maps where platform-specific code lives and how to build
-on each OS. **macOS is the reference implementation; Windows and Linux are
-scaffolded and ready to fill in.**
+on each OS. **macOS and Windows are fully implemented (agent input, native
+screen-reading, app control); Linux is scaffolded with a working vision
+fallback.**
 
 ## Layout
 
@@ -22,30 +23,34 @@ scripts/
   build-sidecar.sh       freeze sidecar on macOS / Linux
   build-sidecar.ps1      freeze sidecar on Windows
 ui/                      React + Vite frontend (platform-agnostic)
-ci/build.yml             3-OS matrix build (see "CI" below to activate)
+.github/workflows/build.yml  3-OS matrix build (see "CI" below)
 ```
 
 ## CI
 
-The 3-OS matrix build workflow lives at **`ci/build.yml`**. To activate it as a
-GitHub Action, move it into place — this needs a token with the `workflow` scope:
+The 3-OS matrix build workflow lives at **`.github/workflows/build.yml`**. It
+builds macOS/Windows/Linux bundles in parallel on every push to `master`, on
+pull requests, and on manual `workflow_dispatch`, uploading the installers
+(`.dmg` / `.msi` + `-setup.exe` / `.deb` + `.AppImage`) as run artifacts.
 
-```bash
-gh auth refresh -h github.com -s workflow      # one-time: grant workflow scope
-mkdir -p .github/workflows && git mv ci/build.yml .github/workflows/build.yml
-git commit -m "ci: activate 3-OS build workflow" && git push
-```
+This is the recommended way to produce the **Windows installer**: GitHub's
+`windows-latest` runners don't enforce Smart App Control, so the release
+bundler's build scripts run without the `os error 4551` block described below.
+Download the `.msi` / `-setup.exe` from the run's **Artifacts**.
 
-It builds macOS/Windows/Linux bundles in parallel and uploads them as artifacts.
+> Note: modifying `.github/workflows/*` requires a token with the `workflow`
+> scope. If a push is rejected for that reason, grant it once with
+> `gh auth refresh -h github.com -s workflow` (or edit the file via GitHub's web
+> UI).
 
 ### Where the OS-specific code is
 
 | Concern | File | macOS | Windows | Linux |
 | --- | --- | --- | --- | --- |
 | Agent mouse/keyboard | `src-tauri/src/desktop.rs` | `mod mac` (enigo) | ✅ shared `mod input` (enigo) | ✅ shared `mod input` (enigo) |
-| Agent screen read (`read_screen`) | `src-tauri/src/desktop.rs` | ✅ AX tree via `osascript` | ⏳ `mod windows` — TODO UI Automation | ⏳ `mod linux` — TODO AT-SPI |
+| Agent screen read (`read_screen`) | `src-tauri/src/desktop.rs` | ✅ AX tree via `osascript` | ✅ `mod windows` — UI Automation (`uiautomation`) | ⏳ `mod linux` — TODO AT-SPI |
 | Screenshot (vision perception) | `src-tauri/src/desktop.rs` `screenshot_to` | ✅ `screencapture` | ✅ PowerShell `CopyFromScreen` | ✅ `grim`/`scrot`/`import` |
-| App launch / type / keys | `crates/fitllm-core/src/tools/computer.rs` | ✅ `open -a` / `osascript` | ⏳ TODO (`start`, SendKeys) | ⏳ TODO (`xdg-open`, `xdotool`) |
+| App launch / type / keys | `crates/fitllm-core/src/tools/computer.rs` | ✅ `open -a` / `osascript` | ✅ Start-Menu/App-Paths launch, `enigo` type/keys | ⏳ TODO (`xdg-open`, `xdotool`) |
 | Permissions checklist | `src-tauri/src/commands.rs` | ✅ TCC (Accessibility, Screen Recording) | ✅ n/a → reported granted | ✅ n/a → reported granted |
 | Hardware profile | `crates/fitllm-core/src/hardware/` | ✅ | ✅ | ✅ |
 
@@ -90,6 +95,30 @@ Output bundles land in `target/release/bundle/` (repo-root `target/`, it's a
 Cargo workspace): `.dmg`/`.app` on macOS, `.msi`/NSIS `-setup.exe` on Windows,
 `.deb`/`.AppImage` on Linux.
 
+> **Windows + Smart App Control:** `cargo tauri build` (release bundle) compiles
+> extra HTML-rewriter build scripts (`selectors`/`html5ever`, pulled in by the
+> `custom-protocol` frontend-embedding path). On a machine with **Smart App
+> Control enforced**, SAC blocks those freshly-compiled, unsigned build-script
+> executables (`os error 4551 — "An Application Control policy has blocked this
+> file."`) and the bundle fails. The **app itself builds and runs fine**.
+>
+> **Standalone .exe without the bundler (works under SAC):** a plain *debug*
+> build reuses the build-script binaries that already ran (and were allowed by
+> SAC) during a normal `cargo build`, so it dodges the block:
+> ```powershell
+> npm --prefix ui run build                         # build ui/dist
+> cargo build -p fitllm --features custom-protocol  # embeds the frontend
+> Copy-Item src-tauri\binaries\fitllm-sidecar-*.exe target\debug\fitllm-sidecar.exe
+> ```
+> `target\debug\fitllm.exe` is then a self-contained, double-clickable app (no
+> dev server needed) — copy it plus `fitllm-sidecar.exe` anywhere.
+>
+> For an **optimized release build or a signed `.msi`/`-setup.exe` installer**,
+> use `cargo tauri dev` for local development and produce the installers on CI
+> (GitHub's Windows runners don't enforce SAC; see `.github/workflows/build.yml`) or on a
+> machine where SAC is off. Disabling SAC is a one-way change and is not required
+> for development.
+
 ## Bundle config
 
 `tauri.conf.json` uses `bundle.targets: "all"` (each host builds its own native
@@ -97,14 +126,31 @@ bundles). macOS-specific options (dmg layout, entitlements, signing) live under
 `bundle.macOS` and are ignored elsewhere. To customize Windows/Linux packaging,
 add `bundle.windows` (wix/nsis) and `bundle.linux` (deb/appimage/rpm) sections.
 
-## Starting Windows work
+## Windows implementation (done)
 
-1. Implement `src-tauri/src/desktop.rs :: windows::read_screen` with the
-   `uiautomation` crate (foreground window → element roles + names + screen
-   rects, formatted as `AXRole: label @ x,y`). Mirror `mod mac`.
-2. Implement Windows branches in `crates/fitllm-core/src/tools/computer.rs`
-   (`open_app` via `start`, `type`/`key` via SendInput/SendKeys).
-3. Run `pwsh scripts/build-sidecar.ps1` then `cargo tauri build`.
+Windows is a first-class target alongside macOS:
 
-Until step 1 lands, the agent falls back to screenshot-vision automatically, so
-it is usable on Windows today.
+1. **Screen read** — `src-tauri/src/desktop.rs :: windows::read_screen` reads the
+   target window's UI Automation tree (foreground window, or a named app found by
+   title and brought forward) into `AXRole: label @ x,y` lines via the
+   `uiautomation` crate, mirroring `mod mac`. The COM/UIA work runs on a
+   dedicated MTA thread. When the tree exposes nothing useful it emits the
+   "no elements" marker and the agent auto-switches to screenshot-vision.
+2. **App control** — `crates/fitllm-core/src/tools/computer.rs` implements
+   `open_app` (resolves Start-Menu shortcuts fuzzily, then App-Paths tokens, via
+   `Start-Process`), `quit_app` (`taskkill`), `open_url`/`search_web`, and
+   `type`/`key`/`click` via `enigo` (native SendInput — no permission prompt).
+3. **Ollama discovery** — `src-tauri/src/ollama.rs` locates `ollama.exe` under
+   `%LOCALAPPDATA%\Programs\Ollama` / `%ProgramFiles%\Ollama` (and PATH), so a
+   Start-Menu-launched app finds Ollama even with a minimal inherited PATH.
+
+Build: `pwsh scripts/build-sidecar.ps1` then `cargo tauri dev` (run) or
+`cargo tauri build` (bundle — see the Smart App Control note above).
+
+## Starting Linux work
+
+The remaining scaffold is Linux perception: implement `mod linux::read_screen`
+(AT-SPI accessibility tree) and the Linux branches of `computer.rs`
+(`xdg-open` / `xdotool`). Until then the agent falls back to screenshot-vision
+automatically (needs `grim`/`scrot`/ImageMagick installed), so it is usable on
+Linux today.

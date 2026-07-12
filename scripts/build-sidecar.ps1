@@ -44,7 +44,18 @@ if ($env:FITLLM_SIDECAR_TRIPLE) {
 }
 
 Write-Host ">> Freezing sidecar with PyInstaller (spec: $Spec)"
-pyinstaller --clean --noconfirm $Spec
+# PyInstaller writes its INFO log to stderr. Under Windows PowerShell 5.1 with
+# $ErrorActionPreference='Stop', the first stderr line is turned into a
+# terminating error and aborts the build before PyInstaller does any work.
+# Relax the preference around the native call and gate on the real exit code.
+$prevEAP = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+pyinstaller --clean --noconfirm $Spec 2>&1 | ForEach-Object { "$_" }
+$pyExit = $LASTEXITCODE
+$ErrorActionPreference = $prevEAP
+if ($pyExit -ne 0) {
+    Write-Error "PyInstaller failed (exit code $pyExit)"
+}
 
 $RawBin = Join-Path $RepoRoot "dist\$BinName.exe"
 if (-not (Test-Path $RawBin)) {

@@ -1,8 +1,9 @@
 //! Ollama process + path management.
 //!
-//! A GUI-launched macOS app inherits a minimal PATH (typically `/usr/bin:/bin`)
-//! that does NOT include Homebrew's `/opt/homebrew/bin`, so `Command::new("ollama")`
-//! fails when the app is launched from `/Applications`. We resolve the binary's
+//! A GUI-launched app inherits a minimal PATH that often omits Ollama's install
+//! dir (macOS: not Homebrew's `/opt/homebrew/bin`; Windows: not
+//! `%LOCALAPPDATA%\Programs\Ollama`), so `Command::new("ollama")` fails when the
+//! app is launched from Finder / the Start Menu. We resolve the binary's
 //! absolute path here, and make sure a server is actually listening before we
 //! pull a model or chat — spawning `ollama serve` ourselves if it isn't.
 
@@ -13,9 +14,43 @@ use std::time::{Duration, Instant};
 
 const OLLAMA_ADDR: &str = "127.0.0.1:11434";
 
+/// The platform's ollama executable file name.
+#[cfg(target_os = "windows")]
+const OLLAMA_EXE: &str = "ollama.exe";
+#[cfg(not(target_os = "windows"))]
+const OLLAMA_EXE: &str = "ollama";
+
+/// Well-known install locations to probe before falling back to PATH (a
+/// GUI-launched app frequently inherits a PATH that omits these).
+#[cfg(target_os = "windows")]
+fn wellknown_bins() -> Vec<PathBuf> {
+    let mut v = Vec::new();
+    // Per-user (default installer target) and per-machine locations.
+    for var in ["LOCALAPPDATA", "ProgramFiles", "ProgramW6432", "ProgramFiles(x86)"] {
+        if let Ok(base) = std::env::var(var) {
+            v.push(PathBuf::from(&base).join(r"Programs\Ollama\ollama.exe"));
+            v.push(PathBuf::from(&base).join(r"Ollama\ollama.exe"));
+        }
+    }
+    v
+}
+
+#[cfg(not(target_os = "windows"))]
+fn wellknown_bins() -> Vec<PathBuf> {
+    [
+        "/opt/homebrew/bin/ollama",
+        "/usr/local/bin/ollama",
+        "/usr/bin/ollama",
+        "/opt/homebrew/opt/ollama/bin/ollama",
+    ]
+    .iter()
+    .map(PathBuf::from)
+    .collect()
+}
+
 /// Absolute path to the `ollama` binary. Searches an env override, the common
-/// Homebrew / `/usr/local` install locations, and finally the inherited PATH so
-/// terminal/dev launches keep working too.
+/// per-OS install locations, and finally the inherited PATH so terminal/dev
+/// launches keep working too.
 pub fn ollama_bin() -> Option<PathBuf> {
     if let Ok(p) = std::env::var("FITLLM_OLLAMA_BIN") {
         let pb = PathBuf::from(p);
@@ -23,20 +58,14 @@ pub fn ollama_bin() -> Option<PathBuf> {
             return Some(pb);
         }
     }
-    for c in [
-        "/opt/homebrew/bin/ollama",
-        "/usr/local/bin/ollama",
-        "/usr/bin/ollama",
-        "/opt/homebrew/opt/ollama/bin/ollama",
-    ] {
-        let pb = PathBuf::from(c);
+    for pb in wellknown_bins() {
         if pb.is_file() {
             return Some(pb);
         }
     }
     if let Ok(path) = std::env::var("PATH") {
         for dir in std::env::split_paths(&path) {
-            let cand = dir.join("ollama");
+            let cand = dir.join(OLLAMA_EXE);
             if cand.is_file() {
                 return Some(cand);
             }

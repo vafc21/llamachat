@@ -1,11 +1,17 @@
 name: build
 
 # Cross-platform build for LlamaChat (macOS / Linux / Windows).
-# Structure only — tune signing/notarization and caching as needed.
+# - Every push to master / PR / manual run builds the app and uploads the
+#   installers as run artifacts.
+# - Pushing a version tag (e.g. v0.1.0) also publishes a GitHub Release with the
+#   installers attached, so anyone can download them. Installers are UNSIGNED by
+#   default; see docs/SIGNING.md to make them code-signed (warning-free) for free
+#   via SignPath Foundation.
 
 on:
   push:
     branches: [master]
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
 
@@ -83,3 +89,46 @@ jobs:
             target/release/bundle/**/*.AppImage
             target/release/bundle/**/*.rpm
           if-no-files-found: ignore
+
+  # Publish a GitHub Release with the installers when a vX.Y.Z tag is pushed:
+  #     git tag v0.1.0 && git push origin v0.1.0
+  # Installers are UNSIGNED by default — users click "More info -> Run anyway"
+  # (Windows) or right-click -> Open (macOS) on first launch. To make them
+  # code-signed and warning-free (free for open source), follow docs/SIGNING.md.
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # required to create the GitHub Release
+    steps:
+      - name: Download all installers
+        uses: actions/download-artifact@v4
+        with:
+          path: installers
+
+      # --- OPTIONAL: code-sign the Windows installers (see docs/SIGNING.md) -----
+      # After your SignPath Foundation project is approved, add the repo secret
+      # SIGNPATH_API_TOKEN + variable SIGNPATH_ORGANIZATION_ID, then uncomment and
+      # adjust the slugs below. It re-signs the Windows artifact in place before
+      # the release step attaches it.
+      #
+      #   - uses: SignPath/github-action-submit-signing-request@v1
+      #     with:
+      #       api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+      #       organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+      #       project-slug: llamachat
+      #       signing-policy-slug: release-signing
+      #       github-artifact-id: llamachat-windows-latest
+      #       wait-for-completion: true
+      #       output-artifact-directory: installers/llamachat-windows-latest
+      #
+      # Exact inputs: https://github.com/SignPath/github-action-submit-signing-request
+      # -------------------------------------------------------------------------
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: installers/**/*
+          generate_release_notes: true
+          fail_on_unmatched_files: false

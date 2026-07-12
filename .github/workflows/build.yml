@@ -58,7 +58,8 @@ jobs:
           python-version: "3.12"
 
       - name: Install UI dependencies
-        run: npm --prefix ui install
+        working-directory: ui
+        run: npm install
 
       - name: Build Python sidecar
         run: |

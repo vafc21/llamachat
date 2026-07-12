@@ -36,14 +36,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Tauri's Linux runtime deps + libxdo for enigo input control.
+      # Tauri's Linux runtime deps + libxdo for enigo input control. `rpm` and
+      # `fakeroot` provide rpmbuild/dpkg tooling so the .rpm (and .deb) bundles
+      # build; without rpmbuild the `targets: "all"` bundle step fails the whole
+      # Linux job and no installers are produced.
       - name: Install Linux system deps
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
             libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev \
-            patchelf libxdo-dev
+            patchelf libxdo-dev rpm fakeroot
 
       - uses: dtolnay/rust-toolchain@stable
         with:

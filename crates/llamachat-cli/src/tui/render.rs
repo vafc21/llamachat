@@ -4,13 +4,13 @@
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::{Block, List, ListItem, ListState, Paragraph, Tabs, Wrap};
+use ratatui::widgets::{Block, Clear, List, ListItem, ListState, Paragraph, Tabs, Wrap};
 use ratatui::Frame;
 
 use llamachat_core::{HardwareProfile, Recommendation};
 
 use super::theme::{tier_badge, tier_color, Palette, Theme};
-use super::{llama, App, Ollama, Screen, TABS};
+use super::{llama, App, Ollama, Overlay, Screen, TABS};
 
 pub fn draw(f: &mut Frame, app: &App) {
     let p = app.theme.palette();
@@ -264,10 +264,15 @@ fn main_view(f: &mut Frame, app: &App, p: &Palette) {
     }
 
     let hint = match app.tab {
-        0 => "↑/↓ pick model   ·   Tab switch view   ·   q quit",
+        0 => "↑/↓ pick   ·   Enter download   ·   r run   ·   Tab views   ·   q quit",
         _ => "Tab switch view   ·   1/2/3 jump   ·   q quit",
     };
     footer(f, area, hint, app.tick, p);
+
+    // Pull progress / result modal sits on top of everything.
+    if !matches!(app.overlay, Overlay::None) {
+        overlay(f, area, app, p);
+    }
 }
 
 fn header(f: &mut Frame, area: Rect, app: &App, p: &Palette) {
@@ -312,7 +317,12 @@ fn models_tab(f: &mut Frame, area: Rect, app: &App, p: &Palette) {
         .map(|r| {
             let rank = r.tier.rank();
             let color = tier_color(rank);
+            let installed = app.installed.contains(&r.ollama_pull);
             let line = Line::from(vec![
+                Span::styled(
+                    if installed { "● " } else { "  " },
+                    Style::default().fg(p.accent),
+                ),
                 Span::styled(tier_badge(rank), Style::default().fg(color)),
                 Span::raw("  "),
                 Span::styled(
@@ -521,6 +531,75 @@ fn footer(f: &mut Frame, area: Rect, hint: &str, tick: u64, p: &Palette) {
         Span::styled(hint.to_string(), Style::default().fg(p.dim)),
     ]);
     f.render_widget(Paragraph::new(line), row);
+}
+
+/// The download-progress / result modal, drawn over the Models tab.
+fn overlay(f: &mut Frame, area: Rect, app: &App, p: &Palette) {
+    let w = area.width.saturating_sub(8).clamp(32, 76);
+    let h = 14u16.min(area.height.saturating_sub(2)).max(8);
+    let rect = centered(area, w, h);
+    let inner_w = (w as usize).saturating_sub(4);
+    f.render_widget(Clear, rect);
+
+    let (title, mut lines, hint): (String, Vec<Line>, String) = match &app.overlay {
+        Overlay::Pulling(job) => {
+            let mut ls: Vec<Line> = Vec::new();
+            ls.push(
+                Line::from(vec![
+                    Span::styled(llama::spinner(app.tick), Style::default().fg(p.accent)),
+                    Span::raw(" "),
+                    Span::styled(
+                        format!("{}…", llama::verb(app.tick)),
+                        Style::default().fg(p.text).add_modifier(Modifier::BOLD),
+                    ),
+                ]),
+            );
+            ls.push(Line::from(""));
+            let log = job.lines();
+            let rows = (h as usize).saturating_sub(6);
+            for l in log.iter().rev().take(rows).rev() {
+                ls.push(Line::from(Span::styled(
+                    truncate(l, inner_w),
+                    Style::default().fg(p.dim),
+                )));
+            }
+            (format!("Downloading {}", job.display), ls, "Ctrl-C to abort".into())
+        }
+        Overlay::Result { ok, display, msg, .. } => {
+            let mut ls: Vec<Line> = Vec::new();
+            let (glyph, col) = if *ok { ("✓", tier_color(3)) } else { ("✗", tier_color(0)) };
+            ls.push(Line::from(Span::styled(
+                format!("{glyph} {display}"),
+                Style::default().fg(col).add_modifier(Modifier::BOLD),
+            )));
+            ls.push(Line::from(""));
+            for wl in wrap_words(msg, inner_w) {
+                ls.push(Line::from(Span::styled(wl, Style::default().fg(p.text))));
+            }
+            let hint = if *ok {
+                "Enter / r  run it    ·    Esc  back".to_string()
+            } else {
+                "Esc  back".to_string()
+            };
+            let title = if *ok { "Ready" } else { "Couldn't download" };
+            (title.to_string(), ls, hint)
+        }
+        Overlay::None => return,
+    };
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(hint, Style::default().fg(p.accent))));
+
+    let block = Block::bordered()
+        .title(Span::styled(
+            format!(" {title} "),
+            Style::default().fg(p.brand).add_modifier(Modifier::BOLD),
+        ))
+        .border_style(Style::default().fg(p.accent));
+    f.render_widget(
+        Paragraph::new(Text::from(lines)).block(block).wrap(Wrap { trim: true }),
+        rect,
+    );
 }
 
 fn bordered(title: &str, p: &Palette) -> Block<'static> {

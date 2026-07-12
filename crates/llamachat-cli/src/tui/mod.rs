@@ -12,10 +12,12 @@
 //! - [`theme`] is the color palette.
 //! - [`render`] draws each screen.
 
+pub mod action;
 pub mod llama;
 pub mod render;
 pub mod theme;
 
+use std::collections::HashSet;
 use std::process::Command;
 use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
@@ -25,7 +27,29 @@ use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifier
 
 use llamachat_core::{catalog, hardware, recommend, HardwareProfile, Recommendation};
 
+use action::PullJob;
 use theme::Theme;
+
+/// A modal shown over the Models tab while pulling / after a pull.
+pub enum Overlay {
+    None,
+    /// `ollama pull` is streaming.
+    Pulling(PullJob),
+    /// A pull finished (or failed) — waiting for the user to run it / dismiss.
+    Result {
+        tag: String,
+        display: String,
+        ok: bool,
+        msg: String,
+    },
+}
+
+/// What the event loop wants `run()` to do after it returns.
+enum Control {
+    Quit,
+    /// Suspend the TUI and hand off to `ollama run <tag>`, then come back.
+    Run(String),
+}
 
 /// How long one animation tick is. Also the input poll timeout, so the mascot
 /// keeps moving even while the user isn't typing.
@@ -57,6 +81,7 @@ struct Loaded {
     recs: Vec<Recommendation>,
     catalog_count: usize,
     ollama: Ollama,
+    installed: HashSet<String>,
 }
 
 /// Main tabs on the [`Screen::Main`] view.
@@ -77,6 +102,11 @@ pub struct App {
     pub recs: Vec<Recommendation>,
     pub catalog_count: usize,
     pub ollama: Option<Ollama>,
+    pub installed: HashSet<String>,
+
+    // Model actions (pull / run) on the Models tab.
+    pub overlay: Overlay,
+    pending_run: Option<String>,
 
     profile_started: Option<Instant>,
     job: Option<Receiver<Result<Loaded, String>>>,
@@ -97,6 +127,9 @@ impl Default for App {
             recs: Vec::new(),
             catalog_count: 0,
             ollama: None,
+            installed: HashSet::new(),
+            overlay: Overlay::None,
+            pending_run: None,
             profile_started: None,
             job: None,
             load_error: None,
@@ -130,6 +163,7 @@ impl App {
                     self.recs = loaded.recs;
                     self.catalog_count = loaded.catalog_count;
                     self.ollama = Some(loaded.ollama);
+                    self.installed = loaded.installed;
                     self.job = None;
                 }
                 Ok(Err(e)) => {
@@ -141,6 +175,35 @@ impl App {
                     self.load_error = Some("hardware detection thread stopped unexpectedly".into());
                     self.job = None;
                 }
+            }
+        }
+
+        // Poll an in-flight pull job; flip to a Result overlay when it finishes.
+        if let Overlay::Pulling(job) = &self.overlay {
+            match job.rx.try_recv() {
+                Ok(outcome) => {
+                    self.overlay = Overlay::Result {
+                        tag: job.tag.clone(),
+                        display: job.display.clone(),
+                        ok: outcome.is_ok(),
+                        msg: match outcome {
+                            Ok(()) => "Downloaded and ready to run.".into(),
+                            Err(e) => e,
+                        },
+                    };
+                    if let Overlay::Result { ok: true, tag, .. } = &self.overlay {
+                        self.installed.insert(tag.clone());
+                    }
+                }
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    self.overlay = Overlay::Result {
+                        tag: job.tag.clone(),
+                        display: job.display.clone(),
+                        ok: false,
+                        msg: "download thread stopped unexpectedly".into(),
+                    };
+                }
+                Err(mpsc::TryRecvError::Empty) => {}
             }
         }
 
@@ -165,6 +228,14 @@ impl App {
             self.should_quit = true;
             return;
         }
+
+        // An active overlay (download progress / result) captures input first,
+        // so Esc dismisses the modal instead of quitting the app.
+        if !matches!(self.overlay, Overlay::None) {
+            self.on_key_overlay(key);
+            return;
+        }
+
         match key.code {
             KeyCode::Esc => {
                 self.should_quit = true;
@@ -206,8 +277,52 @@ impl App {
         }
     }
 
+    /// Input while a pull overlay is up.
+    fn on_key_overlay(&mut self, key: KeyEvent) {
+        match &self.overlay {
+            // A download is in flight — let it finish (Ctrl-C, handled globally,
+            // is the escape hatch).
+            Overlay::Pulling(_) => {}
+            Overlay::Result { ok, tag, .. } => {
+                let (ok, tag) = (*ok, tag.clone());
+                match key.code {
+                    KeyCode::Enter | KeyCode::Char('r') if ok => {
+                        self.pending_run = Some(tag);
+                    }
+                    _ => self.overlay = Overlay::None,
+                }
+            }
+            Overlay::None => {}
+        }
+    }
+
+    /// Enter/`r` on a model row: download it (or run it if already installed).
+    fn activate_selected(&mut self, run_now: bool) {
+        let Some(rec) = self.selected_rec() else { return };
+        let tag = rec.ollama_pull.clone();
+        let display = rec.display_name.clone();
+
+        if !action::ollama_installed() {
+            self.overlay = Overlay::Result {
+                tag,
+                display,
+                ok: false,
+                msg: "Ollama isn't installed. Get it at https://ollama.com/download, then try again.".into(),
+            };
+            return;
+        }
+        // `ollama run` pulls on demand, so "run" works even if not cached yet.
+        if run_now || self.installed.contains(&tag) {
+            self.pending_run = Some(tag);
+            return;
+        }
+        self.overlay = Overlay::Pulling(action::start_pull(&tag, &display));
+    }
+
     fn on_key_main(&mut self, key: KeyEvent) {
         match key.code {
+            KeyCode::Enter if self.tab == 0 => self.activate_selected(false),
+            KeyCode::Char('r') if self.tab == 0 => self.activate_selected(true),
             KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
                 self.tab = (self.tab + 1) % TABS.len();
             }
@@ -244,11 +359,20 @@ fn load_everything() -> Result<Loaded, String> {
     let profile = hardware::profile().map_err(|e| format!("hardware profiling failed: {e}"))?;
     let catalog = catalog::load_bundled().map_err(|e| format!("loading catalog failed: {e}"))?;
     let recs = recommend::rate_all(&profile, &catalog, &[]);
+    let ollama = detect_ollama();
+    // Only probe the daemon for installed models when Ollama is present and
+    // reachable, so we never block on a missing/stopped server.
+    let installed = if matches!(ollama, Ollama::Present(_)) && action::ollama_reachable() {
+        action::installed_models()
+    } else {
+        HashSet::new()
+    };
     Ok(Loaded {
         profile,
         recs,
         catalog_count: catalog.models.len(),
-        ollama: detect_ollama(),
+        ollama,
+        installed,
     })
 }
 
@@ -276,18 +400,29 @@ fn detect_ollama() -> Ollama {
 /// Entry point: take over the terminal, run the event loop, and always restore
 /// the terminal on the way out (even on error/panic path via `ratatui::restore`).
 pub fn run() -> Result<()> {
-    let mut terminal = ratatui::init();
-    let result = event_loop(&mut terminal);
-    ratatui::restore();
-    result
+    let mut app = App::default();
+    loop {
+        let mut terminal = ratatui::init();
+        let control = event_loop(&mut terminal, &mut app);
+        ratatui::restore();
+        match control? {
+            Control::Quit => return Ok(()),
+            Control::Run(tag) => {
+                // TUI is torn down; hand the terminal to an interactive chat.
+                run_model(&tag);
+                app.overlay = Overlay::None;
+                app.pending_run = None;
+                app.installed.insert(tag); // it's definitely present now
+                                           // loop re-inits the TUI and continues where we left off
+            }
+        }
+    }
 }
 
-fn event_loop(terminal: &mut ratatui::DefaultTerminal) -> Result<()> {
-    let mut app = App::default();
+fn event_loop(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<Control> {
     let mut last = Instant::now();
-
-    while !app.should_quit {
-        terminal.draw(|f| render::draw(f, &app))?;
+    loop {
+        terminal.draw(|f| render::draw(f, app))?;
 
         let timeout = TICK.saturating_sub(last.elapsed());
         if event::poll(timeout)? {
@@ -301,8 +436,32 @@ fn event_loop(terminal: &mut ratatui::DefaultTerminal) -> Result<()> {
             app.on_tick();
             last = Instant::now();
         }
+        if app.should_quit {
+            return Ok(Control::Quit);
+        }
+        if let Some(tag) = app.pending_run.take() {
+            return Ok(Control::Run(tag));
+        }
     }
-    Ok(())
+}
+
+/// Suspend into an interactive `ollama run <tag>` session (inherits the real
+/// terminal), then return so the caller can bring the TUI back. Ollama pulls the
+/// model first if it isn't cached yet.
+fn run_model(tag: &str) {
+    println!("\n\x1b[1m🦙 ollama run {tag}\x1b[0m");
+    println!("\x1b[2mChat below. Type /bye or press Ctrl-D to return to LlamaChat.\x1b[0m\n");
+    match Command::new("ollama").arg("run").arg(tag).status() {
+        Ok(_) => {}
+        Err(e) => {
+            println!("\n\x1b[31mCouldn't start ollama: {e}\x1b[0m");
+            println!("Press Enter to return to LlamaChat…");
+            let mut s = String::new();
+            let _ = std::io::stdin().read_line(&mut s);
+        }
+    }
+    println!("\n\x1b[2m↩ Returning to LlamaChat…\x1b[0m");
+    std::thread::sleep(Duration::from_millis(500));
 }
 
 /// Render the current UI to a fixed-size in-memory buffer and return it as text.
@@ -319,6 +478,7 @@ pub fn selftest(width: u16, height: u16, screen: Screen, tab: usize) -> Result<S
         app.recs = loaded.recs;
         app.catalog_count = loaded.catalog_count;
         app.ollama = Some(loaded.ollama);
+        app.installed = loaded.installed;
     }
     app.screen = screen;
     app.tab = tab.min(TABS.len() - 1);

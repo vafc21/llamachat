@@ -18,5 +18,12 @@ sysinfo.workspace = true
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 tokio = { version = "1", features = ["rt", "macros"] }
 
+# Native mouse/keyboard for the `computer` tool's type/key/click on Windows.
+# Windows-only so the core stays free of system GUI deps on Linux/macOS (enigo
+# uses SendInput on Windows — no external libraries). macOS drives type/key via
+# osascript instead (see tools/computer.rs).
+[target.'cfg(target_os = "windows")'.dependencies]
+enigo = "0.6"
+
 [dev-dependencies]
 tempfile = "3"

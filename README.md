@@ -33,15 +33,16 @@ Plenty of tools will tell you what *might* fit your GPU. LlamaChat is built arou
 ## Platforms
 
 LlamaChat builds from one codebase for **macOS, Windows, and Linux** (Tauri v2).
-macOS is the reference implementation; Windows and Linux are scaffolded and
-building. Per-OS code boundaries, the implemented/TODO status matrix, and
-per-platform build steps live in **[docs/PLATFORMS.md](./docs/PLATFORMS.md)**.
+macOS and Windows are fully implemented; Linux is scaffolded and building (with a
+working vision fallback). Per-OS code boundaries, the implemented/TODO status
+matrix, and per-platform build steps live in **[docs/PLATFORMS.md](./docs/PLATFORMS.md)**.
 
 | | macOS | Windows | Linux |
 |---|---|---|---|
 | Chat · models · memory · skills | ✅ | ✅ | ✅ |
 | Agent input (mouse/keys) | ✅ | ✅ enigo | ✅ enigo |
-| Agent screen-read | ✅ AX tree | ⏳ TODO (vision fallback works) | ⏳ TODO (vision fallback works) |
+| Agent app control (open/type/keys) | ✅ | ✅ Start-Menu launch + enigo | ⏳ TODO (vision fallback works) |
+| Agent screen-read | ✅ AX tree | ✅ UI Automation | ⏳ TODO (vision fallback works) |
 | Screenshot vision | ✅ | ✅ | ✅ |
 | Sidecar build | `scripts/build-sidecar.sh` | `scripts/build-sidecar.ps1` | `scripts/build-sidecar.sh` |
 

@@ -30,6 +30,12 @@ reqwest = { version = "0.12", features = ["json", "blocking", "rustls-tls"], def
 # Check/prompt for macOS Accessibility permission (agent setup page).
 macos-accessibility-client = "0.0.1"
 
+[target.'cfg(target_os = "windows")'.dependencies]
+# Native accessibility read (read_screen) via the Windows UI Automation tree,
+# so the agent can perceive an app's controls as text (role: label @ x,y) with
+# no permission prompt — mirrors the macOS AX reader. Vision is the fallback.
+uiautomation = "0.25"
+
 [features]
 # this feature is used for production builds or when a dev server is not specified,
 # DO NOT REMOVE!!

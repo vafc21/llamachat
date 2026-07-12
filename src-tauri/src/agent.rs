@@ -81,10 +81,14 @@ fn ax_is_empty(text: &str) -> bool {
     let useful = text
         .lines()
         .filter(|l| {
-            if !l.contains(" @ ") {
+            // Only actual element rows ("AXButton: label @ x,y") — NOT the
+            // "Clickable elements (role: label @ x,y):" header, which also
+            // contains " @ " and would otherwise mask an empty tree.
+            let t = l.trim_start();
+            if !t.starts_with("AX") || !t.contains(" @ ") {
                 return false;
             }
-            let low = l.to_lowercase();
+            let low = t.to_lowercase();
             !(low.contains("close button")
                 || low.contains("full screen button")
                 || low.contains("minimize button")

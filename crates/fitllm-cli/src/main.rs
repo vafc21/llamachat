@@ -8,11 +8,15 @@
 //! Every subcommand prints machine-readable JSON to stdout so the CLI doubles as
 //! a debugging tool and a fixture generator for the UI's mock data layer.
 
+use std::io::IsTerminal;
+
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
 use fitllm_core::{catalog, hardware, recommend, store::Store, Recommendation};
 use fitllm_core::tools::{ShellTool, FilesystemTool, ProcessTool, DesktopTool, ToolLimits, ToolRegistry, ToolRequest};
+
+mod tui;
 
 /// LlamaChat — profile your machine and see which local LLMs will actually run on it.
 #[derive(Debug, Parser)]
@@ -30,6 +34,23 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Launch the interactive terminal UI (animated onboarding + live ratings).
+    ///
+    /// This is also what you get by running `fitllm` with no arguments in a
+    /// terminal. Use the subcommands below for scriptable JSON output.
+    Tui {
+        /// Render the UI to a fixed-size buffer and print it as text, then exit.
+        /// Useful on headless hosts / CI to verify layout without a live TTY.
+        #[arg(long)]
+        selftest: bool,
+        /// Which screen to render in --selftest mode:
+        /// splash | theme | profiling | ollama | main.
+        #[arg(long, default_value = "main")]
+        screen: String,
+        /// Buffer size for --selftest, WIDTHxHEIGHT.
+        #[arg(long, default_value = "100x30")]
+        size: String,
+    },
     /// Detect this machine's hardware and print the HardwareProfile as JSON.
     Profile,
     /// Load the bundled model catalog and print it as JSON.
@@ -53,16 +74,49 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
+        Some(Command::Tui { selftest, screen, size }) => cmd_tui(selftest, &screen, &size),
         Some(Command::Profile) => cmd_profile(),
         Some(Command::Catalog) => cmd_catalog(),
         Some(Command::Recommend) => cmd_recommend(),
         Some(Command::StoreInfo) => cmd_store_info(),
         Some(Command::Tools { tool, args }) => cmd_tools(tool, args),
         None => {
-            print_summary();
-            Ok(())
+            // Bare `fitllm` in a terminal launches the interactive UI (like
+            // `claude` does); piped/redirected, it prints the scriptable summary.
+            if std::io::stdout().is_terminal() && std::io::stdin().is_terminal() {
+                tui::run()
+            } else {
+                print_summary();
+                Ok(())
+            }
         }
     }
+}
+
+/// `fitllm tui` — launch the interactive terminal UI, or (with --selftest) dump
+/// a rendered screen as text for headless verification.
+fn cmd_tui(selftest: bool, screen: &str, size: &str) -> Result<()> {
+    if !selftest {
+        return tui::run();
+    }
+    let (w, h) = size
+        .split_once('x')
+        .and_then(|(w, h)| Some((w.trim().parse().ok()?, h.trim().parse().ok()?)))
+        .context("--size must look like WIDTHxHEIGHT, e.g. 100x30")?;
+    let (screen, tab) = match screen {
+        "splash" => (tui::Screen::Splash, 0),
+        "theme" => (tui::Screen::ThemePick, 0),
+        "profiling" => (tui::Screen::Profiling, 0),
+        "ollama" => (tui::Screen::Ollama, 0),
+        "main" | "models" => (tui::Screen::Main, 0),
+        "hardware" => (tui::Screen::Main, 1),
+        "about" => (tui::Screen::Main, 2),
+        other => anyhow::bail!(
+            "unknown --screen '{other}' (splash|theme|profiling|ollama|models|hardware|about)"
+        ),
+    };
+    print!("{}", tui::selftest(w, h, screen, tab)?);
+    Ok(())
 }
 
 /// `fitllm profile` — run the hardware profiler and dump the normalized profile.
@@ -141,8 +195,9 @@ fn print_summary() {
         "fitllm {} — which local LLMs will run on your machine?\n",
         env!("CARGO_PKG_VERSION")
     );
-    println!("USAGE:\n    fitllm <SUBCOMMAND>\n");
+    println!("USAGE:\n    fitllm [SUBCOMMAND]   (no subcommand in a terminal launches the interactive UI)\n");
     println!("SUBCOMMANDS:");
+    println!("    tui           Launch the interactive terminal UI (animated onboarding + ratings)");
     println!("    profile       Detect hardware and print the HardwareProfile as JSON");
     println!("    catalog       Print the bundled model catalog as JSON");
     println!("    recommend     Print ranked model recommendations (best-first) as JSON");

@@ -140,14 +140,31 @@ cargo build
 Try the CLI:
 
 ```bash
-cargo run -p fitllm-cli -- profile      # detect hardware, print JSON
-cargo run -p fitllm-cli -- catalog      # print the bundled model catalog
-cargo run -p fitllm-cli -- recommend    # ranked recommendations (best-first), JSON
-cargo run -p fitllm-cli -- store-info    # round-trip a profile through the store
-cargo run -p fitllm-cli                  # help summary
+cargo run -p fitllm-cli               # interactive terminal UI (in a real terminal)
+cargo run -p fitllm-cli -- tui        # ...the same UI, explicitly
+cargo run -p fitllm-cli -- profile    # detect hardware, print JSON
+cargo run -p fitllm-cli -- catalog    # print the bundled model catalog
+cargo run -p fitllm-cli -- recommend  # ranked recommendations (best-first), JSON
+cargo run -p fitllm-cli -- store-info # round-trip a profile through the store
 ```
 
 The installed binary is named `fitllm`.
+
+#### Terminal UI
+
+Running `fitllm` in a terminal (or `fitllm tui`) launches a full-screen,
+Claude-Code-style interface built on [ratatui](https://ratatui.rs): an animated
+llama mascot, an arrow-key onboarding wizard (theme → live hardware profiling →
+Ollama check), then a tabbed view of your machine and every catalog model rated
+**Won't run → Blazing** for *this* box — all driven by the same core engine, no
+mock data. Piped or redirected (non-interactive), `fitllm` prints the scriptable
+help summary instead, and the JSON subcommands above are unchanged.
+
+Verify the layout without a live terminal (handy on headless hosts / CI):
+
+```bash
+fitllm tui --selftest --screen main --size 100x30   # splash|theme|profiling|ollama|models|hardware|about
+```
 
 ### 2. UI
 

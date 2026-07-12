@@ -13,7 +13,8 @@
       "context_default": 4096,
       "context_max": 4096,
       "quants": [
-        { "name": "Q4_K_M", "bits": 4.5, "size_mb": 4700, "ollama_tag": "llava:7b" }
+        { "name": "Q4_K_M", "bits": 4.5, "size_mb": 4700, "ollama_tag": "llava:7b" },
+        { "name": "Q8_0", "bits": 8.0, "size_mb": 7200 }
       ],
       "ollama_pull": "llava:7b",
       "tags": ["vision", "multimodal", "screenshot", "agent"]

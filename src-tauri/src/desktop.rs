@@ -126,6 +126,78 @@ mod mac {
     use serde_json::Value;
     use std::process::Command;
 
+    // ── Force Electron/Chromium apps to expose their accessibility tree ──────
+    // Chromium builds its AX tree lazily; until an assistive client sets
+    // AXManualAccessibility (or AXEnhancedUserInterface, which VoiceOver sets),
+    // apps like Discord/Slack expose only window chrome. We set both on the
+    // target process so read_screen sees the real UI with real coordinates.
+    // Requires LlamaChat to be a trusted Accessibility client (it is, for input).
+    mod ax {
+        use std::os::raw::{c_char, c_int, c_void};
+
+        type AXUIElementRef = *const c_void;
+        type CFStringRef = *const c_void;
+        type CFTypeRef = *const c_void;
+        type CFAllocatorRef = *const c_void;
+
+        #[link(name = "ApplicationServices", kind = "framework")]
+        extern "C" {
+            fn AXUIElementCreateApplication(pid: c_int) -> AXUIElementRef;
+            fn AXUIElementSetAttributeValue(
+                element: AXUIElementRef,
+                attribute: CFStringRef,
+                value: CFTypeRef,
+            ) -> c_int;
+        }
+        #[link(name = "CoreFoundation", kind = "framework")]
+        extern "C" {
+            static kCFBooleanTrue: CFTypeRef;
+            fn CFStringCreateWithCString(
+                alloc: CFAllocatorRef,
+                c_str: *const c_char,
+                encoding: u32,
+            ) -> CFStringRef;
+            fn CFRelease(cf: CFTypeRef);
+        }
+        const KCFSTRING_ENCODING_UTF8: u32 = 0x0800_0100;
+
+        /// Turn on the full accessibility tree for the process `pid` (best-effort).
+        pub fn force_tree(pid: i32) {
+            unsafe {
+                let app = AXUIElementCreateApplication(pid);
+                if app.is_null() {
+                    return;
+                }
+                for attr in ["AXManualAccessibility", "AXEnhancedUserInterface"] {
+                    if let Ok(c) = std::ffi::CString::new(attr) {
+                        let key = CFStringCreateWithCString(
+                            std::ptr::null(),
+                            c.as_ptr(),
+                            KCFSTRING_ENCODING_UTF8,
+                        );
+                        if !key.is_null() {
+                            AXUIElementSetAttributeValue(app, key, kCFBooleanTrue);
+                            CFRelease(key);
+                        }
+                    }
+                }
+                CFRelease(app);
+            }
+        }
+    }
+
+    /// PID of the frontmost application process (to force its AX tree on).
+    fn frontmost_pid() -> Option<i32> {
+        let out = Command::new("osascript")
+            .args(["-e", "tell application \"System Events\" to get unix id of first application process whose frontmost is true"])
+            .output()
+            .ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        String::from_utf8_lossy(&out.stdout).trim().parse::<i32>().ok()
+    }
+
     fn enigo() -> Result<Enigo, String> {
         Enigo::new(&Settings::default()).map_err(|e| {
             format!("Input control unavailable ({e}). Grant LlamaChat Accessibility permission: System Settings ▸ Privacy & Security ▸ Accessibility.")
@@ -197,7 +269,13 @@ mod mac {
     pub fn read_screen(app: Option<&str>) -> Result<String, String> {
         if let Some(a) = app {
             let _ = Command::new("open").args(["-a", a]).status();
-            std::thread::sleep(std::time::Duration::from_millis(900));
+            std::thread::sleep(std::time::Duration::from_millis(700));
+        }
+        // Force the frontmost app to build its full accessibility tree (Electron
+        // apps like Discord hide it), then give it a moment before reading.
+        if let Some(pid) = frontmost_pid() {
+            ax::force_tree(pid);
+            std::thread::sleep(std::time::Duration::from_millis(650));
         }
         let script = r#"
 tell application "System Events"

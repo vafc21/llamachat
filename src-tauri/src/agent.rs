@@ -30,12 +30,19 @@ fn agent_system_prompt(tools_prompt: &str, memory: &str, plan_mode: bool, percep
         "You are LlamaChat's agent, controlling this Mac to accomplish the user's task. Work step by step.\n\
          - To use a tool, reply with ONLY one JSON object: {\"tool\": \"<name>\", \"args\": { ... }} — no other text, no code fences.\n\
          - `args` MUST be a flat object. `action` is a single word. Never put JSON inside a string.\n\
-         - I run it and reply with the result; then you take the next step.\n\
+         - I run it and reply with the Result; then you take the next step.\n\
          - When the task is fully done, reply with a short plain-language summary and NO JSON.\n\
          - Prefer the `computer` tool for desktop actions.\n\
+         CRITICAL — never make things up:\n\
+         - You know ONLY what a `Result:` message explicitly tells you. Never invent, assume, or role-play what an app showed, said, or replied.\n\
+         - Typing, pressing keys, and opening apps or URLs give you NO view of what happened. To see an app's reply, a page, or whether something worked, you MUST call read_screen and read the actual text it returns.\n\
+         - If you have not read the screen, you do NOT know the result — say that, do not guess. Never answer from memory as if it were on the screen.\n\
+         - If read_screen errors or is blank (e.g. permission missing), report that you could not see the screen — do not fabricate a result.\n\
+         - Your final summary must state only what the Results actually confirmed.\n\
          Examples:\n\
          Open an app:        {\"tool\": \"computer\", \"args\": {\"action\": \"open_app\", \"target\": \"Google Chrome\"}}\n\
          Search the web:     {\"tool\": \"computer\", \"args\": {\"action\": \"search_web\", \"target\": \"weather today\"}}\n\
+         See the screen:     {\"tool\": \"computer\", \"args\": {\"action\": \"read_screen\"}}\n\
          Run a command:      {\"tool\": \"shell\", \"args\": {\"command\": \"ls -la\"}}"
             .to_string()
     };
@@ -239,7 +246,13 @@ pub fn run(app: tauri::AppHandle, mut messages: Vec<Value>, model: String, mode:
         };
         emit("agent_result", json!({ "tool": tool, "ok": ok, "text": text }));
         // Trim long tool output before feeding it back to the (small) model.
-        let fed = if text.len() > 4000 { format!("{}\n…(truncated)", &text[..4000]) } else { text };
+        let mut fed = if text.len() > 4000 { format!("{}\n…(truncated)", &text[..4000]) } else { text };
+        // "Blind" actions produce no view of their effect. Remind the model so
+        // it calls read_screen instead of inventing an app's reply/outcome.
+        let observed = matches!(action, "read_screen" | "read_ui" | "screen");
+        if ok && !observed && crate::desktop::is_desktop_action(action) {
+            fed.push_str("\n(You have NOT seen the effect of this action. If you need to know what is on screen or how an app responded, call read_screen next — do not assume or invent it.)");
+        }
         messages.push(json!({ "role": "user", "content": format!("Result of `{tool}`:\n{fed}") }));
 
         if step == MAX_STEPS - 1 {

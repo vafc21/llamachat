@@ -10,6 +10,9 @@ __pycache__
 *.sqlite
 .DS_Store
 *.png
+# …but app icons/tray assets are real source that must be committed
+!src-tauri/icons/**/*.png
+!llamachat-brand/**/*.png
 
 # Python sidecar build artifacts — regenerated per-platform by scripts/build-sidecar.sh
 /build

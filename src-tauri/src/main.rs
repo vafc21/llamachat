@@ -31,8 +31,14 @@ fn main() {
             let quit = MenuItem::with_id(app, "quit", "Quit LlamaChat", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&open, &bench, &quit])?;
 
+            // Dedicated menu-bar glyph: a bold llama that fills the frame,
+            // rendered as a template so macOS tints it for the light/dark menu
+            // bar and sizes it like other status items (the full app icon was a
+            // padded squircle that shrank the llama to a tiny speck up top).
+            let tray_icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray-icon.png"))?;
             TrayIconBuilder::with_id("main")
-                .icon(app.default_window_icon().unwrap().clone())
+                .icon(tray_icon)
+                .icon_as_template(true)
                 .tooltip("LlamaChat")
                 .menu(&menu)
                 .show_menu_on_left_click(false)

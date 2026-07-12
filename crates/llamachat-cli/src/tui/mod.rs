@@ -18,6 +18,7 @@ pub mod chat;
 pub mod llama;
 pub mod render;
 pub mod theme;
+pub mod tools;
 
 use std::collections::HashSet;
 use std::process::Command;
@@ -370,6 +371,16 @@ impl App {
             self.screen = Screen::Main;
             return;
         };
+        // A tool is waiting for a permission decision — capture a/A/d/Esc.
+        if c.pending().is_some() {
+            match key.code {
+                KeyCode::Char('a') => c.allow_once(),
+                KeyCode::Char('A') => c.allow_always(),
+                KeyCode::Char('d') | KeyCode::Esc => c.deny(),
+                _ => {}
+            }
+            return;
+        }
         let palette_open = c.slash_query().is_some();
         match key.code {
             KeyCode::Esc => {
@@ -535,12 +546,38 @@ pub fn selftest(width: u16, height: u16, screen: Screen, tab: usize) -> Result<S
         if tab >= 1 {
             c.messages.push(chat::Message {
                 role: chat::Role::User,
-                content: "What is a llama? Keep it short.".to_string(),
+                content: "How many files are here?".to_string(),
+                tool: None,
             });
             c.messages.push(chat::Message {
                 role: chat::Role::Assistant,
-                content: "A **llama** is a domesticated South American camelid.\n\n- Soft `wool`\n- Calm, great pack animals\n\n```\nprint(\"llamas rule\")\n```".to_string(),
+                content: "Let me check.\n{\"tool\": \"shell\", \"args\": {\"command\": \"ls -1 | wc -l\"}}".to_string(),
+                tool: None,
             });
+            c.messages.push(chat::Message {
+                role: chat::Role::Tool,
+                content: "24".to_string(),
+                tool: Some("shell".to_string()),
+            });
+            c.messages.push(chat::Message {
+                role: chat::Role::Assistant,
+                content: "There are **24** files in this directory.".to_string(),
+                tool: None,
+            });
+        }
+        if tab >= 2 {
+            // Trigger a pending permission prompt for the visual selftest.
+            c.messages.push(chat::Message {
+                role: chat::Role::User,
+                content: "Delete the temp files.".to_string(),
+                tool: None,
+            });
+            c.messages.push(chat::Message {
+                role: chat::Role::Assistant,
+                content: "{\"tool\": \"shell\", \"args\": {\"command\": \"rm -rf /tmp/build\"}}".to_string(),
+                tool: None,
+            });
+            c.after_turn();
         }
         app.chat = Some(c);
     }

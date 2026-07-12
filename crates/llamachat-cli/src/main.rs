@@ -113,6 +113,7 @@ fn cmd_tui(selftest: bool, screen: &str, size: &str) -> Result<()> {
         "about" => (tui::Screen::Main, 2),
         "chat" | "chatwelcome" => (tui::Screen::Chat, 0),
         "chatmsg" => (tui::Screen::Chat, 1),
+        "chatperm" => (tui::Screen::Chat, 2),
         other => anyhow::bail!(
             "unknown --screen '{other}' (splash|theme|profiling|ollama|models|hardware|about|chatwelcome|chatmsg)"
         ),

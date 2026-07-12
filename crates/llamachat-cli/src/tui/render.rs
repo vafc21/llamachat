@@ -7,6 +7,7 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, BorderType, Clear, List, ListItem, ListState, Paragraph, Tabs, Wrap};
 use ratatui::Frame;
 
+use llamachat_core::tools::ToolRequest;
 use llamachat_core::{HardwareProfile, Recommendation};
 
 use super::chat::{Chat, Role};
@@ -659,6 +660,49 @@ fn chat_view(f: &mut Frame, app: &App, p: &Palette) {
     if c.slash_query().is_some() {
         slash_palette(f, rows[2], c, p);
     }
+    // A tool wants to run — ask, Claude-Code style.
+    if let Some(req) = c.pending() {
+        permission_prompt(f, area, req, p);
+    }
+}
+
+/// The "allow this tool?" modal, shown when the model wants to run something
+/// that needs approval.
+fn permission_prompt(f: &mut Frame, area: Rect, req: &ToolRequest, p: &Palette) {
+    let desc = super::tools::describe(req);
+    let w = (area.width.saturating_sub(6)).clamp(40, 76);
+    let h = 9u16.min(area.height.saturating_sub(2)).max(7);
+    let rect = centered(area, w, h);
+    f.render_widget(Clear, rect);
+
+    let inner_w = (w as usize).saturating_sub(4);
+    let mut lines: Vec<Line> = Vec::new();
+    lines.push(Line::from(vec![
+        Span::styled("llama wants to run ", Style::default().fg(p.text)),
+        Span::styled(req.name.clone(), Style::default().fg(p.brand).add_modifier(Modifier::BOLD)),
+    ]));
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        truncate(&desc, inner_w),
+        Style::default().fg(p.accent).add_modifier(Modifier::BOLD),
+    )));
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::styled("  a ", Style::default().fg(tier_color(3)).add_modifier(Modifier::BOLD)),
+        Span::styled("allow once     ", Style::default().fg(p.text)),
+        Span::styled(" A ", Style::default().fg(p.accent).add_modifier(Modifier::BOLD)),
+        Span::styled(format!("always allow {}", req.name), Style::default().fg(p.text)),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("  d ", Style::default().fg(tier_color(0)).add_modifier(Modifier::BOLD)),
+        Span::styled("deny  (Esc)", Style::default().fg(p.text)),
+    ]));
+
+    let block = Block::bordered()
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(tier_color(1)))
+        .title(Span::styled(" permission ", Style::default().fg(p.brand).add_modifier(Modifier::BOLD)));
+    f.render_widget(Paragraph::new(Text::from(lines)).block(block).wrap(Wrap { trim: true }), rect);
 }
 
 /// The persistent, animated logo banner that stays at the top of the chat.
@@ -813,8 +857,36 @@ fn chat_transcript(c: &Chat, width: usize, p: &Palette, tick: u64) -> Vec<Line<'
                     Span::styled("▌ ", Style::default().fg(p.brand)),
                     Span::styled("llama", Style::default().fg(p.brand).add_modifier(Modifier::BOLD)),
                 ]));
-                for l in render_md(&m.content, width, Style::default().fg(p.text), p) {
-                    out.push(l);
+                // Hide any tool-call JSON from the transcript; show a marker line.
+                let (visible, call) = split_tool_call(&m.content);
+                if !visible.trim().is_empty() {
+                    for l in render_md(&visible, width, Style::default().fg(p.text), p) {
+                        out.push(l);
+                    }
+                }
+                if let Some(desc) = call {
+                    out.push(Line::from(vec![
+                        Span::styled("  ⏵ ", Style::default().fg(p.accent)),
+                        Span::styled(desc, Style::default().fg(p.accent)),
+                    ]));
+                }
+            }
+            Role::Tool => {
+                let name = m.tool.clone().unwrap_or_else(|| "tool".into());
+                out.push(Line::from(Span::styled(
+                    format!("  ⎿ {name} result"),
+                    Style::default().fg(p.dim).add_modifier(Modifier::BOLD),
+                )));
+                // Show the first few lines of output only.
+                for (i, raw) in m.content.lines().take(8).enumerate() {
+                    let _ = i;
+                    out.push(Line::from(Span::styled(
+                        format!("    {}", truncate(raw, width.saturating_sub(4))),
+                        Style::default().fg(p.dim),
+                    )));
+                }
+                if m.content.lines().count() > 8 {
+                    out.push(Line::from(Span::styled("    …", Style::default().fg(p.dim))));
                 }
             }
             Role::System => {
@@ -825,7 +897,15 @@ fn chat_transcript(c: &Chat, width: usize, p: &Palette, tick: u64) -> Vec<Line<'
         }
         out.push(Line::from(""));
     }
-    if c.is_streaming() {
+    if c.is_tool_running() {
+        out.push(Line::from(vec![
+            Span::styled(llama::spinner(tick), Style::default().fg(p.accent)),
+            Span::styled(
+                format!("  running {}… (esc to stop)", c.running_tool().unwrap_or("tool")),
+                Style::default().fg(p.dim),
+            ),
+        ]));
+    } else if c.is_streaming() {
         out.push(Line::from(vec![
             Span::styled(llama::spinner(tick), Style::default().fg(p.accent)),
             Span::styled(
@@ -835,6 +915,20 @@ fn chat_transcript(c: &Chat, width: usize, p: &Palette, tick: u64) -> Vec<Line<'
         ]));
     }
     out
+}
+
+/// Split an assistant message into its visible text and (if present) a one-line
+/// description of the tool call it embedded, hiding the raw JSON.
+fn split_tool_call(content: &str) -> (String, Option<String>) {
+    match super::tools::extract_tool_call(content) {
+        Some(pc) => {
+            let mut visible = String::new();
+            visible.push_str(&content[..pc.start]);
+            visible.push_str(&content[pc.end..]);
+            (visible, Some(super::tools::describe(&pc.req)))
+        }
+        None => (content.to_string(), None),
+    }
 }
 
 /// Minimal markdown → styled lines: code fences, `inline code`, **bold**,

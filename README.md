@@ -163,9 +163,20 @@ help summary instead, and the JSON subcommands above are unchanged.
 On the Models tab, **Enter** downloads a model (live `ollama pull` progress,
 auto-starting the Ollama daemon) and **`r`** opens a full-screen **chat**:
 responses stream token-by-token straight from Ollama's `/api/chat`, with a `/`
-slash-command palette (`/help`, `/clear`, `/retry`, `/models`, `/quit`),
-markdown rendering, and the mascot spinner while it thinks. `Esc` interrupts a
-reply or returns to the model list.
+slash-command palette, markdown rendering, and the mascot spinner while it
+thinks. `Esc` interrupts a reply or returns to the model list.
+
+**Tools & permissions.** The model can run **shell commands** and **read/write
+files** through the core tool engine. Every action that touches the machine
+triggers a Claude-Code-style permission prompt — `a` allow once, `A` always
+allow that tool, `d` deny — so nothing runs without your say-so. Read-only tools
+auto-approve. Manage rules with `/permissions` (`allow <tool>`, `allow-all` for
+bypass mode, `reset`).
+
+**Slash commands** (type `/` for the palette): `/help` · `/commands` · `/tools`
+(list/enable/disable) · `/permissions` · `/clear` · `/retry` · `/model` (back to
+the list) · `/status` · `/quit`. Use a tool-capable model (e.g. Llama 3.2, Qwen
+2.5) for tool use.
 
 Verify the layout without a live terminal (handy on headless hosts / CI):
 

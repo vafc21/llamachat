@@ -2,11 +2,11 @@ import { useState, useEffect, useCallback } from 'react'
 import { invoke, isTauri, listen } from '../tauri'
 import type { DownloadProgress } from '../types'
 
-interface Perms { accessibility: boolean; ollama: boolean }
+interface Perms { accessibility: boolean; screen_recording: boolean; ollama: boolean }
 
 /** Checklist of what Agent mode needs, with live ✅/❌ status + grant buttons. */
 export function AgentSetup({ onDone }: { onDone?: () => void }) {
-  const [perms, setPerms] = useState<Perms>({ accessibility: false, ollama: false });
+  const [perms, setPerms] = useState<Perms>({ accessibility: false, screen_recording: false, ollama: false });
   const [llava, setLlava] = useState<'idle' | 'downloading' | 'done'>('idle');
   const [llavaPct, setLlavaPct] = useState(0);
 
@@ -37,6 +37,12 @@ export function AgentSetup({ onDone }: { onDone?: () => void }) {
     await invoke('open_settings_pane', { pane: 'accessibility' });
     setTimeout(refresh, 800);
   }
+  async function grantScreenRecording() {
+    // Pops the macOS prompt AND registers the app in the Screen Recording list.
+    await invoke('request_screen_recording');
+    await invoke('open_settings_pane', { pane: 'screen_recording' });
+    setTimeout(refresh, 800);
+  }
   function downloadLlava() {
     setLlava('downloading');
     invoke('download_model', { tag: 'llava:7b' });
@@ -52,9 +58,9 @@ export function AgentSetup({ onDone }: { onDone?: () => void }) {
     },
     {
       label: 'Screen Recording',
-      desc: 'Only needed for screenshot-vision perception. Enable if you turn that on.',
-      ok: null,
-      action: { label: 'Open', run: () => invoke('open_settings_pane', { pane: 'screen_recording' }) },
+      desc: 'Only needed for screenshot-vision perception — not the default. Grant only if you turn that on.',
+      ok: perms.screen_recording,
+      action: perms.screen_recording ? undefined : { label: 'Grant', run: grantScreenRecording },
     },
     {
       label: 'Vision model (LLaVA)',

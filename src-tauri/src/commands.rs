@@ -472,11 +472,41 @@ fn accessibility_trusted() -> bool {
     false
 }
 
+// Screen Recording (TCC) — CoreGraphics exposes the same calls the OS uses to
+// gate `screencapture`. Preflight reads current status without prompting;
+// Request pops the system prompt once AND registers the app in the
+// Privacy ▸ Screen Recording list (which is why the app wasn't appearing there:
+// nothing had ever called this).
+#[cfg(target_os = "macos")]
+mod screen_capture {
+    #[link(name = "CoreGraphics", kind = "framework")]
+    extern "C" {
+        fn CGPreflightScreenCaptureAccess() -> bool;
+        fn CGRequestScreenCaptureAccess() -> bool;
+    }
+    pub fn preflight() -> bool {
+        unsafe { CGPreflightScreenCaptureAccess() }
+    }
+    pub fn request() -> bool {
+        unsafe { CGRequestScreenCaptureAccess() }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn screen_recording_granted() -> bool {
+    screen_capture::preflight()
+}
+#[cfg(not(target_os = "macos"))]
+fn screen_recording_granted() -> bool {
+    false
+}
+
 /// Status of the things Agent mode needs, for the setup checklist.
 #[tauri::command]
 pub fn check_permissions() -> serde_json::Value {
     serde_json::json!({
         "accessibility": accessibility_trusted(),
+        "screen_recording": screen_recording_granted(),
         "ollama": ollama::is_running(),
     })
 }
@@ -487,6 +517,21 @@ pub fn request_accessibility() -> bool {
     #[cfg(target_os = "macos")]
     {
         macos_accessibility_client::accessibility::application_is_trusted_with_prompt()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        false
+    }
+}
+
+/// Prompt for Screen Recording permission (screenshot-vision mode). The first
+/// call pops the macOS prompt and registers the app under Privacy ▸ Screen
+/// Recording; later calls just return the current status. Returns whether granted.
+#[tauri::command]
+pub fn request_screen_recording() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        screen_capture::request()
     }
     #[cfg(not(target_os = "macos"))]
     {

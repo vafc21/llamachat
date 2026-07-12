@@ -13,6 +13,7 @@
 //! - [`render`] draws each screen.
 
 pub mod action;
+pub mod chat;
 pub mod llama;
 pub mod render;
 pub mod theme;
@@ -44,13 +45,6 @@ pub enum Overlay {
     },
 }
 
-/// What the event loop wants `run()` to do after it returns.
-enum Control {
-    Quit,
-    /// Suspend the TUI and hand off to `ollama run <tag>`, then come back.
-    Run(String),
-}
-
 /// How long one animation tick is. Also the input poll timeout, so the mascot
 /// keeps moving even while the user isn't typing.
 const TICK: Duration = Duration::from_millis(110);
@@ -66,6 +60,7 @@ pub enum Screen {
     Profiling,
     Ollama,
     Main,
+    Chat,
 }
 
 /// Whether Ollama (needed to actually run models) is installed.
@@ -104,9 +99,10 @@ pub struct App {
     pub ollama: Option<Ollama>,
     pub installed: HashSet<String>,
 
-    // Model actions (pull / run) on the Models tab.
+    // Model actions (pull / chat) on the Models tab.
     pub overlay: Overlay,
-    pending_run: Option<String>,
+    /// The active chat session, when on [`Screen::Chat`].
+    pub chat: Option<chat::Chat>,
 
     profile_started: Option<Instant>,
     job: Option<Receiver<Result<Loaded, String>>>,
@@ -129,7 +125,7 @@ impl Default for App {
             ollama: None,
             installed: HashSet::new(),
             overlay: Overlay::None,
-            pending_run: None,
+            chat: None,
             profile_started: None,
             job: None,
             load_error: None,
@@ -154,6 +150,11 @@ impl App {
     /// any time-based screen transitions.
     fn on_tick(&mut self) {
         self.tick = self.tick.wrapping_add(1);
+
+        // Pump any in-flight chat stream so tokens appear as they arrive.
+        if let Some(c) = self.chat.as_mut() {
+            c.poll();
+        }
 
         // Drain the background job if it has finished.
         if let Some(rx) = &self.job {
@@ -236,6 +237,12 @@ impl App {
             return;
         }
 
+        // The chat screen owns all its keys (typing, Esc, slash palette).
+        if self.screen == Screen::Chat {
+            self.on_key_chat(key);
+            return;
+        }
+
         match key.code {
             KeyCode::Esc => {
                 self.should_quit = true;
@@ -274,6 +281,7 @@ impl App {
                 }
             }
             Screen::Main => self.on_key_main(key),
+            Screen::Chat => {} // handled earlier via on_key_chat
         }
     }
 
@@ -283,12 +291,10 @@ impl App {
             // A download is in flight — let it finish (Ctrl-C, handled globally,
             // is the escape hatch).
             Overlay::Pulling(_) => {}
-            Overlay::Result { ok, tag, .. } => {
-                let (ok, tag) = (*ok, tag.clone());
+            Overlay::Result { ok, tag, display, .. } => {
+                let (ok, tag, display) = (*ok, tag.clone(), display.clone());
                 match key.code {
-                    KeyCode::Enter | KeyCode::Char('r') if ok => {
-                        self.pending_run = Some(tag);
-                    }
+                    KeyCode::Enter | KeyCode::Char('r') if ok => self.open_chat(tag, display),
                     _ => self.overlay = Overlay::None,
                 }
             }
@@ -296,7 +302,15 @@ impl App {
         }
     }
 
-    /// Enter/`r` on a model row: download it (or run it if already installed).
+    /// Open the full-screen chat with `tag`.
+    fn open_chat(&mut self, tag: String, _display: String) {
+        self.overlay = Overlay::None;
+        self.installed.insert(tag.clone());
+        self.chat = Some(chat::Chat::new(tag));
+        self.screen = Screen::Chat;
+    }
+
+    /// Enter/`r` on a model row: chat with it (downloading first if needed).
     fn activate_selected(&mut self, run_now: bool) {
         let Some(rec) = self.selected_rec() else { return };
         let tag = rec.ollama_pull.clone();
@@ -311,9 +325,10 @@ impl App {
             };
             return;
         }
-        // `ollama run` pulls on demand, so "run" works even if not cached yet.
+        // Chat streams via the API, which pulls on demand — so "run now" (r) can
+        // jump straight in; Enter downloads first for a nice progress bar.
         if run_now || self.installed.contains(&tag) {
-            self.pending_run = Some(tag);
+            self.open_chat(tag, display);
             return;
         }
         self.overlay = Overlay::Pulling(action::start_pull(&tag, &display));
@@ -344,6 +359,69 @@ impl App {
             KeyCode::End if self.tab == 0 => {
                 self.rec_cursor = self.recs.len().saturating_sub(1);
             }
+            _ => {}
+        }
+    }
+
+    /// Keys while on the full-screen chat.
+    fn on_key_chat(&mut self, key: KeyEvent) {
+        let Some(c) = self.chat.as_mut() else {
+            self.screen = Screen::Main;
+            return;
+        };
+        let palette_open = c.slash_query().is_some();
+        match key.code {
+            KeyCode::Esc => {
+                if c.is_streaming() {
+                    c.interrupt();
+                } else if !c.input.is_empty() {
+                    c.input.clear();
+                } else {
+                    // Leave chat, back to the model list.
+                    self.chat = None;
+                    self.screen = Screen::Main;
+                }
+            }
+            KeyCode::Enter => {
+                if palette_open {
+                    c.complete_slash();
+                }
+                match c.submit() {
+                    chat::ChatAction::None => {}
+                    chat::ChatAction::Back => {
+                        self.chat = None;
+                        self.screen = Screen::Main;
+                    }
+                    chat::ChatAction::Quit => self.should_quit = true,
+                }
+            }
+            KeyCode::Tab if palette_open => c.complete_slash(),
+            KeyCode::Up => {
+                if palette_open {
+                    c.move_slash(-1);
+                } else {
+                    c.scroll_up();
+                }
+            }
+            KeyCode::Down => {
+                if palette_open {
+                    c.move_slash(1);
+                } else {
+                    c.scroll_down();
+                }
+            }
+            KeyCode::PageUp => {
+                for _ in 0..5 {
+                    c.scroll_up();
+                }
+            }
+            KeyCode::PageDown => {
+                for _ in 0..5 {
+                    c.scroll_down();
+                }
+            }
+            KeyCode::Backspace => c.backspace(),
+            KeyCode::Char(ch) => c.push_char(ch),
             _ => {}
         }
     }
@@ -400,29 +478,18 @@ fn detect_ollama() -> Ollama {
 /// Entry point: take over the terminal, run the event loop, and always restore
 /// the terminal on the way out (even on error/panic path via `ratatui::restore`).
 pub fn run() -> Result<()> {
-    let mut app = App::default();
-    loop {
-        let mut terminal = ratatui::init();
-        let control = event_loop(&mut terminal, &mut app);
-        ratatui::restore();
-        match control? {
-            Control::Quit => return Ok(()),
-            Control::Run(tag) => {
-                // TUI is torn down; hand the terminal to an interactive chat.
-                run_model(&tag);
-                app.overlay = Overlay::None;
-                app.pending_run = None;
-                app.installed.insert(tag); // it's definitely present now
-                                           // loop re-inits the TUI and continues where we left off
-            }
-        }
-    }
+    let mut terminal = ratatui::init();
+    let result = event_loop(&mut terminal);
+    ratatui::restore();
+    result
 }
 
-fn event_loop(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<Control> {
+fn event_loop(terminal: &mut ratatui::DefaultTerminal) -> Result<()> {
+    let mut app = App::default();
     let mut last = Instant::now();
-    loop {
-        terminal.draw(|f| render::draw(f, app))?;
+
+    while !app.should_quit {
+        terminal.draw(|f| render::draw(f, &app))?;
 
         let timeout = TICK.saturating_sub(last.elapsed());
         if event::poll(timeout)? {
@@ -436,32 +503,8 @@ fn event_loop(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<
             app.on_tick();
             last = Instant::now();
         }
-        if app.should_quit {
-            return Ok(Control::Quit);
-        }
-        if let Some(tag) = app.pending_run.take() {
-            return Ok(Control::Run(tag));
-        }
     }
-}
-
-/// Suspend into an interactive `ollama run <tag>` session (inherits the real
-/// terminal), then return so the caller can bring the TUI back. Ollama pulls the
-/// model first if it isn't cached yet.
-fn run_model(tag: &str) {
-    println!("\n\x1b[1m🦙 ollama run {tag}\x1b[0m");
-    println!("\x1b[2mChat below. Type /bye or press Ctrl-D to return to LlamaChat.\x1b[0m\n");
-    match Command::new("ollama").arg("run").arg(tag).status() {
-        Ok(_) => {}
-        Err(e) => {
-            println!("\n\x1b[31mCouldn't start ollama: {e}\x1b[0m");
-            println!("Press Enter to return to LlamaChat…");
-            let mut s = String::new();
-            let _ = std::io::stdin().read_line(&mut s);
-        }
-    }
-    println!("\n\x1b[2m↩ Returning to LlamaChat…\x1b[0m");
-    std::thread::sleep(Duration::from_millis(500));
+    Ok(())
 }
 
 /// Render the current UI to a fixed-size in-memory buffer and return it as text.
@@ -483,6 +526,23 @@ pub fn selftest(width: u16, height: u16, screen: Screen, tab: usize) -> Result<S
     app.screen = screen;
     app.tab = tab.min(TABS.len() - 1);
     app.tick = 3;
+
+    // Seed a demo chat so the transcript/markdown path is visible in --selftest.
+    // tab 0 → the welcome (empty); tab 1 → a seeded exchange.
+    if screen == Screen::Chat {
+        let mut c = chat::Chat::new("tinyllama:1.1b-chat-v1-q8_0".to_string());
+        if tab >= 1 {
+            c.messages.push(chat::Message {
+                role: chat::Role::User,
+                content: "What is a llama? Keep it short.".to_string(),
+            });
+            c.messages.push(chat::Message {
+                role: chat::Role::Assistant,
+                content: "A **llama** is a domesticated South American camelid.\n\n- Soft `wool`\n- Calm, great pack animals\n\n```\nprint(\"llamas rule\")\n```".to_string(),
+            });
+        }
+        app.chat = Some(c);
+    }
 
     let backend = TestBackend::new(width, height);
     let mut terminal = Terminal::new(backend)?;

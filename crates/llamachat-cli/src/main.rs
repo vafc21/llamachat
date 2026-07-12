@@ -111,8 +111,10 @@ fn cmd_tui(selftest: bool, screen: &str, size: &str) -> Result<()> {
         "main" | "models" => (tui::Screen::Main, 0),
         "hardware" => (tui::Screen::Main, 1),
         "about" => (tui::Screen::Main, 2),
+        "chat" | "chatwelcome" => (tui::Screen::Chat, 0),
+        "chatmsg" => (tui::Screen::Chat, 1),
         other => anyhow::bail!(
-            "unknown --screen '{other}' (splash|theme|profiling|ollama|models|hardware|about)"
+            "unknown --screen '{other}' (splash|theme|profiling|ollama|models|hardware|about|chatwelcome|chatmsg)"
         ),
     };
     print!("{}", tui::selftest(w, h, screen, tab)?);

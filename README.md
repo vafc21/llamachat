@@ -160,6 +160,13 @@ Ollama check), then a tabbed view of your machine and every catalog model rated
 mock data. Piped or redirected (non-interactive), `llamachat` prints the scriptable
 help summary instead, and the JSON subcommands above are unchanged.
 
+On the Models tab, **Enter** downloads a model (live `ollama pull` progress,
+auto-starting the Ollama daemon) and **`r`** opens a full-screen **chat**:
+responses stream token-by-token straight from Ollama's `/api/chat`, with a `/`
+slash-command palette (`/help`, `/clear`, `/retry`, `/models`, `/quit`),
+markdown rendering, and the mascot spinner while it thinks. `Esc` interrupts a
+reply or returns to the model list.
+
 Verify the layout without a live terminal (handy on headless hosts / CI):
 
 ```bash

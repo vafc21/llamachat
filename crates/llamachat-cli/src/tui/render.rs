@@ -1,16 +1,17 @@
 //! All drawing for the TUI. Each screen is a small function that reads immutable
 //! [`App`] state and paints into the frame; no screen mutates state.
 
-use ratatui::layout::{Constraint, Layout, Rect};
+use ratatui::layout::{Constraint, Layout, Margin, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::{Block, Clear, List, ListItem, ListState, Paragraph, Tabs, Wrap};
+use ratatui::widgets::{Block, BorderType, Clear, List, ListItem, ListState, Paragraph, Tabs, Wrap};
 use ratatui::Frame;
 
 use llamachat_core::{HardwareProfile, Recommendation};
 
+use super::chat::{Chat, Role};
 use super::theme::{tier_badge, tier_color, Palette, Theme};
-use super::{llama, App, Ollama, Overlay, Screen, TABS};
+use super::{chat, llama, App, Ollama, Overlay, Screen, TABS};
 
 pub fn draw(f: &mut Frame, app: &App) {
     let p = app.theme.palette();
@@ -20,6 +21,7 @@ pub fn draw(f: &mut Frame, app: &App) {
         Screen::Profiling => profiling(f, app, &p),
         Screen::Ollama => ollama(f, app, &p),
         Screen::Main => main_view(f, app, &p),
+        Screen::Chat => chat_view(f, app, &p),
     }
 }
 
@@ -600,6 +602,342 @@ fn overlay(f: &mut Frame, area: Rect, app: &App, p: &Palette) {
         Paragraph::new(Text::from(lines)).block(block).wrap(Wrap { trim: true }),
         rect,
     );
+}
+
+// --- chat screen -------------------------------------------------------------
+
+fn chat_view(f: &mut Frame, app: &App, p: &Palette) {
+    let area = f.area();
+    let Some(c) = app.chat.as_ref() else { return };
+
+    let rows = Layout::vertical([
+        Constraint::Length(1), // header
+        Constraint::Min(1),    // transcript
+        Constraint::Length(3), // input box
+    ])
+    .split(area);
+
+    chat_header(f, rows[0], app, c, p);
+
+    let body = rows[1];
+    if c.messages.is_empty() && !c.is_streaming() {
+        chat_welcome(f, body, c, p);
+    } else {
+        let inner = body.inner(Margin::new(1, 0));
+        let width = inner.width as usize;
+        let lines = chat_transcript(c, width, p, app.tick);
+        let total = lines.len();
+        let h = inner.height as usize;
+        let base = total.saturating_sub(h);
+        let off = base.saturating_sub(c.scroll as usize) as u16;
+        f.render_widget(Paragraph::new(Text::from(lines)).scroll((off, 0)), inner);
+    }
+
+    chat_input(f, rows[2], c, p);
+    if c.slash_query().is_some() {
+        slash_palette(f, rows[2], c, p);
+    }
+}
+
+fn chat_header(f: &mut Frame, area: Rect, app: &App, c: &Chat, p: &Palette) {
+    let cols = Layout::horizontal([Constraint::Min(10), Constraint::Length(46)]).split(area);
+    let left = Line::from(vec![
+        Span::styled(format!(" {} ", llama::mini(app.tick)), Style::default().fg(p.brand)),
+        Span::styled(c.model.clone(), Style::default().fg(p.brand).add_modifier(Modifier::BOLD)),
+    ]);
+    f.render_widget(Paragraph::new(left), cols[0]);
+
+    let right = if c.is_streaming() {
+        Line::from(vec![
+            Span::styled(llama::spinner(app.tick), Style::default().fg(p.accent)),
+            Span::styled(
+                format!(" {}… · {} tok · {}s ", llama::verb(app.tick), c.stream_tokens(), c.stream_elapsed()),
+                Style::default().fg(p.dim),
+            ),
+        ])
+    } else {
+        Line::from(Span::styled(
+            "/ commands  ·  ↑↓ scroll  ·  Esc back ",
+            Style::default().fg(p.dim),
+        ))
+    };
+    f.render_widget(Paragraph::new(right).alignment(ratatui::layout::Alignment::Right), cols[1]);
+}
+
+fn chat_welcome(f: &mut Frame, area: Rect, c: &Chat, p: &Palette) {
+    let mut lines: Vec<Line> = chat::BIG_LLAMA
+        .iter()
+        .map(|l| Line::from(Span::styled(*l, Style::default().fg(p.brand))).centered())
+        .collect();
+    lines.push(Line::from(""));
+    lines.push(
+        Line::from(vec![
+            Span::styled("Chatting with ", Style::default().fg(p.text)),
+            Span::styled(c.model.clone(), Style::default().fg(p.brand).add_modifier(Modifier::BOLD)),
+        ])
+        .centered(),
+    );
+    lines.push(Line::from(""));
+    for tip in [
+        "Ask it anything — replies stream in live.",
+        "Type  /  for commands · Enter to send · Esc to go back.",
+    ] {
+        lines.push(Line::from(Span::styled(tip, Style::default().fg(p.dim))).centered());
+    }
+    let h = lines.len() as u16;
+    let rect = centered(area, area.width.min(60), h);
+    f.render_widget(Paragraph::new(Text::from(lines)), rect);
+}
+
+fn chat_input(f: &mut Frame, area: Rect, c: &Chat, p: &Palette) {
+    let block = Block::bordered()
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(p.accent));
+    let inner_w = area.width.saturating_sub(4) as usize;
+
+    let line = if c.input.is_empty() {
+        Line::from(vec![
+            Span::styled("› ", Style::default().fg(p.accent)),
+            Span::styled(
+                format!("Message {}…   ( / for commands )", c.model),
+                Style::default().fg(p.dim),
+            ),
+        ])
+    } else {
+        // Show the tail of the input so the caret stays visible.
+        let shown: String = tail(&c.input, inner_w.saturating_sub(3));
+        Line::from(vec![
+            Span::styled("› ", Style::default().fg(p.accent)),
+            Span::styled(shown, Style::default().fg(p.text)),
+            Span::styled(" ", Style::default().add_modifier(Modifier::REVERSED)),
+        ])
+    };
+    f.render_widget(Paragraph::new(line).block(block), area);
+}
+
+fn slash_palette(f: &mut Frame, input_area: Rect, c: &Chat, p: &Palette) {
+    let matches = c.slash_matches();
+    if matches.is_empty() {
+        return;
+    }
+    let h = (matches.len() as u16 + 2).min(input_area.y.saturating_sub(2)).max(3);
+    let w = 52.min(input_area.width);
+    let rect = Rect::new(input_area.x, input_area.y.saturating_sub(h), w, h);
+    f.render_widget(Clear, rect);
+
+    let sel = c.slash_selected.min(matches.len().saturating_sub(1));
+    let items: Vec<ListItem> = matches
+        .iter()
+        .enumerate()
+        .map(|(i, cmd)| {
+            let selected = i == sel;
+            let name = Style::default()
+                .fg(if selected { p.brand } else { p.accent })
+                .add_modifier(Modifier::BOLD);
+            ListItem::new(Line::from(vec![
+                Span::styled(if selected { "❯ " } else { "  " }, Style::default().fg(p.brand)),
+                Span::styled(format!("/{:<8}", cmd.name), name),
+                Span::styled(format!("  {}", cmd.desc), Style::default().fg(p.dim)),
+            ]))
+        })
+        .collect();
+    let list = List::new(items).block(
+        Block::bordered()
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(p.border))
+            .title(Span::styled(" commands ", Style::default().fg(p.dim))),
+    );
+    f.render_widget(list, rect);
+}
+
+/// Build the whole transcript as styled lines (newest last).
+fn chat_transcript(c: &Chat, width: usize, p: &Palette, tick: u64) -> Vec<Line<'static>> {
+    let width = width.max(8);
+    let mut out: Vec<Line> = Vec::new();
+    for m in &c.messages {
+        match m.role {
+            Role::User => {
+                for (i, wl) in wrap_words(&m.content, width.saturating_sub(2)).into_iter().enumerate() {
+                    let pref = if i == 0 { "› " } else { "  " };
+                    out.push(Line::from(vec![
+                        Span::styled(pref, Style::default().fg(p.accent).add_modifier(Modifier::BOLD)),
+                        Span::styled(wl, Style::default().fg(p.text).add_modifier(Modifier::BOLD)),
+                    ]));
+                }
+            }
+            Role::Assistant => {
+                out.push(Line::from(Span::styled(
+                    "🦙 llama",
+                    Style::default().fg(p.brand).add_modifier(Modifier::BOLD),
+                )));
+                for l in render_md(&m.content, width, Style::default().fg(p.text), p) {
+                    out.push(l);
+                }
+            }
+            Role::System => {
+                for l in render_md(&m.content, width, Style::default().fg(p.dim), p) {
+                    out.push(l);
+                }
+            }
+        }
+        out.push(Line::from(""));
+    }
+    if c.is_streaming() {
+        out.push(Line::from(vec![
+            Span::styled(llama::spinner(tick), Style::default().fg(p.accent)),
+            Span::styled(
+                format!("  {}… (esc to interrupt)", llama::verb(tick)),
+                Style::default().fg(p.dim),
+            ),
+        ]));
+    }
+    out
+}
+
+/// Minimal markdown → styled lines: code fences, `inline code`, **bold**,
+/// headings, and bullet lists, hard-wrapped to `width` so scroll math is exact.
+fn render_md(text: &str, width: usize, base: Style, p: &Palette) -> Vec<Line<'static>> {
+    let width = width.max(8);
+    let mut out: Vec<Line> = Vec::new();
+    let mut in_code = false;
+    for raw in text.split('\n') {
+        if raw.trim_start().starts_with("```") {
+            in_code = !in_code;
+            continue;
+        }
+        if in_code {
+            for chunk in hard_wrap(raw, width.saturating_sub(2)) {
+                out.push(Line::from(vec![
+                    Span::styled("▏ ", Style::default().fg(p.border)),
+                    Span::styled(chunk, Style::default().fg(p.accent)),
+                ]));
+            }
+            continue;
+        }
+        let t = raw.trim_end();
+        if let Some(h) = t
+            .strip_prefix("### ")
+            .or_else(|| t.strip_prefix("## "))
+            .or_else(|| t.strip_prefix("# "))
+        {
+            for l in wrap_words(h, width) {
+                out.push(Line::from(Span::styled(
+                    l,
+                    Style::default().fg(p.brand).add_modifier(Modifier::BOLD),
+                )));
+            }
+            continue;
+        }
+        let (marker, body) = match t.strip_prefix("- ").or_else(|| t.strip_prefix("* ")) {
+            Some(b) => ("• ", b),
+            None => ("", t),
+        };
+        if body.is_empty() {
+            out.push(Line::from(""));
+            continue;
+        }
+        let tokens = inline_tokens(body, base, p);
+        let wrapped = wrap_spans(tokens, width.saturating_sub(marker.chars().count()));
+        for (i, mut spans) in wrapped.into_iter().enumerate() {
+            if !marker.is_empty() {
+                let pref = if i == 0 { marker } else { "  " };
+                spans.insert(0, Span::styled(pref, Style::default().fg(p.accent)));
+            }
+            out.push(Line::from(spans));
+        }
+    }
+    out
+}
+
+/// Split text into styled runs, toggling on `**bold**` and `` `code` ``.
+fn inline_tokens(text: &str, base: Style, p: &Palette) -> Vec<(String, Style)> {
+    let mut tokens: Vec<(String, Style)> = Vec::new();
+    let mut buf = String::new();
+    let mut bold = false;
+    let mut code = false;
+    let chars: Vec<char> = text.chars().collect();
+    let mut i = 0;
+    let flush = |buf: &mut String, tokens: &mut Vec<(String, Style)>, bold: bool, code: bool| {
+        if buf.is_empty() {
+            return;
+        }
+        let mut style = base;
+        if code {
+            style = Style::default().fg(p.accent);
+        }
+        if bold {
+            style = style.add_modifier(Modifier::BOLD);
+        }
+        tokens.push((std::mem::take(buf), style));
+    };
+    while i < chars.len() {
+        if !code && chars[i] == '*' && chars.get(i + 1) == Some(&'*') {
+            flush(&mut buf, &mut tokens, bold, code);
+            bold = !bold;
+            i += 2;
+            continue;
+        }
+        if chars[i] == '`' {
+            flush(&mut buf, &mut tokens, bold, code);
+            code = !code;
+            i += 1;
+            continue;
+        }
+        buf.push(chars[i]);
+        i += 1;
+    }
+    flush(&mut buf, &mut tokens, bold, code);
+    tokens
+}
+
+/// Word-wrap a sequence of styled tokens to `width`, preserving styles.
+fn wrap_spans(tokens: Vec<(String, Style)>, width: usize) -> Vec<Vec<Span<'static>>> {
+    let width = width.max(4);
+    let mut lines: Vec<Vec<Span>> = vec![vec![]];
+    let mut w = 0usize;
+    for (text, style) in tokens {
+        for word in text.split(' ') {
+            if word.is_empty() {
+                continue;
+            }
+            // Hard-split words longer than the whole line.
+            for piece in hard_wrap(word, width) {
+                let need = piece.chars().count();
+                let sep = if w > 0 { 1 } else { 0 };
+                if w > 0 && w + sep + need > width {
+                    lines.push(vec![]);
+                    w = 0;
+                }
+                if w > 0 {
+                    lines.last_mut().unwrap().push(Span::raw(" "));
+                    w += 1;
+                }
+                lines.last_mut().unwrap().push(Span::styled(piece, style));
+                w += need;
+            }
+        }
+    }
+    lines
+}
+
+/// Hard-wrap a string to `width` columns by character count.
+fn hard_wrap(s: &str, width: usize) -> Vec<String> {
+    let width = width.max(1);
+    let chars: Vec<char> = s.chars().collect();
+    if chars.len() <= width {
+        return vec![s.to_string()];
+    }
+    chars.chunks(width).map(|c| c.iter().collect()).collect()
+}
+
+/// The last `max` characters of a string (keeps the input caret in view).
+fn tail(s: &str, max: usize) -> String {
+    let n = s.chars().count();
+    if n <= max {
+        s.to_string()
+    } else {
+        s.chars().skip(n - max).collect()
+    }
 }
 
 fn bordered(title: &str, p: &Palette) -> Block<'static> {

@@ -381,6 +381,14 @@ impl App {
             }
             return;
         }
+
+        // Shift+Tab cycles permission mode (Claude-Code style).
+        // crossterm sends BackTab for Shift+Tab on most terminals.
+        if matches!(key.code, KeyCode::BackTab) {
+            c.cycle_mode();
+            return;
+        }
+
         let palette_open = c.slash_query().is_some();
         match key.code {
             KeyCode::Esc => {

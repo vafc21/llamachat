@@ -154,6 +154,121 @@ pub fn run(registry: Arc<ToolRegistry>, req: ToolRequest) -> Receiver<ToolResult
     rx
 }
 
+/// Claude-Code-style permission mode. Controls whether the chat agent asks
+/// before editing files / running shell commands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PermMode {
+    /// Ask before every destructive tool call (Claude Code's Manual/default).
+    Manual,
+    /// Auto-approve file edits + common filesystem commands (mkdir, touch, mv, cp).
+    AcceptEdits,
+    /// Reads only — all mutating tools are denied before they run.
+    Plan,
+    /// Everything auto-approved with safety checks.
+    Auto,
+    /// Everything auto-approved, no checks. For isolated containers.
+    Bypass,
+}
+
+impl PermMode {
+    pub const ALL: [PermMode; 5] = [
+        PermMode::Manual,
+        PermMode::AcceptEdits,
+        PermMode::Plan,
+        PermMode::Auto,
+        PermMode::Bypass,
+    ];
+
+    pub fn label(&self) -> &'static str {
+        match self {
+            PermMode::Manual => "manual",
+            PermMode::AcceptEdits => "accept-edits",
+            PermMode::Plan => "plan",
+            PermMode::Auto => "auto",
+            PermMode::Bypass => "bypass",
+        }
+    }
+
+    pub fn badge(&self) -> &'static str {
+        match self {
+            PermMode::Manual => "⏸ manual",
+            PermMode::AcceptEdits => "✎ accept-edits",
+            PermMode::Plan => "◎ plan",
+            PermMode::Auto => "▶ auto",
+            PermMode::Bypass => "⚠ bypass",
+        }
+    }
+
+    pub fn from_label(s: &str) -> Option<Self> {
+        match s {
+            "manual" | "default" => Some(PermMode::Manual),
+            "accept-edits" | "acceptedits" => Some(PermMode::AcceptEdits),
+            "plan" => Some(PermMode::Plan),
+            "auto" => Some(PermMode::Auto),
+            "bypass" | "bypassPermissions" => Some(PermMode::Bypass),
+            _ => None,
+        }
+    }
+
+    /// Next mode in the Shift+Tab cycle.
+    pub fn next(&self) -> Self {
+        let idx = PermMode::ALL.iter().position(|m| m == self).unwrap_or(0);
+        PermMode::ALL[(idx + 1) % PermMode::ALL.len()]
+    }
+}
+
+/// How hard the model should think before answering.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Effort {
+    Low,
+    Medium,
+    High,
+    Max,
+}
+
+impl Effort {
+    pub const ALL: [Effort; 4] = [Effort::Low, Effort::Medium, Effort::High, Effort::Max];
+
+    pub fn label(&self) -> &'static str {
+        match self {
+            Effort::Low => "low",
+            Effort::Medium => "medium",
+            Effort::High => "high",
+            Effort::Max => "max",
+        }
+    }
+
+    pub fn badge(&self) -> &'static str {
+        match self {
+            Effort::Low => "effort:low",
+            Effort::Medium => "effort:medium",
+            Effort::High => "effort:high",
+            Effort::Max => "effort:max",
+        }
+    }
+
+    pub fn from_label(s: &str) -> Option<Self> {
+        match s {
+            "low" => Some(Effort::Low),
+            "medium" | "med" => Some(Effort::Medium),
+            "high" => Some(Effort::High),
+            "max" => Some(Effort::Max),
+            _ => None,
+        }
+    }
+
+    /// A short prompt prefix that hints the model how hard to think.
+    /// Local models don't have native effort controls; this is the next best thing.
+    pub fn system_hint(&self) -> &'static str {
+        match self {
+            Effort::Low => "Be concise. Give short, direct answers. Skip pleasantries.",
+            Effort::Medium => "Think carefully. Provide thorough but focused answers.",
+            Effort::High => "Reason step by step. Explore trade-offs, edge cases, and implications.",
+            Effort::Max => "Think deeply about this problem. Consider multiple approaches, verify each step of your reasoning, anticipate follow-up questions, and give the most complete, well-structured answer you can.",
+        }
+    }
+}
+
 /// The user's standing tool permissions.
 #[derive(Default)]
 pub struct Perms {

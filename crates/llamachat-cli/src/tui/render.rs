@@ -710,20 +710,21 @@ fn chat_banner(f: &mut Frame, area: Rect, app: &App, c: &Chat, p: &Palette) {
     let rows = Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).split(area);
     // Animated logo (rows are pre-centered).
     f.render_widget(Paragraph::new(Text::from(logo_lines(&brand::LOGO_SM, p, app.tick))), rows[0]);
-    // Status line: model name + either streaming stats or the key hints.
-    let mut spans = vec![Span::styled(
-        c.model.clone(),
+    // Status line: mode badge, model name, either streaming stats or key hints.
+    let mut spans = mode_badge_spans(c, p);
+    spans.push(Span::styled(
+        format!(" {}  ", c.model),
         Style::default().fg(p.brand).add_modifier(Modifier::BOLD),
-    )];
+    ));
     if c.is_streaming() {
-        spans.push(Span::styled(format!("  ·  {} ", llama::spinner(app.tick)), Style::default().fg(p.accent)));
+        spans.push(Span::styled(format!("· {} ", llama::spinner(app.tick)), Style::default().fg(p.accent)));
         spans.push(Span::styled(
             format!("{}… {}t {}s", llama::verb(app.tick), c.stream_tokens(), c.stream_elapsed()),
             Style::default().fg(p.dim),
         ));
     } else {
         spans.push(Span::styled(
-            "   ·   / commands   ·   ↑↓ scroll   ·   Esc back",
+            " ·  / commands  ·  ↑↓ scroll  ·  Esc back",
             Style::default().fg(p.dim),
         ));
     }
@@ -732,14 +733,13 @@ fn chat_banner(f: &mut Frame, area: Rect, app: &App, c: &Chat, p: &Palette) {
 
 /// One-line chat header for short terminals.
 fn chat_header_compact(f: &mut Frame, area: Rect, app: &App, c: &Chat, p: &Palette) {
-    let cols = Layout::horizontal([Constraint::Min(10), Constraint::Length(40)]).split(area);
-    f.render_widget(
-        Paragraph::new(Line::from(Span::styled(
-            format!("  {}", c.model),
-            Style::default().fg(p.brand).add_modifier(Modifier::BOLD),
-        ))),
-        cols[0],
-    );
+    let cols = Layout::horizontal([Constraint::Min(12), Constraint::Length(52)]).split(area);
+    let mut left = mode_badge_spans(c, p);
+    left.push(Span::styled(
+        format!(" {}", c.model),
+        Style::default().fg(p.brand).add_modifier(Modifier::BOLD),
+    ));
+    f.render_widget(Paragraph::new(Line::from(left)), cols[0]);
     let right = if c.is_streaming() {
         Line::from(vec![
             Span::styled(llama::spinner(app.tick), Style::default().fg(p.accent)),
@@ -752,6 +752,29 @@ fn chat_header_compact(f: &mut Frame, area: Rect, app: &App, c: &Chat, p: &Palet
         Line::from(Span::styled("/ commands · ↑↓ scroll · Esc back ", Style::default().fg(p.dim)))
     };
     f.render_widget(Paragraph::new(right).alignment(ratatui::layout::Alignment::Right), cols[1]);
+}
+
+/// Build the styled spans for the permission-mode badge (gray `⏸ manual` etc.).
+fn mode_badge_spans(c: &Chat, p: &Palette) -> Vec<Span<'static>> {
+    let badge_color = match c.mode {
+        super::tools::PermMode::Manual => p.dim,
+        super::tools::PermMode::AcceptEdits => p.accent,
+        super::tools::PermMode::Plan => p.accent,
+        super::tools::PermMode::Auto => p.brand,
+        super::tools::PermMode::Bypass => tier_color(0),
+    };
+    let mut spans = vec![Span::styled(
+        c.mode.badge().to_string(),
+        Style::default().fg(badge_color),
+    )];
+    // Only show effort badge if it's not the default (medium).
+    if !matches!(c.effort, super::tools::Effort::Medium) {
+        spans.push(Span::styled(
+            format!(" {}", c.effort.badge()),
+            Style::default().fg(p.accent),
+        ));
+    }
+    spans
 }
 
 /// Empty-state tips shown under the banner before the first message.

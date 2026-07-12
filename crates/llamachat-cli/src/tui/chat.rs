@@ -55,16 +55,18 @@ pub struct SlashCmd {
     pub desc: &'static str,
 }
 
-pub const SLASH: [SlashCmd; 9] = [
+pub const SLASH: [SlashCmd; 11] = [
     SlashCmd { name: "help", desc: "Show commands and keys" },
     SlashCmd { name: "commands", desc: "List all slash commands" },
     SlashCmd { name: "tools", desc: "Show tools the model can use (on/off)" },
-    SlashCmd { name: "permissions", desc: "View or change tool permissions" },
+    SlashCmd { name: "permissions", desc: "View or change tool permissions / mode" },
+    SlashCmd { name: "effort", desc: "Set reasoning effort (low/medium/high/max)" },
     SlashCmd { name: "clear", desc: "Clear this conversation" },
     SlashCmd { name: "retry", desc: "Regenerate the last reply" },
     SlashCmd { name: "model", desc: "Back to the model list" },
     SlashCmd { name: "status", desc: "Show session status" },
     SlashCmd { name: "quit", desc: "Quit LlamaChat" },
+    SlashCmd { name: "mode", desc: "Set permission mode (same as Shift+Tab)" },
 ];
 
 /// What a submitted slash command asks the app to do.
@@ -106,6 +108,11 @@ pub struct Chat {
     tool_rx: Option<Receiver<ToolResult>>,
     running: Option<String>,
     rounds: u32,
+
+    /// Claude-Code-style permission mode (cycled with Shift+Tab).
+    pub mode: tools::PermMode,
+    /// How hard the model should reason.
+    pub effort: tools::Effort,
 }
 
 impl Chat {
@@ -124,6 +131,28 @@ impl Chat {
             tool_rx: None,
             running: None,
             rounds: 0,
+            mode: tools::PermMode::Manual,
+            effort: tools::Effort::Medium,
+        }
+    }
+
+    /// Cycle the permission mode (Shift+Tab).
+    pub fn cycle_mode(&mut self) {
+        self.mode = self.mode.next();
+        self.messages.push(Message::system(format!(
+            "Mode → {}  ({})",
+            self.mode.badge(),
+            self.mode_explanation()
+        )));
+    }
+
+    fn mode_explanation(&self) -> &'static str {
+        match self.mode {
+            tools::PermMode::Manual => "asks before shell / file writes / process",
+            tools::PermMode::AcceptEdits => "auto-approves file edits + mkdir/touch/mv/cp",
+            tools::PermMode::Plan => "read-only — model can read but not write",
+            tools::PermMode::Auto => "everything auto-approved",
+            tools::PermMode::Bypass => "all tools allowed, no prompts",
         }
     }
 
@@ -138,6 +167,26 @@ impl Chat {
     /// A tool call is waiting for the user's yes/no.
     pub fn pending(&self) -> Option<&ToolRequest> {
         self.pending.as_ref()
+    }
+
+    /// Whether the current permission mode should auto-approve this tool.
+    fn mode_allows(&self, req: &ToolRequest) -> bool {
+        match self.mode {
+            tools::PermMode::Manual => false,
+            tools::PermMode::Plan => false, // plan is read-only — deny all mutations
+            tools::PermMode::AcceptEdits => {
+                // Auto-approve file edits + common filesystem commands.
+                matches!(req.name.as_str(), "file") || {
+                    if req.name == "shell" {
+                        let cmd = req.args.get("command").and_then(|v| v.as_str()).unwrap_or("");
+                        is_safe_cmd(cmd)
+                    } else {
+                        false
+                    }
+                }
+            }
+            tools::PermMode::Auto | tools::PermMode::Bypass => true,
+        }
     }
 
     /// Busy = can't accept a new user message right now.
@@ -285,21 +334,80 @@ impl Chat {
                 _ => self.messages.push(Message::system(self.tools_text())),
             },
             "permissions" | "perms" => match (a1, a2) {
+                (Some("mode"), Some(m)) => {
+                    if let Some(new_mode) = tools::PermMode::from_label(m) {
+                        self.mode = new_mode;
+                        self.messages.push(Message::system(format!(
+                            "Mode → {}  ({})",
+                            self.mode.badge(),
+                            self.mode_explanation()
+                        )));
+                    } else {
+                        let modes: Vec<_> =
+                            tools::PermMode::ALL.iter().map(|m| m.label()).collect();
+                        self.messages.push(Message::system(format!(
+                            "Unknown mode `{m}`. Try: {}",
+                            modes.join(", ")
+                        )));
+                    }
+                }
                 (Some("allow"), Some(tool)) => {
                     self.perms.always.insert(tool.to_string());
                     self.messages.push(Message::system(format!("Always allowing `{tool}`.")));
                 }
                 (Some("allow-all"), _) | (Some("bypass"), _) => {
-                    self.perms.allow_all = true;
-                    self.messages.push(Message::system("**Bypass mode ON** — every tool auto-approved. Careful."));
+                    self.mode = tools::PermMode::Bypass;
+                    self.messages.push(Message::system(
+                        "**Bypass mode ON** — all tools auto-approved, no prompts.",
+                    ));
                 }
                 (Some("reset"), _) => {
                     self.perms.always.clear();
-                    self.perms.allow_all = false;
-                    self.messages.push(Message::system("Permissions reset — you'll be asked again."));
+                    self.mode = tools::PermMode::Manual;
+                    self.messages
+                        .push(Message::system("Permissions reset — manual mode, asking for each tool."));
                 }
                 _ => self.messages.push(Message::system(self.permissions_text())),
             },
+            "effort" => match a1 {
+                Some(m) => {
+                    if let Some(e) = tools::Effort::from_label(m) {
+                        self.effort = e;
+                        self.messages.push(Message::system(format!(
+                            "Effort → {}  ·  {}",
+                            self.effort.badge(),
+                            self.effort.system_hint()
+                        )));
+                    } else {
+                        let levels: Vec<_> = tools::Effort::ALL.iter().map(|e| e.label()).collect();
+                        self.messages.push(Message::system(format!(
+                            "Unknown effort `{m}`. Try: {}",
+                            levels.join(", ")
+                        )));
+                    }
+                }
+                None => {
+                    self.messages.push(Message::system(format!(
+                        "Effort: **{}**  ·  {}\n\n`/effort <low|medium|high|max>`",
+                        self.effort.label(),
+                        self.effort.system_hint()
+                    )));
+                }
+            },
+            "mode" => {
+                let new_mode = match a1 {
+                    Some(m) => tools::PermMode::from_label(m),
+                    None => Some(self.mode.next()),
+                };
+                if let Some(new_mode) = new_mode {
+                    self.mode = new_mode;
+                    self.messages.push(Message::system(format!(
+                        "Mode → {}  ({})",
+                        self.mode.badge(),
+                        self.mode_explanation()
+                    )));
+                }
+            }
             "status" => self.messages.push(Message::system(self.status_text())),
             other => self
                 .messages
@@ -361,7 +469,21 @@ impl Chat {
         }
         self.rounds += 1;
         let req = parsed.req;
-        let auto = self.perms.allowed(&req.name) || !self.registry.needs_approval(&req.name);
+
+        // Check the permission mode first, then individual allow rules.
+        if self.mode == tools::PermMode::Plan {
+            // Plan mode — deny all mutations.
+            self.messages
+                .push(Message::system(format!("Plan mode: auto-denied `{}` (read-only).", req.name)));
+            self.messages.push(Message::tool(&req.name, "In plan mode — reads only."));
+            // Feed the denial back so the model can mention what it *would* do.
+            self.begin_turn();
+            return;
+        }
+
+        let auto = self.mode_allows(&req)
+            || self.perms.allowed(&req.name)
+            || !self.registry.needs_approval(&req.name);
         if auto {
             self.start_tool(req);
         } else {
@@ -455,6 +577,8 @@ impl Chat {
         let mut s = String::from(
             "You are LlamaChat, a helpful assistant running in the user's terminal with access to their machine through tools.\n\n",
         );
+        // Effort level as a direct style instruction.
+        s.push_str(&format!("**Response style**: {}\n\n", self.effort.system_hint()));
         s.push_str(&self.registry.system_prompt());
         s.push_str(
             "\nRules:\n- Call a tool ONLY when you need it to answer; otherwise just reply.\n- To call a tool, output ONLY the JSON object, nothing else.\n- After a tool result, either call another tool or give a concise final answer in plain language.\n",
@@ -499,12 +623,35 @@ impl Chat {
 
     fn status_text(&self) -> String {
         format!(
-            "**Status**\n- Model: `{}`\n- Tools: {}\n- Messages: {}",
+            "**Status**\n- Model: `{}`\n- Mode: {} ({})\n- Effort: {}\n- Tools: {}\n- Messages: {}",
             self.model,
+            self.mode.badge(),
+            self.mode_explanation(),
+            self.effort.label(),
             if self.tools_on { "on" } else { "off" },
-            self.messages.iter().filter(|m| matches!(m.role, Role::User | Role::Assistant)).count(),
+            self.messages
+                .iter()
+                .filter(|m| matches!(m.role, Role::User | Role::Assistant))
+                .count(),
         )
     }
+}
+
+/// In AcceptEdits mode, these shell commands auto-approve (read-only or common
+/// filesystem operations).
+fn is_safe_cmd(cmd: &str) -> bool {
+    let c = cmd.trim();
+    if c.is_empty() {
+        return false;
+    }
+    let name = c.split_whitespace().next().unwrap_or("");
+    let safe = [
+        "ls", "cat", "head", "tail", "wc", "grep", "find", "which", "echo", "pwd", "whoami",
+        "date", "uname", "env", "printenv", "df", "du", "free", "uptime", "ps", "pgrep", "top",
+        "mkdir", "touch", "mv", "cp", "ln", "chmod", "chown",
+        "git", "cargo", "npm", "pip", "python", "python3", "node",
+    ];
+    safe.contains(&name)
 }
 
 fn help_text() -> String {
@@ -513,6 +660,7 @@ fn help_text() -> String {
         s.push_str(&format!("- `/{}` — {}\n", c.name, c.desc));
     }
     s.push_str("\n**Keys**: `Enter` send · `↑/↓` scroll · `Esc` interrupt / back · `Ctrl-C` quit\n");
+    s.push_str("**Shift+Tab** cycle permission mode: Manual → AcceptEdits → Plan → Auto → Bypass\n");
     s.push_str("**Tool prompts**: `a` allow once · `A` always allow · `d` deny");
     s
 }
@@ -628,9 +776,10 @@ mod tests {
         c.input = "/permissions reset".into();
         c.submit();
         assert!(!c.perms.allowed("shell"));
+        assert_eq!(c.mode, tools::PermMode::Manual);
         c.input = "/permissions allow-all".into();
         c.submit();
-        assert!(c.perms.allowed("anything"));
+        assert_eq!(c.mode, tools::PermMode::Bypass);
     }
 
     #[test]

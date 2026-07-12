@@ -7,7 +7,7 @@ use std::io::Read;
 use std::process::{Command, Stdio};
 use std::sync::mpsc::{self, Receiver};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 /// How many progress lines we keep for the overlay.
 const LOG_CAP: usize = 40;
@@ -18,7 +18,6 @@ pub struct PullJob {
     pub display: String,
     pub log: Arc<Mutex<VecDeque<String>>>,
     pub rx: Receiver<Result<(), String>>,
-    pub started: Instant,
 }
 
 impl PullJob {
@@ -153,7 +152,6 @@ pub fn start_pull(tag: &str, display: &str) -> PullJob {
         display: display.to_string(),
         log,
         rx,
-        started: Instant::now(),
     }
 }
 

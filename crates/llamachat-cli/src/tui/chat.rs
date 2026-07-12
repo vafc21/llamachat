@@ -450,20 +450,3 @@ mod tests {
     }
 }
 
-/// A detailed llama for the chat welcome screen — the "big" mascot, as opposed
-/// to the compact one in the header/footer.
-pub const BIG_LLAMA: [&str; 13] = [
-    "        (\\.-./)      ",
-    "        /     \\      ",
-    "      .' o   o '.    ",
-    "     /   \\_ _/   \\   ",
-    "    _\\    `-'    /_  ",
-    "   (  '-._____.-'  ) ",
-    "    \\   (~~~~~)   /  ",
-    "     \\  (~~~~~)  /   ",
-    "      \\ (~~~~~) /    ",
-    "       '-.___.-'     ",
-    "        |||  |||     ",
-    "        |||  |||     ",
-    "        (_)  (_)     ",
-];

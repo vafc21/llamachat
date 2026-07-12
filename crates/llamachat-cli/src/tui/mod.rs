@@ -13,6 +13,7 @@
 //! - [`render`] draws each screen.
 
 pub mod action;
+pub mod brand;
 pub mod chat;
 pub mod llama;
 pub mod render;
@@ -650,20 +651,19 @@ mod tests {
             Screen::Main,
         ] {
             let out = selftest(100, 30, screen, 0).expect("render");
-            // The footer mascot appears on every screen.
-            assert!(out.contains("(o.o)~") || out.contains("(-.-)~"),
+            // The footer mascot (brand mark) appears on every screen.
+            assert!(out.contains('🦙'),
                 "screen {screen:?} produced unexpected output:\n{out}");
         }
     }
 
     #[test]
-    fn llama_frames_are_fixed_width() {
-        // Every line of every frame must be the same visual width or the mascot
-        // jitters as it animates.
-        let width = llama::frame(0).lines[0].chars().count();
-        for tick in 0..60u64 {
-            for line in llama::frame(tick).lines {
-                assert_eq!(line.chars().count(), width, "tick {tick}: '{line}'");
+    fn brand_logo_rows_are_equal_width() {
+        // Centering relies on every logo row being the same width.
+        for art in [&brand::LOGO[..], &brand::LOGO_LG[..]] {
+            let w = art[0].chars().count();
+            for row in art {
+                assert_eq!(row.chars().count(), w, "row '{row}'");
             }
         }
     }

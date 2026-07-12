@@ -11,7 +11,7 @@ use llamachat_core::{HardwareProfile, Recommendation};
 
 use super::chat::{Chat, Role};
 use super::theme::{tier_badge, tier_color, Palette, Theme};
-use super::{chat, llama, App, Ollama, Overlay, Screen, TABS};
+use super::{brand, llama, App, Ollama, Overlay, Screen, TABS};
 
 pub fn draw(f: &mut Frame, app: &App) {
     let p = app.theme.palette();
@@ -36,11 +36,10 @@ fn centered(area: Rect, w: u16, h: u16) -> Rect {
     Rect::new(x, y, w, h)
 }
 
-/// The mascot as styled lines in the brand color.
-fn llama_lines(tick: u64, p: &Palette) -> Vec<Line<'static>> {
-    llama::frame(tick)
-        .lines
-        .iter()
+/// The brand llama logo as centered, brand-colored lines. Rows are equal width,
+/// so centering each keeps the block aligned.
+fn logo_lines(art: &[&'static str], p: &Palette) -> Vec<Line<'static>> {
+    art.iter()
         .map(|l| Line::from(Span::styled(*l, Style::default().fg(p.brand))).centered())
         .collect()
 }
@@ -61,7 +60,7 @@ fn fmt_params(b: f64) -> String {
 
 fn splash(f: &mut Frame, app: &App, p: &Palette) {
     let area = f.area();
-    let mut lines = llama_lines(app.tick, p);
+    let mut lines = logo_lines(&brand::LOGO, p);
     lines.push(Line::from(""));
     lines.push(
         Line::from(Span::styled(
@@ -147,7 +146,7 @@ fn theme_pick(f: &mut Frame, app: &App, p: &Palette) {
 
 fn profiling(f: &mut Frame, app: &App, p: &Palette) {
     let area = f.area();
-    let mut lines = llama_lines(app.tick, p);
+    let mut lines = logo_lines(&brand::LOGO, p);
     lines.push(Line::from(""));
     lines.push(
         Line::from(vec![
@@ -665,10 +664,7 @@ fn chat_header(f: &mut Frame, area: Rect, app: &App, c: &Chat, p: &Palette) {
 }
 
 fn chat_welcome(f: &mut Frame, area: Rect, c: &Chat, p: &Palette) {
-    let mut lines: Vec<Line> = chat::BIG_LLAMA
-        .iter()
-        .map(|l| Line::from(Span::styled(*l, Style::default().fg(p.brand))).centered())
-        .collect();
+    let mut lines: Vec<Line> = logo_lines(&brand::LOGO_LG, p);
     lines.push(Line::from(""));
     lines.push(
         Line::from(vec![

@@ -80,7 +80,10 @@ export default function App() {
     try { return localStorage.getItem('fitllm.welcomed') === '1'; } catch { return false; }
   });
   const [conversations, setConversations] = useState<Conversation[]>(INITIAL_CONVERSATIONS);
-  const [activeId, setActiveId] = useState(INITIAL_CONVERSATIONS[0].id);
+  const [activeId, setActiveId] = useState(() => {
+    try { return localStorage.getItem('fitllm.activeId') || INITIAL_CONVERSATIONS[0].id; }
+    catch { return INITIAL_CONVERSATIONS[0].id; }
+  });
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [view, setView] = useState<View>('chat');
   const [streaming, setStreaming] = useState(false);
@@ -117,10 +120,21 @@ export default function App() {
       if (saved && saved.length) {
         const convs = saved.map((d) => dtoToConversation(d, uid));
         setConversations(convs);
-        setActiveId(convs[0].id);
+        // Restore the conversation the user was last on, if it still exists.
+        let want = convs[0].id;
+        try {
+          const s = localStorage.getItem('fitllm.activeId');
+          if (s && convs.some((c) => c.id === s)) want = s;
+        } catch { /* ignore */ }
+        setActiveId(want);
       }
     })();
   }, []);
+
+  // Remember the active conversation across restarts.
+  useEffect(() => {
+    try { localStorage.setItem('fitllm.activeId', activeId); } catch { /* ignore */ }
+  }, [activeId]);
 
   // Auto-save conversations to markdown (debounced; only non-empty ones).
   useEffect(() => {
@@ -195,7 +209,14 @@ export default function App() {
   // When the Quick model is ready: first run → welcome steps, else → chat.
   useEffect(() => {
     if (phase !== 'setup') return;
-    if (tiers[0]?.status === 'ready') setPhase(welcomed ? 'ready' : 'welcome');
+    if (tiers[0]?.status !== 'ready') return;
+    if (welcomed) { setPhase('ready'); return; }
+    // Persist "seen onboarding" NOW, before showing it — so if the user quits
+    // mid-onboarding (e.g. to grant Screen Recording, which requires an app
+    // restart) it doesn't re-run the flow and re-append their memory. We still
+    // show the welcome once this session (don't flip in-memory `welcomed`).
+    try { localStorage.setItem('fitllm.welcomed', '1'); } catch { /* ignore */ }
+    setPhase('welcome');
   }, [phase, tiers, welcomed]);
 
   // Agent-mode events → chat messages on the run's conversation.

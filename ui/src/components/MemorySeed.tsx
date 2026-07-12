@@ -32,7 +32,8 @@ export function MemorySeed({ onNext, onSkip }: { onNext: () => void; onSkip: () 
     if (!text) return;
     setSaving(true);
     const cur = (await invoke<string>('get_memory')) ?? '';
-    const next = (cur.trim() ? cur.trimEnd() + '\n' : '') + text + '\n';
+    // Don't re-append memory that's already saved (guards against duplicates).
+    const next = cur.includes(text) ? cur : (cur.trim() ? cur.trimEnd() + '\n' : '') + text + '\n';
     await invoke('set_memory', { content: next });
     onNext();
   }

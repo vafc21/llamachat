@@ -651,16 +651,18 @@ mod tests {
             Screen::Main,
         ] {
             let out = selftest(100, 30, screen, 0).expect("render");
-            // The footer mascot (brand mark) appears on every screen.
-            assert!(out.contains('🦙'),
-                "screen {screen:?} produced unexpected output:\n{out}");
+            // Every screen should draw substantial content (no blank screens).
+            let ink = out.chars().filter(|c| !c.is_whitespace()).count();
+            assert!(ink > 30, "screen {screen:?} rendered too little:\n{out}");
+            // And no llama emoji should leak into the UI chrome.
+            assert!(!out.contains('🦙'), "screen {screen:?} still has a llama emoji");
         }
     }
 
     #[test]
     fn brand_logo_rows_are_equal_width() {
         // Centering relies on every logo row being the same width.
-        for art in [&brand::LOGO[..], &brand::LOGO_LG[..]] {
+        for art in [&brand::LOGO[..], &brand::LOGO_SM[..]] {
             let w = art[0].chars().count();
             for row in art {
                 assert_eq!(row.chars().count(), w, "row '{row}'");

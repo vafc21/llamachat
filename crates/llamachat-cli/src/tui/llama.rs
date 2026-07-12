@@ -8,12 +8,6 @@
 //! and mouth change. All frame strings are `'static` constants selected per
 //! tick — nothing is allocated while animating.
 
-/// A compact one-glyph llama mark for headers / footers — the brand emoji, so
-/// the little mascot matches the logo used on the hero screens.
-pub fn mini(_tick: u64) -> &'static str {
-    "🦙"
-}
-
 /// Braille throbber frames — the classic spinner that spins next to the verb.
 pub const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 

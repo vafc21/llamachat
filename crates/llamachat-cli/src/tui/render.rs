@@ -36,11 +36,26 @@ fn centered(area: Rect, w: u16, h: u16) -> Rect {
     Rect::new(x, y, w, h)
 }
 
-/// The brand llama logo as centered, brand-colored lines. Rows are equal width,
-/// so centering each keeps the block aligned.
-fn logo_lines(art: &[&'static str], p: &Palette) -> Vec<Line<'static>> {
+/// The brand llama logo as centered lines, with a soft shimmer that sweeps down
+/// the rows and then pauses — subtle "it's alive" motion, no jitter. Rows are
+/// equal width so centering keeps the block aligned.
+fn logo_lines(art: &[&'static str], p: &Palette, tick: u64) -> Vec<Line<'static>> {
+    let n = art.len() as i64;
+    let cycle = n + 8; // sweep the highlight down, then rest for a few ticks
+    let pos = ((tick / 2) as i64) % cycle;
     art.iter()
-        .map(|l| Line::from(Span::styled(*l, Style::default().fg(p.brand))).centered())
+        .enumerate()
+        .map(|(i, l)| {
+            let d = (i as i64 - pos).abs();
+            let style = if d == 0 {
+                Style::default().fg(p.accent).add_modifier(Modifier::BOLD)
+            } else if d == 1 {
+                Style::default().fg(p.brand).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(p.brand)
+            };
+            Line::from(Span::styled(*l, style)).centered()
+        })
         .collect()
 }
 
@@ -60,7 +75,7 @@ fn fmt_params(b: f64) -> String {
 
 fn splash(f: &mut Frame, app: &App, p: &Palette) {
     let area = f.area();
-    let mut lines = logo_lines(&brand::LOGO, p);
+    let mut lines = logo_lines(&brand::LOGO, p, app.tick);
     lines.push(Line::from(""));
     lines.push(
         Line::from(Span::styled(
@@ -106,7 +121,7 @@ fn theme_pick(f: &mut Frame, app: &App, p: &Palette) {
     let area = f.area();
     let mut lines: Vec<Line> = Vec::new();
     lines.push(
-        Line::from(Span::styled("Let's set the mood 🎨", Style::default().fg(p.brand).bold()))
+        Line::from(Span::styled("Let's set the mood", Style::default().fg(p.brand).bold()))
             .centered(),
     );
     lines.push(
@@ -146,7 +161,7 @@ fn theme_pick(f: &mut Frame, app: &App, p: &Palette) {
 
 fn profiling(f: &mut Frame, app: &App, p: &Palette) {
     let area = f.area();
-    let mut lines = logo_lines(&brand::LOGO, p);
+    let mut lines = logo_lines(&brand::LOGO, p, app.tick);
     lines.push(Line::from(""));
     lines.push(
         Line::from(vec![
@@ -202,7 +217,7 @@ fn profiling(f: &mut Frame, app: &App, p: &Palette) {
 fn ollama(f: &mut Frame, app: &App, p: &Palette) {
     let area = f.area();
     let mut lines: Vec<Line> = Vec::new();
-    lines.push(Line::from(Span::styled("Ready to run models 🦙", Style::default().fg(p.brand).bold())).centered());
+    lines.push(Line::from(Span::styled("Ready to run models", Style::default().fg(p.brand).bold())).centered());
     lines.push(Line::from(""));
 
     match app.ollama.as_ref() {
@@ -280,8 +295,7 @@ fn header(f: &mut Frame, area: Rect, app: &App, p: &Palette) {
     let cols = Layout::horizontal([Constraint::Length(22), Constraint::Min(0)]).split(area);
 
     let title = Paragraph::new(Line::from(vec![
-        Span::styled(format!(" {} ", llama::mini(app.tick)), Style::default().fg(p.brand)),
-        Span::styled("LlamaChat", Style::default().fg(p.brand).add_modifier(Modifier::BOLD)),
+        Span::styled("  LlamaChat", Style::default().fg(p.brand).add_modifier(Modifier::BOLD)),
     ]))
     .block(Block::new());
     f.render_widget(title, cols[0]);
@@ -331,8 +345,8 @@ fn models_tab(f: &mut Frame, area: Rect, app: &App, p: &Palette) {
                     Style::default().fg(p.text).add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(format!("{:>5}  ", fmt_params(r.params_b)), Style::default().fg(p.dim)),
-                Span::styled(format!("🧠{:>3.0}", r.intelligence_score), Style::default().fg(p.accent)),
-                Span::styled(format!(" ⚡{:>3.0}  ", r.speed_score), Style::default().fg(p.brand)),
+                Span::styled(format!("iq{:>3.0}", r.intelligence_score), Style::default().fg(p.accent)),
+                Span::styled(format!(" sp{:>3.0}  ", r.speed_score), Style::default().fg(p.brand)),
                 Span::styled(r.tier.label(), Style::default().fg(color)),
             ]);
             ListItem::new(line)
@@ -525,10 +539,10 @@ fn about_tab(f: &mut Frame, area: Rect, app: &App, p: &Palette) {
 
 // --- chrome ------------------------------------------------------------------
 
-fn footer(f: &mut Frame, area: Rect, hint: &str, tick: u64, p: &Palette) {
+fn footer(f: &mut Frame, area: Rect, hint: &str, _tick: u64, p: &Palette) {
     let row = Rect::new(area.x, area.y + area.height.saturating_sub(1), area.width, 1);
     let line = Line::from(vec![
-        Span::styled(format!(" {} ", llama::mini(tick)), Style::default().fg(p.brand)),
+        Span::styled("  ", Style::default()),
         Span::styled(hint.to_string(), Style::default().fg(p.dim)),
     ]);
     f.render_widget(Paragraph::new(line), row);
@@ -609,18 +623,27 @@ fn chat_view(f: &mut Frame, app: &App, p: &Palette) {
     let area = f.area();
     let Some(c) = app.chat.as_ref() else { return };
 
+    // Keep the logo "up" as a persistent banner when there's vertical room;
+    // fall back to a one-line header on short terminals so chat isn't squeezed.
+    let banner = area.height >= 24;
+    let header_h = if banner { brand::LOGO_SM.len() as u16 + 1 } else { 1 };
+
     let rows = Layout::vertical([
-        Constraint::Length(1), // header
+        Constraint::Length(header_h),
         Constraint::Min(1),    // transcript
         Constraint::Length(3), // input box
     ])
     .split(area);
 
-    chat_header(f, rows[0], app, c, p);
+    if banner {
+        chat_banner(f, rows[0], app, c, p);
+    } else {
+        chat_header_compact(f, rows[0], app, c, p);
+    }
 
     let body = rows[1];
     if c.messages.is_empty() && !c.is_streaming() {
-        chat_welcome(f, body, c, p);
+        chat_tips(f, body, c, p);
     } else {
         let inner = body.inner(Margin::new(1, 0));
         let width = inner.width as usize;
@@ -638,34 +661,58 @@ fn chat_view(f: &mut Frame, app: &App, p: &Palette) {
     }
 }
 
-fn chat_header(f: &mut Frame, area: Rect, app: &App, c: &Chat, p: &Palette) {
-    let cols = Layout::horizontal([Constraint::Min(10), Constraint::Length(46)]).split(area);
-    let left = Line::from(vec![
-        Span::styled(format!(" {} ", llama::mini(app.tick)), Style::default().fg(p.brand)),
-        Span::styled(c.model.clone(), Style::default().fg(p.brand).add_modifier(Modifier::BOLD)),
-    ]);
-    f.render_widget(Paragraph::new(left), cols[0]);
+/// The persistent, animated logo banner that stays at the top of the chat.
+fn chat_banner(f: &mut Frame, area: Rect, app: &App, c: &Chat, p: &Palette) {
+    let rows = Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).split(area);
+    // Animated logo (rows are pre-centered).
+    f.render_widget(Paragraph::new(Text::from(logo_lines(&brand::LOGO_SM, p, app.tick))), rows[0]);
+    // Status line: model name + either streaming stats or the key hints.
+    let mut spans = vec![Span::styled(
+        c.model.clone(),
+        Style::default().fg(p.brand).add_modifier(Modifier::BOLD),
+    )];
+    if c.is_streaming() {
+        spans.push(Span::styled(format!("  ·  {} ", llama::spinner(app.tick)), Style::default().fg(p.accent)));
+        spans.push(Span::styled(
+            format!("{}… {}t {}s", llama::verb(app.tick), c.stream_tokens(), c.stream_elapsed()),
+            Style::default().fg(p.dim),
+        ));
+    } else {
+        spans.push(Span::styled(
+            "   ·   / commands   ·   ↑↓ scroll   ·   Esc back",
+            Style::default().fg(p.dim),
+        ));
+    }
+    f.render_widget(Paragraph::new(Line::from(spans).centered()), rows[1]);
+}
 
+/// One-line chat header for short terminals.
+fn chat_header_compact(f: &mut Frame, area: Rect, app: &App, c: &Chat, p: &Palette) {
+    let cols = Layout::horizontal([Constraint::Min(10), Constraint::Length(40)]).split(area);
+    f.render_widget(
+        Paragraph::new(Line::from(Span::styled(
+            format!("  {}", c.model),
+            Style::default().fg(p.brand).add_modifier(Modifier::BOLD),
+        ))),
+        cols[0],
+    );
     let right = if c.is_streaming() {
         Line::from(vec![
             Span::styled(llama::spinner(app.tick), Style::default().fg(p.accent)),
             Span::styled(
-                format!(" {}… · {} tok · {}s ", llama::verb(app.tick), c.stream_tokens(), c.stream_elapsed()),
+                format!(" {}… {}t {}s ", llama::verb(app.tick), c.stream_tokens(), c.stream_elapsed()),
                 Style::default().fg(p.dim),
             ),
         ])
     } else {
-        Line::from(Span::styled(
-            "/ commands  ·  ↑↓ scroll  ·  Esc back ",
-            Style::default().fg(p.dim),
-        ))
+        Line::from(Span::styled("/ commands · ↑↓ scroll · Esc back ", Style::default().fg(p.dim)))
     };
     f.render_widget(Paragraph::new(right).alignment(ratatui::layout::Alignment::Right), cols[1]);
 }
 
-fn chat_welcome(f: &mut Frame, area: Rect, c: &Chat, p: &Palette) {
-    let mut lines: Vec<Line> = logo_lines(&brand::LOGO_LG, p);
-    lines.push(Line::from(""));
+/// Empty-state tips shown under the banner before the first message.
+fn chat_tips(f: &mut Frame, area: Rect, c: &Chat, p: &Palette) {
+    let mut lines: Vec<Line> = Vec::new();
     lines.push(
         Line::from(vec![
             Span::styled("Chatting with ", Style::default().fg(p.text)),
@@ -762,10 +809,10 @@ fn chat_transcript(c: &Chat, width: usize, p: &Palette, tick: u64) -> Vec<Line<'
                 }
             }
             Role::Assistant => {
-                out.push(Line::from(Span::styled(
-                    "🦙 llama",
-                    Style::default().fg(p.brand).add_modifier(Modifier::BOLD),
-                )));
+                out.push(Line::from(vec![
+                    Span::styled("▌ ", Style::default().fg(p.brand)),
+                    Span::styled("llama", Style::default().fg(p.brand).add_modifier(Modifier::BOLD)),
+                ]));
                 for l in render_md(&m.content, width, Style::default().fg(p.text), p) {
                     out.push(l);
                 }

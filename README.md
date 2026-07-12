@@ -46,6 +46,18 @@ matrix, and per-platform build steps live in **[docs/PLATFORMS.md](./docs/PLATFO
 | Screenshot vision | ✅ | ✅ | ✅ |
 | Sidecar build | `scripts/build-sidecar.sh` | `scripts/build-sidecar.ps1` | `scripts/build-sidecar.sh` |
 
+### Download & install
+
+Prebuilt installers for macOS, Windows, and Linux are published on the
+[Releases page](https://github.com/vafc21/llamachat/releases) (built by CI when a
+version is tagged). The installers are currently **unsigned**, so on first launch:
+
+- **Windows** may show *"Windows protected your PC"* → click **More info → Run anyway**.
+- **macOS** → right-click the app → **Open** (once).
+
+This is normal for open-source software. See **[docs/SIGNING.md](./docs/SIGNING.md)**
+for the free (open-source) path to code-signed, warning-free downloads.
+
 ---
 
 ## Architecture

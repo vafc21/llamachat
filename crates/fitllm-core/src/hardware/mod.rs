@@ -1,4 +1,4 @@
-//! Cross-platform, read-only hardware profiler for FitLLM.
+//! Cross-platform, read-only hardware profiler for LlamaChat.
 //!
 //! [`profile`] gathers a normalized snapshot of the machine — CPU, GPU(s),
 //! Apple Silicon SoC info, RAM, storage and OS — plus the list of acceleration

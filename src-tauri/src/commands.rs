@@ -14,7 +14,7 @@ use tauri::{Emitter, Manager, State};
 
 /// Plain conversational system prompt used for chat when the caller doesn't
 /// supply one (e.g. from a skill or `/system`).
-const DEFAULT_CHAT_PROMPT: &str = "You are FitLLM, a helpful AI assistant running locally on the \
+const DEFAULT_CHAT_PROMPT: &str = "You are LlamaChat, a helpful AI assistant running locally on the \
     user's machine. Reply directly and conversationally in plain language. Be concise and accurate. \
     Do not output JSON, function calls, or tool syntax unless the user explicitly asks for code.";
 

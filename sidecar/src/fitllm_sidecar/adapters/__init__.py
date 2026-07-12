@@ -1,4 +1,4 @@
-"""Runtime adapters for FitLLM.
+"""Runtime adapters for LlamaChat.
 
 Phase 1 ships a single concrete adapter (:class:`OllamaAdapter`) plus the
 :class:`RuntimeAdapter` ABC. Register new backends in ``ADAPTERS``.

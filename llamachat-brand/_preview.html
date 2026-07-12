@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>LlamaChat brand preview</title>
+<style>
+  body { margin: 0; padding: 18px 24px; font-family: -apple-system, 'SF Pro Display', sans-serif; background: #ececf0; color: #16161c; }
+  h1 { font-size: 15px; margin: 0 0 14px; }
+  h2 { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: #6b6b76; margin: 14px 0 8px; }
+  .row { display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap; }
+  .cols { display: flex; gap: 40px; align-items: flex-start; }
+  .cell { text-align: center; }
+  .cell span { display: block; font-size: 10px; color: #6b6b76; margin-top: 4px; }
+  .dark { background: #0d0d12; border-radius: 12px; padding: 14px 18px; display: inline-flex; gap: 18px; align-items: center; }
+  .light { background: #ffffff; border-radius: 12px; padding: 14px 18px; display: inline-flex; gap: 18px; align-items: center; border: 1px solid #d8d8de; }
+  img { display: block; }
+</style>
+</head>
+<body>
+<h1>LlamaChat — final mark (bold trace of the Ollama llama)</h1>
+
+<div class="cols">
+  <div>
+    <h2>App icon at real sizes</h2>
+    <div class="row">
+      <div class="cell"><img src="svg/logo.svg" width="160" height="160"><span>160</span></div>
+      <div class="cell"><img src="svg/logo.svg" width="96" height="96"><span>96</span></div>
+      <div class="cell"><img src="svg/logo.svg" width="64" height="64"><span>64</span></div>
+      <div class="cell"><img src="svg/logo.svg" width="48" height="48"><span>48</span></div>
+      <div class="cell"><img src="svg/logo.svg" width="32" height="32"><span>32</span></div>
+      <div class="cell"><img src="svg/logo.svg" width="16" height="16"><span>16</span></div>
+    </div>
+
+    <h2>Wordmark</h2>
+    <div class="row">
+      <div class="cell"><img src="svg/wordmark.svg" width="430"><span>wordmark.svg</span></div>
+    </div>
+  </div>
+
+  <div>
+    <h2>Mono mark — inherits any color</h2>
+    <div class="dark">
+      <img src="svg/logo-mono.svg" width="72" height="72" style="filter: invert(1);">
+      <img src="svg/wordmark-mono.svg" width="260" style="filter: invert(1);">
+    </div>
+    <div style="height:10px"></div>
+    <div class="light">
+      <img src="svg/logo-mono.svg" width="72" height="72">
+      <img src="svg/wordmark-mono.svg" width="260">
+    </div>
+
+    <h2>Generated platform samples</h2>
+    <div class="row">
+      <div class="cell"><img src="svg/favicon.svg" width="32" height="32"><span>favicon</span></div>
+      <div class="cell"><img src="icons/128x128.png" width="84" height="84"><span>desktop</span></div>
+      <div class="cell"><img src="icons/ios/AppIcon-60x60@3x.png" width="72" height="72"><span>iOS</span></div>
+      <div class="cell"><img src="icons/android/mipmap-xxxhdpi/ic_launcher_round.png" width="72" height="72"><span>Android</span></div>
+      <div class="cell"><img src="icons/Square150x150Logo.png" width="60" height="60"><span>MS Store</span></div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

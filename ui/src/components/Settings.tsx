@@ -78,7 +78,7 @@ export function Settings({ hardware }: Props) {
         {/* How hard to test */}
         <Section
           title="How hard should we test?"
-          hint="How thoroughly FitLLM measures models on your machine."
+          hint="How thoroughly LlamaChat measures models on your machine."
         >
           <div className="space-y-2">
             {INTENSITY_OPTIONS.map((opt) => {
@@ -109,7 +109,7 @@ export function Settings({ hardware }: Props) {
         {/* Which model to use */}
         <Section
           title="Which model should chats use?"
-          hint="Pick a specific model, or let FitLLM choose the best one for your machine."
+          hint="Pick a specific model, or let LlamaChat choose the best one for your machine."
         >
           <select
             value={settings.model_override ?? ''}
@@ -211,7 +211,7 @@ export function Settings({ hardware }: Props) {
         </Section>
 
         {/* Privacy */}
-        <Section title="Privacy" hint="FitLLM never phones home.">
+        <Section title="Privacy" hint="LlamaChat never phones home.">
           <div className="flex items-center gap-2 bg-surface border border-border rounded px-3 py-2.5">
             <span className="w-2 h-2 rounded-full bg-success" />
             <span className="text-[12px] text-text">

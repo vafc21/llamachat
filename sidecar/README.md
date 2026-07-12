@@ -1,6 +1,6 @@
 # fitllm-sidecar
 
-Python benchmark sidecar for **FitLLM**. It orchestrates on-device LLM
+Python benchmark sidecar for **LlamaChat**. It orchestrates on-device LLM
 benchmarks and talks to runtime backends (Phase 1: **Ollama**) over HTTP, then
 emits `BenchmarkResult` JSON whose shape matches
 `crates/fitllm-core/src/types.rs` so the Rust core can deserialize it directly.
@@ -75,7 +75,7 @@ On disk the file must carry the Rust target-triple suffix
 (e.g. `fitllm-sidecar-aarch64-apple-darwin`); the build script adds it
 automatically from `rustc -vV` (override with `FITLLM_SIDECAR_TRIPLE`). When the
 app is bundled, the triple suffix is stripped and the binary lands **next to the
-app executable** (on macOS: `FitLLM.app/Contents/MacOS/fitllm-sidecar`).
+app executable** (on macOS: `LlamaChat.app/Contents/MacOS/fitllm-sidecar`).
 
 The frozen binary takes the same argv as `python -m fitllm_sidecar`, e.g.:
 

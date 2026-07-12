@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the FitLLM Python sidecar into a single self-contained binary named
+# Build the LlamaChat Python sidecar into a single self-contained binary named
 # `fitllm-sidecar` (no system Python needed at runtime), then stage it where
 # Tauri's bundler expects an external binary.
 #

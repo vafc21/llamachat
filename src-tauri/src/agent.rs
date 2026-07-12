@@ -23,11 +23,11 @@ const MAX_STEPS: usize = 12;
 
 fn agent_system_prompt(tools_prompt: &str, memory: &str, plan_mode: bool, perception: &str) -> String {
     let base = if plan_mode {
-        "You are FitLLM's agent, able to control this Mac. The user wants a PLAN only — do NOT act. \
+        "You are LlamaChat's agent, able to control this Mac. The user wants a PLAN only — do NOT act. \
          Reply with a short numbered plan of the steps/tools you would use. Do not output any tool JSON."
             .to_string()
     } else {
-        "You are FitLLM's agent, controlling this Mac to accomplish the user's task. Work step by step.\n\
+        "You are LlamaChat's agent, controlling this Mac to accomplish the user's task. Work step by step.\n\
          - To use a tool, reply with ONLY one JSON object: {\"tool\": \"<name>\", \"args\": { ... }} — no other text, no code fences.\n\
          - `args` MUST be a flat object. `action` is a single word. Never put JSON inside a string.\n\
          - I run it and reply with the result; then you take the next step.\n\

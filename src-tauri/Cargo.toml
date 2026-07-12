@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "FitLLM desktop shell (Tauri): profiles your machine and rates which LLMs it can run."
+description = "LlamaChat desktop shell (Tauri): profiles your machine and rates which LLMs it can run."
 default-run = "fitllm"
 
 [build-dependencies]

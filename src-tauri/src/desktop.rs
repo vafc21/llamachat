@@ -41,7 +41,7 @@ pub fn describe_screen(vision_model: &str) -> Result<String, String> {
         .map(|s| s.success())
         .unwrap_or(false);
     if !ok {
-        return Err("Screenshot failed — grant FitLLM Screen Recording permission in System Settings ▸ Privacy.".into());
+        return Err("Screenshot failed — grant LlamaChat Screen Recording permission in System Settings ▸ Privacy.".into());
     }
     let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
     let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
@@ -79,7 +79,7 @@ mod mac {
 
     fn enigo() -> Result<Enigo, String> {
         Enigo::new(&Settings::default()).map_err(|e| {
-            format!("Input control unavailable ({e}). Grant FitLLM Accessibility permission: System Settings ▸ Privacy & Security ▸ Accessibility.")
+            format!("Input control unavailable ({e}). Grant LlamaChat Accessibility permission: System Settings ▸ Privacy & Security ▸ Accessibility.")
         })
     }
 

@@ -70,7 +70,7 @@ def cmd_dev_server(args) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="fitllm_sidecar",
-        description="FitLLM benchmark sidecar — talks to local LLM runtimes (Ollama).",
+        description="LlamaChat benchmark sidecar — talks to local LLM runtimes (Ollama).",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 

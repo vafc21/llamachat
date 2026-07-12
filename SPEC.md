@@ -1,4 +1,4 @@
-# Build Spec: FitLLM
+# Build Spec: LlamaChat
 
 ## 0. One-line pitch
 
@@ -20,7 +20,7 @@ Think of it as **OpenClaw running on local models** instead of cloud APIs. The h
 ## 2. Primary user flow
 
 ### 2.1 First launch (onboarding wizard)
-1. Welcome screen — one sentence: "FitLLM runs AI locally on your machine. First, let's find the best model for your hardware."
+1. Welcome screen — one sentence: "LlamaChat runs AI locally on your machine. First, let's find the best model for your hardware."
 2. **Hardware detection** runs immediately (fast, read-only, seconds).
 3. Show the best recommended model with a one-line explanation of why.
 4. User clicks "Download & Start" — pulls the model via Ollama/llama.cpp with a progress bar.

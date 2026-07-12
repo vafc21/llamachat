@@ -1,4 +1,4 @@
-# FitLLM
+# LlamaChat
 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](./LICENSE)
 [![Rust](https://img.shields.io/badge/core-Rust-orange.svg)](https://www.rust-lang.org/)
@@ -9,15 +9,15 @@
 
 > **Which AI models will actually run on *your* machine — rated from "won't run" to "blazing", from real on-device measurements, not spec-sheet guesses.**
 
-FitLLM is an open-source, **local-first** desktop app that profiles your hardware, runs real inference benchmarks in the background, and ranks open models by how well they run on *your* system. It pairs that with an honest side-by-side against current frontier cloud models, so you can see the true speed / quality / privacy tradeoff before you download a single weight. No account, no telemetry, nothing leaves your device unless you explicitly opt in.
+LlamaChat is an open-source, **local-first** desktop app that profiles your hardware, runs real inference benchmarks in the background, and ranks open models by how well they run on *your* system. It pairs that with an honest side-by-side against current frontier cloud models, so you can see the true speed / quality / privacy tradeoff before you download a single weight. No account, no telemetry, nothing leaves your device unless you explicitly opt in.
 
 ---
 
-## Why FitLLM?
+## Why LlamaChat?
 
-Plenty of tools will tell you what *might* fit your GPU. FitLLM is built around one thing none of them fully do: **an owned, clean-room, on-device measured benchmark loop.**
+Plenty of tools will tell you what *might* fit your GPU. LlamaChat is built around one thing none of them fully do: **an owned, clean-room, on-device measured benchmark loop.**
 
-| | **FitLLM** | whichllm | LLMFit | Run This LLM |
+| | **LlamaChat** | whichllm | LLMFit | Run This LLM |
 |---|---|---|---|---|
 | On-device **measured** speed | ✅ owned harness | ❌ external quality leaderboards | ⚠️ delegates to Ollama/vLLM/MLX | ❌ spec estimates |
 | Clean-room "Full Test" mode | ✅ | ❌ | ❌ | ❌ |

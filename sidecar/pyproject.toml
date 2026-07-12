@@ -5,11 +5,11 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "fitllm-sidecar"
 version = "0.1.0"
-description = "FitLLM Python benchmark sidecar — orchestrates on-device LLM benchmarks and talks to Ollama."
+description = "LlamaChat Python benchmark sidecar — orchestrates on-device LLM benchmarks and talks to Ollama."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
-authors = [{ name = "FitLLM" }]
+authors = [{ name = "LlamaChat" }]
 
 # Runtime dependencies:
 #   requests — HTTP client for the Ollama API at http://127.0.0.1:11434

@@ -32,7 +32,7 @@ export function WelcomeSteps({ onFinish }: { onFinish: () => void }) {
                 onClick={onFinish}
                 className="w-full py-2.5 bg-accent text-white text-[13px] font-medium rounded-lg hover:opacity-90 transition-opacity"
               >
-                Start using FitLLM
+                Start using LlamaChat
               </button>
               <button onClick={() => setStep(0)} className="w-full text-[11px] text-text-muted hover:text-text-secondary">
                 ← Back

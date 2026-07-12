@@ -10,7 +10,7 @@ use fitllm_core::tools::{ShellTool, FilesystemTool, ProcessTool, DesktopTool, Co
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-/// Where FitLLM keeps its local SQLite store and settings.
+/// Where LlamaChat keeps its local SQLite store and settings.
 pub fn data_dir() -> PathBuf {
     let base = dirs::data_dir().unwrap_or_else(|| PathBuf::from("."));
     base.join("fitllm")

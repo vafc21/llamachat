@@ -1,4 +1,4 @@
-"""FitLLM Python benchmark sidecar.
+"""LlamaChat Python benchmark sidecar.
 
 Orchestrates on-device LLM benchmarks and talks to runtime backends (Phase 1:
 Ollama) over HTTP. Emits ``BenchmarkResult`` JSON objects whose shape matches

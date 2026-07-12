@@ -1,4 +1,4 @@
-//! Shared data types for FitLLM. These are the interface contract between the
+//! Shared data types for LlamaChat. These are the interface contract between the
 //! hardware profiler, the model catalog, the recommendation engine, the Python
 //! benchmark sidecar, and the UI. All types serialize to the JSON shapes
 //! documented in `CONTRACT.md` — keep them in sync.

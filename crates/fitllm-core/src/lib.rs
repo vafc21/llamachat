@@ -1,4 +1,4 @@
-//! FitLLM core engine.
+//! LlamaChat core engine.
 //!
 //! Pure-Rust library with no GUI dependencies, so it builds and runs on any
 //! host (including CI and machines without webkit2gtk). The Tauri shell and the

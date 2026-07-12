@@ -1,4 +1,4 @@
-"""Frozen-binary entry point for the FitLLM sidecar.
+"""Frozen-binary entry point for the LlamaChat sidecar.
 
 PyInstaller freezes a *script*, but the sidecar is a package invoked as
 ``python -m fitllm_sidecar``. Its ``__main__`` uses package-relative imports,

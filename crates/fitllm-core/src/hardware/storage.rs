@@ -1,4 +1,4 @@
-//! Storage detection: where FitLLM keeps (or would keep) its model blobs, and
+//! Storage detection: where LlamaChat keeps (or would keep) its model blobs, and
 //! how much room is left on that volume. A sequential read benchmark is
 //! intentionally skipped to keep profiling fast and strictly non-destructive
 //! (see `read_mbps` below).
@@ -24,7 +24,7 @@ pub fn detect() -> Storage {
     }
 }
 
-/// Resolve the directory FitLLM uses for model storage.
+/// Resolve the directory LlamaChat uses for model storage.
 ///
 /// Order of preference:
 /// 1. `FITLLM_MODELS_DIR` env var (explicit user override).

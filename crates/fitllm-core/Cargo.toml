@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "Core engine for FitLLM: hardware profiler, model catalog, recommendation engine, local store."
+description = "Core engine for LlamaChat: hardware profiler, model catalog, recommendation engine, local store."
 
 [dependencies]
 serde.workspace = true

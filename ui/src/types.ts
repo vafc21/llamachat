@@ -30,7 +30,7 @@ export interface HardwareProfile {
 
 export type Tier = 'wont_run' | 'slow' | 'okay' | 'great' | 'blazing';
 
-/** How hard FitLLM benchmarks — chosen on first run, changeable in Settings. */
+/** How hard LlamaChat benchmarks — chosen on first run, changeable in Settings. */
 export type BenchmarkIntensity = 'quick' | 'balanced' | 'full' | 'all';
 
 export interface IntensityOption {

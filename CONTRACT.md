@@ -1,4 +1,4 @@
-# FitLLM — Internal Interface Contract (Phase 1)
+# LlamaChat — Internal Interface Contract (Phase 1)
 
 This file pins the interfaces between the parallel-built modules. **Do not
 change a shared type or signature without updating this file.** The canonical

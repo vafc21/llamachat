@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller spec for the FitLLM sidecar.
+"""PyInstaller spec for the LlamaChat sidecar.
 
 Freezes the ``fitllm_sidecar`` package into a single self-contained binary
 named ``fitllm-sidecar`` (no system Python required at runtime). This lets the

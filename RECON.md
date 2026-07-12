@@ -1,8 +1,8 @@
-# FitLLM — Competitive Recon
+# LlamaChat — Competitive Recon
 
-Date: 2026-07-09. Time-boxed recon of three existing "will this LLM run on my machine" projects, to decide whether FitLLM should fork one or go greenfield.
+Date: 2026-07-09. Time-boxed recon of three existing "will this LLM run on my machine" projects, to decide whether LlamaChat should fork one or go greenfield.
 
-**FitLLM's differentiator:** on-device *measured* benchmark loop + clean-room "Full Test" harness + live cloud comparison, packaged as a local-first desktop app with a "Won't run → Blazing" rating.
+**LlamaChat's differentiator:** on-device *measured* benchmark loop + clean-room "Full Test" harness + live cloud comparison, packaged as a local-first desktop app with a "Won't run → Blazing" rating.
 
 ---
 
@@ -47,18 +47,18 @@ Date: 2026-07-09. Time-boxed recon of three existing "will this LLM run on my ma
 | "Won't run → Blazing" rating | Fit ranking, not tiers | Fit/speed scores | Estimates |
 | License | MIT | MIT | Not OSS |
 | Stars / activity | 5.7k, active | 29.2k, very active | unknown |
-| Forkable base for FitLLM? | Weak | Partial (reference, not base) | No |
+| Forkable base for LlamaChat? | Weak | Partial (reference, not base) | No |
 
 ---
 
 ## Bottom line: go greenfield
 
-**Recommendation: build FitLLM greenfield.** None of the three is a near-perfect base to fork:
+**Recommendation: build LlamaChat greenfield.** None of the three is a near-perfect base to fork:
 
 - **Run This LLM** is not open source and is spec-lookup only — irrelevant as a base.
 - **whichllm** does no on-device speed measurement (its "benchmarks" are external quality leaderboards) and is a Python CLI — forking it means gutting its core and rebuilding as a desktop app.
-- **LLMFit** is the only one that measures real inference, and is the strongest *reference*, but (a) it delegates measurement to third-party runtimes (Ollama/vLLM/MLX) instead of owning a clean-room harness, (b) it's a Rust TUI, not a local-first desktop GUI, and (c) it leans on a community benchmark DB rather than honest self-contained local tests. Adopting its architecture would fight FitLLM's core thesis.
+- **LLMFit** is the only one that measures real inference, and is the strongest *reference*, but (a) it delegates measurement to third-party runtimes (Ollama/vLLM/MLX) instead of owning a clean-room harness, (b) it's a Rust TUI, not a local-first desktop GUI, and (c) it leans on a community benchmark DB rather than honest self-contained local tests. Adopting its architecture would fight LlamaChat's core thesis.
 
-**Crucially, no competitor combines all three FitLLM pillars** — an owned, clean-room on-device *measured* benchmark loop, a native local-first desktop app with explicit "Won't run → Blazing" tiers, and live honest cloud comparison. That whitespace is real and defensible.
+**Crucially, no competitor combines all three LlamaChat pillars** — an owned, clean-room on-device *measured* benchmark loop, a native local-first desktop app with explicit "Won't run → Blazing" tiers, and live honest cloud comparison. That whitespace is real and defensible.
 
 **Suggested posture:** greenfield desktop app. Treat LLMFit as the reference to study (its fit-scoring heuristics, hardware-detection breadth, and community leaderboard are worth learning from — all MIT, so code/ideas are reusable), but own the measured benchmark harness end-to-end rather than inheriting anyone's architecture.

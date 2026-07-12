@@ -132,7 +132,7 @@ fn run_action(action: &str, target: &str, args: &serde_json::Value) -> Result<To
             );
             match osa(script) {
                 Ok(_) => done(format!("Typed: {target}")),
-                Err(e) => fail(format!("Type failed — grant Accessibility permission to FitLLM in System Settings ▸ Privacy. ({e})")),
+                Err(e) => fail(format!("Type failed — grant Accessibility permission to LlamaChat in System Settings ▸ Privacy. ({e})")),
             }
         }
         "key" | "keypress" | "press" => {

@@ -1,6 +1,6 @@
 //! App-level settings and user-defined ("custom") models.
 //!
-//! These are FitLLM shell concerns (not shared core types), so they live in the
+//! These are LlamaChat shell concerns (not shared core types), so they live in the
 //! Tauri crate. Both are persisted as plain JSON files in the app `data_dir()`
 //! so they survive restarts and never phone home.
 

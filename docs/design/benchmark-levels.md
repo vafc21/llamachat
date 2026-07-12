@@ -1,7 +1,7 @@
 # Design: Leveled, hardware-sized benchmark phase
 
 Status: proposed (redesign) · Supersedes the "intensity tiers" behavior in SPEC §2.2 / §4.2
-Owner: FitLLM · Date: 2026-07-10
+Owner: LlamaChat · Date: 2026-07-10
 
 ## Why this redesign
 

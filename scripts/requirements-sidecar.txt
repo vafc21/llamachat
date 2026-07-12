@@ -1,4 +1,4 @@
-# Pinned build/runtime dependencies for freezing the FitLLM sidecar into a
+# Pinned build/runtime dependencies for freezing the LlamaChat sidecar into a
 # single self-contained binary with PyInstaller.
 #
 # Install into a clean virtualenv before running scripts/build-sidecar.sh:

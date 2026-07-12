@@ -44,7 +44,7 @@ fn python() -> String {
 }
 
 /// Locate the bundled, frozen `fitllm-sidecar` binary that ships next to the app
-/// executable in a packaged build (`FitLLM.app/Contents/MacOS/fitllm-sidecar`).
+/// executable in a packaged build (`LlamaChat.app/Contents/MacOS/fitllm-sidecar`).
 /// Packagers can point at it explicitly with `FITLLM_SIDECAR_BIN`.
 fn bundled_bin() -> Option<PathBuf> {
     if let Ok(p) = std::env::var("FITLLM_SIDECAR_BIN") {

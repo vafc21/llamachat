@@ -1,4 +1,4 @@
-//! FitLLM CLI (`fitllm`).
+//! LlamaChat CLI (`fitllm`).
 //!
 //! A thin, scriptable front door to the pure-Rust `fitllm-core` engine. It lets
 //! you exercise every piece of the Phase 1 core — hardware profiling, the model
@@ -14,7 +14,7 @@ use clap::{Parser, Subcommand};
 use fitllm_core::{catalog, hardware, recommend, store::Store, Recommendation};
 use fitllm_core::tools::{ShellTool, FilesystemTool, ProcessTool, DesktopTool, ToolLimits, ToolRegistry, ToolRequest};
 
-/// FitLLM — profile your machine and see which local LLMs will actually run on it.
+/// LlamaChat — profile your machine and see which local LLMs will actually run on it.
 #[derive(Debug, Parser)]
 #[command(
     name = "fitllm",

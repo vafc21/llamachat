@@ -18,22 +18,22 @@ use tauri::{
 };
 
 fn main() {
-    let app_state = AppState::init().expect("failed to initialize FitLLM state");
+    let app_state = AppState::init().expect("failed to initialize LlamaChat state");
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .manage(app_state)
         .setup(|app| {
             // System-tray menu — the always-available "Jarvis-style" entry point.
-            let open = MenuItem::with_id(app, "open", "Open FitLLM", true, None::<&str>)?;
+            let open = MenuItem::with_id(app, "open", "Open LlamaChat", true, None::<&str>)?;
             let bench =
                 MenuItem::with_id(app, "benchmark", "Run Quick Benchmark", true, None::<&str>)?;
-            let quit = MenuItem::with_id(app, "quit", "Quit FitLLM", true, None::<&str>)?;
+            let quit = MenuItem::with_id(app, "quit", "Quit LlamaChat", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&open, &bench, &quit])?;
 
             TrayIconBuilder::with_id("main")
                 .icon(app.default_window_icon().unwrap().clone())
-                .tooltip("FitLLM")
+                .tooltip("LlamaChat")
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id.as_ref() {
@@ -93,5 +93,5 @@ fn main() {
             commands::send_message,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running FitLLM");
+        .expect("error while running LlamaChat");
 }

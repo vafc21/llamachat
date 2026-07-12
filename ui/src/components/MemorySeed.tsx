@@ -36,7 +36,7 @@ export function MemorySeed({ onNext, onSkip }: { onNext: () => void; onSkip: () 
         <p className="text-sm text-text font-medium">Seed your assistant's memory <span className="text-text-muted font-normal">· optional</span></p>
         <p className="text-[11px] text-text-muted mt-1 leading-relaxed">
           Copy the prompt below into <span className="text-text-secondary">ChatGPT or Claude</span>. It'll interview you and hand back
-          a summary. Paste that summary here and FitLLM will remember it in every chat. You can skip this and add memories anytime.
+          a summary. Paste that summary here and LlamaChat will remember it in every chat. You can skip this and add memories anytime.
         </p>
       </div>
 

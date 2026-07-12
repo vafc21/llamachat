@@ -26,22 +26,24 @@ pub fn control(action: &str, args: &Value) -> Result<String, String> {
     mac::control(action, args)
 }
 
-#[cfg(not(target_os = "macos"))]
-pub fn control(_action: &str, _args: &Value) -> Result<String, String> {
-    Err("Desktop control is only available on macOS.".into())
+#[cfg(target_os = "windows")]
+pub fn control(action: &str, args: &Value) -> Result<String, String> {
+    windows::control(action, args)
+}
+
+#[cfg(target_os = "linux")]
+pub fn control(action: &str, args: &Value) -> Result<String, String> {
+    linux::control(action, args)
 }
 
 /// Screenshot the screen and have a local vision model describe it as text.
+/// The capture itself is platform-specific (`screenshot_to`); the vision call
+/// is shared across all OSes.
 pub fn describe_screen(vision_model: &str) -> Result<String, String> {
     use base64::Engine;
     let path = std::env::temp_dir().join("fitllm-agent-screen.png");
-    let ok = std::process::Command::new("screencapture")
-        .args(["-x", &path.to_string_lossy()])
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false);
-    if !ok {
-        return Err("Screenshot failed — grant LlamaChat Screen Recording permission in System Settings ▸ Privacy.".into());
+    if !screenshot_to(&path.to_string_lossy()) {
+        return Err("Screenshot failed — grant Screen Recording permission (macOS: System Settings ▸ Privacy) or ensure a screenshot tool is installed (Linux: grim/scrot/imagemagick).".into());
     }
     let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
     let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
@@ -69,6 +71,53 @@ pub fn describe_screen(vision_model: &str) -> Result<String, String> {
             let err = v.get("error").and_then(|e| e.as_str()).unwrap_or("no description");
             format!("Vision model \"{vision_model}\" returned nothing ({err}). Is it a vision model, and pulled?")
         })
+}
+
+// ── Platform screenshot (writes a PNG to `path`, returns success) ──────────
+
+#[cfg(target_os = "macos")]
+fn screenshot_to(path: &str) -> bool {
+    std::process::Command::new("screencapture")
+        .args(["-x", path])
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+#[cfg(target_os = "windows")]
+fn screenshot_to(path: &str) -> bool {
+    // Full virtual-screen capture via .NET, no extra dependency.
+    let ps = format!(
+        "Add-Type -AssemblyName System.Windows.Forms,System.Drawing; \
+         $b=[System.Windows.Forms.SystemInformation]::VirtualScreen; \
+         $bmp=New-Object System.Drawing.Bitmap $b.Width,$b.Height; \
+         $g=[System.Drawing.Graphics]::FromImage($bmp); \
+         $g.CopyFromScreen($b.X,$b.Y,0,0,$bmp.Size); \
+         $bmp.Save('{}');",
+        path.replace('\\', "\\\\").replace('\'', "''")
+    );
+    std::process::Command::new("powershell")
+        .args(["-NoProfile", "-Command", &ps])
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+#[cfg(target_os = "linux")]
+fn screenshot_to(path: &str) -> bool {
+    // Try Wayland (grim), then X11 (scrot), then ImageMagick (import).
+    let attempts: [(&str, Vec<&str>); 3] = [
+        ("grim", vec![path]),
+        ("scrot", vec!["-o", path]),
+        ("import", vec!["-window", "root", path]),
+    ];
+    attempts.iter().any(|(tool, args)| {
+        std::process::Command::new(tool)
+            .args(args)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    })
 }
 
 #[cfg(target_os = "macos")]
@@ -203,5 +252,108 @@ end tell
             let err = String::from_utf8_lossy(&out.stderr);
             Err(format!("read_screen failed — grant Accessibility permission. ({})", err.trim()))
         }
+    }
+}
+
+// ── Shared enigo mouse input (non-macOS; enigo is cross-platform) ──────────
+// macOS keeps its own copy in `mod mac`; this serves Windows and Linux so the
+// agent can move/click/drag/scroll on those platforms today. Only perception
+// (read_screen) is left per-OS to implement.
+#[cfg(not(target_os = "macos"))]
+mod input {
+    use enigo::{Axis, Button, Coordinate, Direction, Enigo, Mouse, Settings};
+    use serde_json::Value;
+
+    fn enigo() -> Result<Enigo, String> {
+        Enigo::new(&Settings::default()).map_err(|e| format!("Input control unavailable ({e})."))
+    }
+    fn coords(args: &Value) -> Result<(i32, i32), String> {
+        match (args.get("x").and_then(|v| v.as_f64()), args.get("y").and_then(|v| v.as_f64())) {
+            (Some(x), Some(y)) => Ok((x as i32, y as i32)),
+            _ => Err("Needs x and y pixel coordinates — call read_screen first.".into()),
+        }
+    }
+    pub fn control(action: &str, args: &Value) -> Result<String, String> {
+        match action {
+            "mouse_move" | "move" | "move_mouse" => {
+                let (x, y) = coords(args)?;
+                enigo()?.move_mouse(x, y, Coordinate::Abs).map_err(|e| e.to_string())?;
+                Ok(format!("Moved cursor to {x},{y}."))
+            }
+            "click" | "left_click" | "double_click" | "right_click" => {
+                let (x, y) = coords(args)?;
+                let mut e = enigo()?;
+                e.move_mouse(x, y, Coordinate::Abs).map_err(|er| er.to_string())?;
+                let button = if action == "right_click" { Button::Right } else { Button::Left };
+                let times = if action == "double_click" { 2 } else { 1 };
+                for _ in 0..times {
+                    e.button(button, Direction::Click).map_err(|er| er.to_string())?;
+                }
+                Ok(format!("Clicked at {x},{y}."))
+            }
+            "drag" => {
+                let (x, y) = coords(args)?;
+                let x2 = args.get("x2").and_then(|v| v.as_f64()).ok_or("drag needs x2 and y2")? as i32;
+                let y2 = args.get("y2").and_then(|v| v.as_f64()).ok_or("drag needs x2 and y2")? as i32;
+                let mut e = enigo()?;
+                e.move_mouse(x, y, Coordinate::Abs).map_err(|er| er.to_string())?;
+                e.button(Button::Left, Direction::Press).map_err(|er| er.to_string())?;
+                e.move_mouse(x2, y2, Coordinate::Abs).map_err(|er| er.to_string())?;
+                e.button(Button::Left, Direction::Release).map_err(|er| er.to_string())?;
+                Ok(format!("Dragged from {x},{y} to {x2},{y2}."))
+            }
+            "scroll" => {
+                let amount = args.get("amount").and_then(|v| v.as_f64())
+                    .or_else(|| args.get("y").and_then(|v| v.as_f64())).unwrap_or(5.0) as i32;
+                let dir = args.get("direction").and_then(|v| v.as_str()).unwrap_or("down");
+                let a = if dir == "up" { -amount.abs() } else { amount.abs() };
+                enigo()?.scroll(a, Axis::Vertical).map_err(|e| e.to_string())?;
+                Ok(format!("Scrolled {dir}."))
+            }
+            _ => Err(format!("Unknown desktop action \"{action}\".")),
+        }
+    }
+}
+
+// ── Windows (scaffold) ────────────────────────────────────────────────────
+#[cfg(target_os = "windows")]
+mod windows {
+    use serde_json::Value;
+
+    pub fn control(action: &str, args: &Value) -> Result<String, String> {
+        match action {
+            "read_screen" | "read_ui" | "screen" => read_screen(args),
+            _ => super::input::control(action, args),
+        }
+    }
+
+    /// TODO(windows): read the foreground window's UI Automation tree (element
+    /// roles + names + screen rects) into "AXRole: label @ x,y" lines, mirroring
+    /// the macOS AX reader in `mod mac`. A good path is the `uiautomation` crate.
+    /// Until then we return the "no elements" marker so the agent auto-switches
+    /// to screenshot vision (see agent.rs::ax_is_empty + desktop::describe_screen).
+    fn read_screen(_args: &Value) -> Result<String, String> {
+        Ok("Frontmost app: (unknown)\nWindow: \nClickable elements (role: label @ x,y):\n(No accessibility elements exposed — this app may need the vision perception mode.)".into())
+    }
+}
+
+// ── Linux (scaffold) ──────────────────────────────────────────────────────
+#[cfg(target_os = "linux")]
+mod linux {
+    use serde_json::Value;
+
+    pub fn control(action: &str, args: &Value) -> Result<String, String> {
+        match action {
+            "read_screen" | "read_ui" | "screen" => read_screen(args),
+            _ => super::input::control(action, args),
+        }
+    }
+
+    /// TODO(linux): read the focused window's AT-SPI accessibility tree into
+    /// "AXRole: label @ x,y" lines (the `atspi` crate on X11/Wayland). Until then
+    /// we return the "no elements" marker so the agent auto-switches to
+    /// screenshot vision (needs grim/scrot/imagemagick installed).
+    fn read_screen(_args: &Value) -> Result<String, String> {
+        Ok("Frontmost app: (unknown)\nWindow: \nClickable elements (role: label @ x,y):\n(No accessibility elements exposed — this app may need the vision perception mode.)".into())
     }
 }

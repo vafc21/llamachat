@@ -469,7 +469,9 @@ fn accessibility_trusted() -> bool {
 }
 #[cfg(not(target_os = "macos"))]
 fn accessibility_trusted() -> bool {
-    false
+    // Windows/Linux don't gate agent mouse/keyboard input behind a macOS-style
+    // Accessibility permission — treat as available.
+    true
 }
 
 // Screen Recording (TCC) — CoreGraphics exposes the same calls the OS uses to
@@ -498,7 +500,8 @@ fn screen_recording_granted() -> bool {
 }
 #[cfg(not(target_os = "macos"))]
 fn screen_recording_granted() -> bool {
-    false
+    // Windows/Linux screen capture isn't permission-gated the way macOS is.
+    true
 }
 
 /// Status of the things Agent mode needs, for the setup checklist.
@@ -520,7 +523,8 @@ pub fn request_accessibility() -> bool {
     }
     #[cfg(not(target_os = "macos"))]
     {
-        false
+        // No prompt needed on Windows/Linux.
+        true
     }
 }
 
@@ -535,7 +539,8 @@ pub fn request_screen_recording() -> bool {
     }
     #[cfg(not(target_os = "macos"))]
     {
-        false
+        // Not permission-gated on Windows/Linux.
+        true
     }
 }
 

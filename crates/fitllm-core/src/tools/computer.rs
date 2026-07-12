@@ -89,6 +89,41 @@ impl Tool for ComputerTool {
     }
 }
 
+/// Normalize an app name for fuzzy matching: keep letters/digits, lowercase.
+#[cfg(target_os = "macos")]
+fn norm(s: &str) -> String {
+    s.chars().filter(|c| c.is_alphanumeric()).flat_map(|c| c.to_lowercase()).collect()
+}
+
+/// Find an installed `.app` whose name fuzzily matches `target`.
+#[cfg(target_os = "macos")]
+fn find_app(target: &str) -> Option<String> {
+    let want = norm(target);
+    if want.len() < 2 {
+        return None;
+    }
+    let mut dirs = vec![
+        "/Applications".to_string(),
+        "/Applications/Utilities".to_string(),
+        "/System/Applications".to_string(),
+    ];
+    if let Ok(home) = std::env::var("HOME") {
+        dirs.push(format!("{home}/Applications"));
+    }
+    for dir in dirs {
+        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+        for e in entries.flatten() {
+            let name = e.file_name().to_string_lossy().to_string();
+            let Some(stem) = name.strip_suffix(".app") else { continue };
+            let n = norm(stem);
+            if !n.is_empty() && (n == want || n.contains(&want) || want.contains(&n)) {
+                return Some(stem.to_string());
+            }
+        }
+    }
+    None
+}
+
 #[cfg(target_os = "macos")]
 fn run_action(action: &str, target: &str, args: &serde_json::Value) -> Result<ToolResult, String> {
     use std::process::Command;
@@ -103,7 +138,18 @@ fn run_action(action: &str, target: &str, args: &serde_json::Value) -> Result<To
             if target.is_empty() { return fail("Provide the app name in `target`."); }
             match run("open", &["-a", target]) {
                 Ok(_) => done(format!("Opened {target}.")),
-                Err(e) => fail(format!("Couldn't open \"{target}\": {e}")),
+                // `open -a` is picky about exact names. Fall back to a fuzzy scan
+                // of the app folders so near-miss names still launch, and give a
+                // definitive "not installed" answer when nothing matches.
+                Err(_) => match find_app(target) {
+                    Some(found) => match run("open", &["-a", &found]) {
+                        Ok(_) => done(format!("Opened {found}.")),
+                        Err(e) => fail(format!("Found \"{found}\" but couldn't open it: {e}")),
+                    },
+                    None => fail(format!(
+                        "No installed app matches \"{target}\" (checked Applications). It may not be installed, or the name differs — do not assume it opened."
+                    )),
+                },
             }
         }
         "quit_app" | "quit" | "close_app" => {

@@ -26,7 +26,7 @@ export function MessageBubble({ msg }: { msg: Message }) {
         className={`flex-shrink-0 w-6 h-6 rounded flex items-center justify-center text-[11px]
           ${isUser ? 'bg-white/5 text-text-secondary' : 'bg-accent-dim text-accent'}`}
       >
-        {isUser ? 'V' : <Logo size={15} />}
+        {isUser ? 'V' : <Logo size={20} />}
       </div>
 
       <div className={`min-w-0 flex-1 ${isUser ? 'flex flex-col items-end' : ''}`}>

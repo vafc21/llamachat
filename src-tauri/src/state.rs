@@ -4,7 +4,7 @@ use crate::settings::{self, AppSettings};
 use llamachat_core::{
     catalog, store::Store,
     tools::{ToolLimits, ToolRegistry},
-    BenchmarkResult, CatalogModel, HardwareProfile, ModelCatalog,
+    BenchmarkResult, CatalogModel, Effort, HardwareProfile, ModelCatalog, PermMode,
 };
 use llamachat_core::tools::{ShellTool, FilesystemTool, ProcessTool, DesktopTool, ComputerTool};
 use std::path::PathBuf;
@@ -38,6 +38,10 @@ pub struct Inner {
     /// user responds) and a Stop flag for Auto/Bypass runs.
     pub agent_decision: Option<bool>,
     pub agent_stop: bool,
+    /// Current agent permission mode.
+    pub agent_mode: PermMode,
+    /// Current agent effort level.
+    pub agent_effort: Effort,
 }
 
 impl Inner {
@@ -85,6 +89,8 @@ impl AppState {
             tools,
             agent_decision: None,
             agent_stop: false,
+            agent_mode: PermMode::Manual,
+            agent_effort: Effort::Medium,
         })))
     }
 }

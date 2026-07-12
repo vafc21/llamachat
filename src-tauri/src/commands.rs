@@ -6,7 +6,7 @@ use crate::ollama;
 use crate::settings::{self, AppSettings, CustomModelInput};
 use crate::sidecar;
 use crate::state::{data_dir, AppState};
-use llamachat_core::{hardware, recommend, HardwareProfile, LevelPlan, ModelCatalog, Recommendation};
+use llamachat_core::{hardware, recommend, Effort, HardwareProfile, LevelPlan, ModelCatalog, PermMode, Recommendation};
 use llamachat_core::tools::ToolRequest;
 use std::io::Read;
 use std::process::{Command, Stdio};
@@ -417,7 +417,8 @@ pub fn get_memory_dir(state: State<AppState>) -> Result<String, String> {
 
 // ── Agent mode (tool-use loop) ────────────────────────────────
 
-/// Start an agent run in the background. `mode` is plan | ask | auto | bypass.
+/// Start an agent run in the background. Mode + effort are read from the
+/// current agent state (set via set_agent_mode / cycle_agent_mode / set_agent_effort).
 /// Emits agent_* events; returns immediately.
 #[tauri::command]
 pub fn run_agent(
@@ -425,7 +426,6 @@ pub fn run_agent(
     state: State<AppState>,
     messages: Vec<serde_json::Value>,
     model: Option<String>,
-    mode: String,
 ) -> Result<(), String> {
     let model_tag = {
         let inner = state.0.lock().map_err(|e| e.to_string())?;
@@ -443,7 +443,7 @@ pub fn run_agent(
                 .unwrap_or_else(|| "llama3.2:1b".into()),
         }
     };
-    std::thread::spawn(move || crate::agent::run(app, messages, model_tag, mode));
+    std::thread::spawn(move || crate::agent::run(app, messages, model_tag));
     Ok(())
 }
 
@@ -459,6 +459,67 @@ pub fn approve_agent(state: State<AppState>, approved: bool) -> Result<(), Strin
 pub fn stop_agent(state: State<AppState>) -> Result<(), String> {
     state.0.lock().map_err(|e| e.to_string())?.agent_stop = true;
     Ok(())
+}
+
+// ── Permission mode & effort (shared across CLI + desktop) ────
+
+/// Get the current agent permission mode and effort level.
+#[tauri::command]
+pub fn get_agent_mode(state: State<AppState>) -> Result<serde_json::Value, String> {
+    let inner = state.0.lock().map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({
+        "mode": inner.agent_mode.label(),
+        "badge": inner.agent_mode.badge(),
+        "explain": inner.agent_mode.explain(),
+        "effort": inner.agent_effort.label(),
+        "effort_badge": inner.agent_effort.badge(),
+        "effort_hint": inner.agent_effort.system_hint(),
+    }))
+}
+
+/// Set the agent permission mode (one of manual, accept-edits, plan, auto, bypass).
+#[tauri::command]
+pub fn set_agent_mode(state: State<AppState>, mode: String) -> Result<serde_json::Value, String> {
+    let mut inner = state.0.lock().map_err(|e| e.to_string())?;
+    if let Some(m) = PermMode::from_label(&mode) {
+        inner.agent_mode = m;
+        Ok(serde_json::json!({
+            "mode": m.label(),
+            "badge": m.badge(),
+            "explain": m.explain(),
+        }))
+    } else {
+        Err(format!("Unknown mode '{mode}'. Try: {}",
+            PermMode::ALL.iter().map(|m| m.label()).collect::<Vec<_>>().join(", ")))
+    }
+}
+
+/// Cycle the agent permission mode (like Shift+Tab in the CLI).
+#[tauri::command]
+pub fn cycle_agent_mode(state: State<AppState>) -> Result<serde_json::Value, String> {
+    let mut inner = state.0.lock().map_err(|e| e.to_string())?;
+    inner.agent_mode = inner.agent_mode.next();
+    Ok(serde_json::json!({
+        "mode": inner.agent_mode.label(),
+        "badge": inner.agent_mode.badge(),
+        "explain": inner.agent_mode.explain(),
+    }))
+}
+
+/// Set the agent effort level (low, medium, high, max).
+#[tauri::command]
+pub fn set_agent_effort(state: State<AppState>, effort: String) -> Result<serde_json::Value, String> {
+    let mut inner = state.0.lock().map_err(|e| e.to_string())?;
+    if let Some(e) = Effort::from_label(&effort) {
+        inner.agent_effort = e;
+        Ok(serde_json::json!({
+            "effort": e.label(),
+            "badge": e.badge(),
+            "hint": e.system_hint(),
+        }))
+    } else {
+        Err(format!("Unknown effort '{effort}'. Try: low, medium, high, max"))
+    }
 }
 
 // ── Permissions (agent setup page) ────────────────────────────

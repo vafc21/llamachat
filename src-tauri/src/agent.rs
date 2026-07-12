@@ -1,28 +1,42 @@
-//! Agent mode — a tool-use loop with Claude-style permission modes.
+//! Agent mode — a tool-use loop with Claude-Code-style permission modes.
 //!
 //! The model is given the tools and drives them itself: it emits a tool call,
-//! we run it, feed the result back, and loop until the task is done. Modes:
-//!   plan   — describe a plan, execute nothing
-//!   ask    — pause for the user's yes/no before each tool call
-//!   auto   — run automatically (a Stop button + step cap keep it bounded)
-//!   bypass — run automatically with no gating at all
+//! we run it, feed the result back, and loop until the task is done.
+//!
+//! Permission modes (from llamachat_core::PermMode):
+//!   manual       — ask before every destructive tool (default)
+//!   accept-edits — auto-approve file edits + safe commands (ls, mkdir, git, etc.)
+//!   plan         — describe a plan, execute nothing
+//!   auto         — run automatically (Stop button + step cap keep it bounded)
+//!   bypass       — run automatically with no gating at all
+//!
+//! Effort levels (from llamachat_core::Effort): injected as a system prompt
+//! style hint to control how hard the model reasons.
 //!
 //! Events emitted to the UI: `agent_step` (a tool call), `agent_result` (its
 //! output), `agent_answer` (the final reply), `agent_plan`, `agent_approval`
-//! (ask-mode request), `agent_status`, `agent_error`, and `agent_done`.
+//! (manual/accept-edits mode request), `agent_status`, `agent_error`, and
+//! `agent_done`.
 
 use crate::ollama;
 use crate::sidecar;
 use crate::state::AppState;
 use llamachat_core::tools::ToolRequest;
+use llamachat_core::PermMode;
 use serde_json::{json, Value};
 use std::time::{Duration, Instant};
 use tauri::{Emitter, Manager};
 
 const MAX_STEPS: usize = 12;
 
-fn agent_system_prompt(tools_prompt: &str, memory: &str, plan_mode: bool, perception: &str) -> String {
-    let base = if plan_mode {
+fn agent_system_prompt(
+    tools_prompt: &str,
+    memory: &str,
+    plan_mode: bool,
+    perception: &str,
+    effort_hint: &str,
+) -> String {
+    let base_instruction = if plan_mode {
         "You are LlamaChat's agent, able to control this Mac. The user wants a PLAN only — do NOT act. \
          Reply with a short numbered plan of the steps/tools you would use. Do not output any tool JSON."
             .to_string()
@@ -46,6 +60,7 @@ fn agent_system_prompt(tools_prompt: &str, memory: &str, plan_mode: bool, percep
          Run a command:      {\"tool\": \"shell\", \"args\": {\"command\": \"ls -la\"}}"
             .to_string()
     };
+
     let desktop = if plan_mode {
         String::new()
     } else {
@@ -65,9 +80,20 @@ fn agent_system_prompt(tools_prompt: &str, memory: &str, plan_mode: bool, percep
              If read_screen returns almost nothing (only window buttons — common for Electron apps like Discord), the accessibility tree is empty: say you cannot see the app's contents and that screenshot-vision mode is needed. Do NOT guess coordinates or claim you sent a message you cannot see."
         )
     };
-    let mut s = format!("{base}\n\n{tools_prompt}{desktop}");
+
+    let mut s = format!(
+        "{}\n\n{tools_prompt}{desktop}",
+        base_instruction
+    );
+    // Inject effort hint as a style instruction (before memory, so memory takes precedence).
+    if !plan_mode && !effort_hint.is_empty() {
+        s = format!("{s}\n\n**Response style**: {effort_hint}");
+    }
     if !memory.trim().is_empty() {
-        s.push_str(&format!("\n\nWhat you know about the user:\n{}", memory.trim()));
+        s.push_str(&format!(
+            "\n\nWhat you know about the user:\n{}",
+            memory.trim()
+        ));
     }
     s
 }
@@ -81,9 +107,6 @@ fn ax_is_empty(text: &str) -> bool {
     let useful = text
         .lines()
         .filter(|l| {
-            // Only actual element rows ("AXButton: label @ x,y") — NOT the
-            // "Clickable elements (role: label @ x,y):" header, which also
-            // contains " @ " and would otherwise mask an empty tree.
             let t = l.trim_start();
             if !t.starts_with("AX") || !t.contains(" @ ") {
                 return false;
@@ -149,8 +172,27 @@ pub fn parse_tool_call(text: &str) -> Option<(String, Value)> {
     None
 }
 
+/// Check whether the current mode allows this tool without prompting.
+fn mode_allows(mode: PermMode, tool: &str, args: &Value) -> bool {
+    match mode {
+        PermMode::Manual => false,
+        PermMode::Plan => false,
+        PermMode::AcceptEdits => {
+            matches!(tool, "file") || {
+                if tool == "shell" {
+                    let cmd = args.get("command").and_then(|v| v.as_str()).unwrap_or("");
+                    PermMode::is_safe_cmd(cmd)
+                } else {
+                    false
+                }
+            }
+        }
+        PermMode::Auto | PermMode::Bypass => true,
+    }
+}
+
 /// Run the agent loop to completion (blocking — call from a spawned thread).
-pub fn run(app: tauri::AppHandle, mut messages: Vec<Value>, model: String, mode: String) {
+pub fn run(app: tauri::AppHandle, mut messages: Vec<Value>, model: String) {
     let emit = |ev: &str, payload: Value| {
         let _ = app.emit(ev, payload);
     };
@@ -162,7 +204,22 @@ pub fn run(app: tauri::AppHandle, mut messages: Vec<Value>, model: String, mode:
     }
 
     let state = app.state::<AppState>();
-    let plan_mode = mode == "plan";
+
+    // Read mode + effort from state (set by the UI via commands).
+    let (mode, effort) = {
+        let inner = match state.0.lock() {
+            Ok(i) => i,
+            Err(_) => {
+                emit("agent_error", json!({ "error": "state busy" }));
+                emit("agent_done", json!({}));
+                return;
+            }
+        };
+        (inner.agent_mode, inner.agent_effort)
+    };
+
+    let plan_mode = matches!(mode, PermMode::Plan);
+    let asks_user = matches!(mode, PermMode::Manual | PermMode::AcceptEdits);
 
     // Build the system prompt and reset run flags. In non-plan modes the user
     // chose to let the agent act, so unlock destructive tools for this run.
@@ -183,10 +240,17 @@ pub fn run(app: tauri::AppHandle, mut messages: Vec<Value>, model: String, mode:
         let tp = inner.tools.system_prompt();
         let mem = crate::memory::read_memory(&inner.settings.memory_dir);
         let perception = inner.settings.perception.clone();
-        let vision_model = inner.settings.vision_model.clone()
+        let vision_model = inner
+            .settings
+            .vision_model
+            .clone()
             .filter(|s| !s.trim().is_empty())
             .unwrap_or_else(|| "llava:7b".into());
-        (agent_system_prompt(&tp, &mem, plan_mode, &perception), perception, vision_model)
+        (
+            agent_system_prompt(&tp, &mem, plan_mode, &perception, effort.system_hint()),
+            perception,
+            vision_model,
+        )
     };
 
     let stopped = || state.0.lock().map(|i| i.agent_stop).unwrap_or(false);
@@ -218,8 +282,10 @@ pub fn run(app: tauri::AppHandle, mut messages: Vec<Value>, model: String, mode:
             break;
         };
 
-        // Ask mode: wait for the user's approval.
-        if mode == "ask" {
+        // Manual & AcceptEdits modes: wait for the user's approval (unless
+        // the mode auto-approves this specific tool).
+        let auto = mode_allows(mode, &tool, &args);
+        if asks_user && !auto {
             emit("agent_approval", json!({ "tool": tool, "args": args }));
             let deadline = Instant::now() + Duration::from_secs(180);
             let mut decision: Option<bool> = None;
@@ -237,7 +303,10 @@ pub fn run(app: tauri::AppHandle, mut messages: Vec<Value>, model: String, mode:
             }
             if decision != Some(true) {
                 emit("agent_status", json!({ "text": "Skipped." }));
-                messages.push(json!({ "role": "user", "content": "[The user declined that tool. Try another approach or finish.]" }));
+                messages.push(json!({
+                    "role": "user",
+                    "content": "[The user declined that tool. Try another approach or finish.]"
+                }));
                 continue;
             }
         }
@@ -247,25 +316,21 @@ pub fn run(app: tauri::AppHandle, mut messages: Vec<Value>, model: String, mode:
         // Desktop control (mouse / read_screen) is handled natively; everything
         // else goes through the tool registry.
         let action = args.get("action").and_then(|v| v.as_str()).unwrap_or("");
-        // Route by ACTION, not tool name — small models call it "computer" or
-        // "desktop" interchangeably. read_screen/click/mouse/scroll always go native.
         let (ok, text) = if crate::desktop::is_desktop_action(action) {
             let is_read = matches!(action, "read_screen" | "read_ui" | "screen");
             let r = if is_read && perception == "vision" {
                 crate::desktop::describe_screen(&vision_model)
             } else if is_read {
-                // Accessibility read — but auto-upgrade to screenshot vision when
-                // the AX tree exposes nothing useful (Electron apps like Discord
-                // hide their UI from accessibility), so the agent can still see.
                 match crate::desktop::control(action, &args) {
                     Ok(t) if ax_is_empty(&t) => {
-                        emit("agent_status", json!({ "text": "Accessibility tree empty — reading the screen with vision…" }));
+                        emit(
+                            "agent_status",
+                            json!({ "text": "Accessibility tree empty — reading the screen with vision…" }),
+                        );
                         match crate::desktop::describe_screen(&vision_model) {
                             Ok(desc) => Ok(format!(
                                 "(The accessibility tree was empty, so this is a screenshot description from the vision model instead:)\n{desc}"
                             )),
-                            // Vision unavailable (usually Screen Recording not granted) —
-                            // return the AX tree plus a clear note so it doesn't flail.
                             Err(ve) => Ok(format!(
                                 "{t}\n(Only window controls are visible — this app hides its UI from accessibility, and screenshot-vision is unavailable: {ve} Grant Screen Recording, or tell the user you cannot see this app. Do NOT guess coordinates or claim success.)"
                             )),
@@ -283,11 +348,17 @@ pub fn run(app: tauri::AppHandle, mut messages: Vec<Value>, model: String, mode:
         } else {
             match state.0.lock() {
                 Ok(inner) => {
-                    let result = inner.tools.execute(&ToolRequest { name: tool.clone(), args: args.clone() });
+                    let result = inner.tools.execute(&ToolRequest {
+                        name: tool.clone(),
+                        args: args.clone(),
+                    });
                     if result.ok {
                         (true, result.output.unwrap_or_else(|| "(done)".into()))
                     } else {
-                        (false, format!("ERROR: {}", result.error.unwrap_or_else(|| "failed".into())))
+                        (
+                            false,
+                            format!("ERROR: {}", result.error.unwrap_or_else(|| "failed".into())),
+                        )
                     }
                 }
                 Err(_) => {
@@ -298,17 +369,27 @@ pub fn run(app: tauri::AppHandle, mut messages: Vec<Value>, model: String, mode:
         };
         emit("agent_result", json!({ "tool": tool, "ok": ok, "text": text }));
         // Trim long tool output before feeding it back to the (small) model.
-        let mut fed = if text.len() > 4000 { format!("{}\n…(truncated)", &text[..4000]) } else { text };
+        let mut fed = if text.len() > 4000 {
+            format!("{}\n…(truncated)", &text[..4000])
+        } else {
+            text
+        };
         // "Blind" actions produce no view of their effect. Remind the model so
         // it calls read_screen instead of inventing an app's reply/outcome.
         let observed = matches!(action, "read_screen" | "read_ui" | "screen");
         if ok && !observed && crate::desktop::is_desktop_action(action) {
             fed.push_str("\n(You have NOT seen the effect of this action. If you need to know what is on screen or how an app responded, call read_screen next — do not assume or invent it.)");
         }
-        messages.push(json!({ "role": "user", "content": format!("Result of `{tool}`:\n{fed}") }));
+        messages.push(json!({
+            "role": "user",
+            "content": format!("Result of `{tool}`:\n{fed}")
+        }));
 
         if step == MAX_STEPS - 1 {
-            emit("agent_answer", json!({ "text": "Reached the step limit — stopping here." }));
+            emit(
+                "agent_answer",
+                json!({ "text": "Reached the step limit — stopping here." }),
+            );
         }
     }
 

@@ -142,18 +142,12 @@ impl Chat {
         self.messages.push(Message::system(format!(
             "Mode → {}  ({})",
             self.mode.badge(),
-            self.mode_explanation()
+            self.mode.explain()
         )));
     }
 
     fn mode_explanation(&self) -> &'static str {
-        match self.mode {
-            tools::PermMode::Manual => "asks before shell / file writes / process",
-            tools::PermMode::AcceptEdits => "auto-approves file edits + mkdir/touch/mv/cp",
-            tools::PermMode::Plan => "read-only — model can read but not write",
-            tools::PermMode::Auto => "everything auto-approved",
-            tools::PermMode::Bypass => "all tools allowed, no prompts",
-        }
+        self.mode.explain()
     }
 
     pub fn is_streaming(&self) -> bool {
@@ -179,7 +173,7 @@ impl Chat {
                 matches!(req.name.as_str(), "file") || {
                     if req.name == "shell" {
                         let cmd = req.args.get("command").and_then(|v| v.as_str()).unwrap_or("");
-                        is_safe_cmd(cmd)
+                        tools::PermMode::is_safe_cmd(cmd)
                     } else {
                         false
                     }
@@ -635,23 +629,6 @@ impl Chat {
                 .count(),
         )
     }
-}
-
-/// In AcceptEdits mode, these shell commands auto-approve (read-only or common
-/// filesystem operations).
-fn is_safe_cmd(cmd: &str) -> bool {
-    let c = cmd.trim();
-    if c.is_empty() {
-        return false;
-    }
-    let name = c.split_whitespace().next().unwrap_or("");
-    let safe = [
-        "ls", "cat", "head", "tail", "wc", "grep", "find", "which", "echo", "pwd", "whoami",
-        "date", "uname", "env", "printenv", "df", "du", "free", "uptime", "ps", "pgrep", "top",
-        "mkdir", "touch", "mv", "cp", "ln", "chmod", "chown",
-        "git", "cargo", "npm", "pip", "python", "python3", "node",
-    ];
-    safe.contains(&name)
 }
 
 fn help_text() -> String {

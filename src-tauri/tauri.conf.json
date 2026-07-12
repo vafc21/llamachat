@@ -44,7 +44,7 @@
     "longDescription": "LlamaChat profiles your hardware, runs real on-device benchmarks in the background, and rates open models from 'Won't run' to 'Blazing'. Local-first, zero telemetry by default.",
     "macOS": {
       "minimumSystemVersion": "11.0",
-      "signingIdentity": "-",
+      "signingIdentity": "Apple Development: vladimirpetrosyanjr@icloud.com (J6L2PMA8RZ)",
       "entitlements": "entitlements.plist",
       "dmg": {
         "appPosition": { "x": 180, "y": 170 },

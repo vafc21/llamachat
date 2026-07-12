@@ -658,23 +658,208 @@ mod windows {
     }
 }
 
-// ── Linux (scaffold) ──────────────────────────────────────────────────────
+// ── Linux ─────────────────────────────────────────────────────────────────
+// Native accessibility read via AT-SPI2 (the Linux a11y bus that GTK/Qt and
+// Chromium/Electron publish to): the active window's element tree as
+// "AXRole: label @ x,y" lines, mirroring the macOS AX reader in `mod mac` and
+// the Windows UIA reader in `mod windows`. We walk the tree through the
+// AT-SPI GObject bindings via a `python3 -c` helper — the same shell-out shape
+// the macOS path uses for `osascript`, so no async runtime or extra Rust crate
+// is pulled in. When the a11y bus is off or the bindings are missing it emits
+// the "no elements" marker so the agent auto-switches to screenshot vision
+// (see agent.rs::ax_is_empty + desktop::describe_screen).
 #[cfg(target_os = "linux")]
 mod linux {
     use serde_json::Value;
+    use std::process::Command;
+    use std::time::Duration;
+
+    const EMPTY: &str = "Frontmost app: (unknown)\nWindow: \nClickable elements (role: label @ x,y):\n(No accessibility elements exposed — this app may need the vision perception mode.)";
 
     pub fn control(action: &str, args: &Value) -> Result<String, String> {
         match action {
-            "read_screen" | "read_ui" | "screen" => read_screen(args),
+            "read_screen" | "read_ui" | "screen" => {
+                let app = args
+                    .get("app")
+                    .and_then(|v| v.as_str())
+                    .or_else(|| args.get("target").and_then(|v| v.as_str()))
+                    .or_else(|| args.get("window").and_then(|v| v.as_str()))
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty());
+                read_screen(app)
+            }
             _ => super::input::control(action, args),
         }
     }
 
-    /// TODO(linux): read the focused window's AT-SPI accessibility tree into
-    /// "AXRole: label @ x,y" lines (the `atspi` crate on X11/Wayland). Until then
-    /// we return the "no elements" marker so the agent auto-switches to
-    /// screenshot vision (needs grim/scrot/imagemagick installed).
-    fn read_screen(_args: &Value) -> Result<String, String> {
-        Ok("Frontmost app: (unknown)\nWindow: \nClickable elements (role: label @ x,y):\n(No accessibility elements exposed — this app may need the vision perception mode.)".into())
+    /// Walks the active AT-SPI window and prints the header + interactive
+    /// elements as "AXRole: label @ x,y" (screen-coordinate centers, ready to
+    /// click). Bounded so a huge app can't stall the D-Bus round-trips. Prints
+    /// only the "no elements" marker when the tree is empty; exits non-zero
+    /// (stderr) only when AT-SPI itself is unreachable, which the Rust side
+    /// turns into a vision fallback rather than a hard error.
+    const ATSPI_PY: &str = r#"
+import sys
+try:
+    import gi
+    gi.require_version("Atspi", "2.0")
+    from gi.repository import Atspi
+except Exception as e:
+    sys.stderr.write("atspi bindings unavailable: %s\n" % e)
+    sys.exit(3)
+
+try:
+    Atspi.init()
+except Exception:
+    pass
+
+_ROLE_NAMES = [
+    "PUSH_BUTTON", "TOGGLE_BUTTON", "TEXT", "ENTRY", "PASSWORD_TEXT",
+    "CHECK_BOX", "RADIO_BUTTON", "COMBO_BOX", "LINK", "MENU_ITEM",
+    "CHECK_MENU_ITEM", "RADIO_MENU_ITEM", "PAGE_TAB", "LIST_ITEM", "TREE_ITEM",
+]
+INTERACTIVE = set(r for r in (getattr(Atspi.Role, n, None) for n in _ROLE_NAMES) if r is not None)
+
+MAX_ELEMENTS = 45
+MAX_VISIT = 2500
+MAX_DEPTH = 15
+
+def role_label(role):
+    try:
+        name = Atspi.role_get_name(role)  # e.g. "push button"
+    except Exception:
+        name = "element"
+    return "AX" + "".join(w.capitalize() for w in name.split())
+
+def active_app_window():
+    try:
+        desktop = Atspi.get_desktop(0)
+    except Exception as e:
+        sys.stderr.write("no a11y desktop: %s\n" % e)
+        sys.exit(4)
+    for i in range(desktop.get_child_count()):
+        try:
+            app = desktop.get_child_at_index(i)
+        except Exception:
+            continue
+        if app is None:
+            continue
+        for j in range(app.get_child_count()):
+            try:
+                win = app.get_child_at_index(j)
+                if win is None:
+                    continue
+                states = win.get_state_set()
+                if states.contains(Atspi.StateType.ACTIVE):
+                    return app, win
+            except Exception:
+                continue
+    return None, None
+
+def center(el):
+    try:
+        ext = el.get_extents(Atspi.CoordType.SCREEN)
+        if ext.width <= 0 or ext.height <= 0:
+            return None
+        return (ext.x + ext.width // 2, ext.y + ext.height // 2)
+    except Exception:
+        return None
+
+def label_of(el):
+    try:
+        name = (el.get_name() or "").strip()
+    except Exception:
+        name = ""
+    return name
+
+def main():
+    app, win = active_app_window()
+    if win is None:
+        # AT-SPI reachable but nothing is reporting an active window.
+        print("Frontmost app: (unknown)")
+        print("Window: ")
+        print("Clickable elements (role: label @ x,y):")
+        print("(No accessibility elements exposed — this app may need the vision perception mode.)")
+        return
+    try:
+        app_name = app.get_name() or "(unknown)"
+    except Exception:
+        app_name = "(unknown)"
+    win_name = label_of(win)
+    print("Frontmost app: %s" % app_name)
+    print("Window: %s" % win_name)
+    print("Clickable elements (role: label @ x,y):")
+
+    lines = []
+    visited = [0]
+    def walk(el, depth):
+        if len(lines) >= MAX_ELEMENTS or visited[0] >= MAX_VISIT or depth > MAX_DEPTH:
+            return
+        visited[0] += 1
+        try:
+            role = el.get_role()
+        except Exception:
+            role = None
+        if role in INTERACTIVE:
+            lbl = label_of(el)
+            # Drop nameless non-editable controls (noise), keep empty text fields.
+            editable = role in (getattr(Atspi.Role, "ENTRY", None), getattr(Atspi.Role, "TEXT", None), getattr(Atspi.Role, "PASSWORD_TEXT", None))
+            if lbl or editable:
+                pos = center(el)
+                if pos is not None:
+                    lines.append("%s: %s @ %d,%d" % (role_label(role), lbl, pos[0], pos[1]))
+        try:
+            count = el.get_child_count()
+        except Exception:
+            count = 0
+        for k in range(count):
+            if len(lines) >= MAX_ELEMENTS or visited[0] >= MAX_VISIT:
+                break
+            try:
+                child = el.get_child_at_index(k)
+            except Exception:
+                continue
+            if child is not None:
+                walk(child, depth + 1)
+
+    walk(win, 0)
+    if lines:
+        for ln in lines:
+            print(ln)
+    else:
+        print("(No accessibility elements exposed — this app may need the vision perception mode.)")
+
+main()
+"#;
+
+    /// The active window's interactive UI as text. If `app` is given, best-effort
+    /// raise a matching window first (X11 `wmctrl`); harmless if wmctrl is absent
+    /// or on Wayland, where we just read whatever is active.
+    fn read_screen(app: Option<&str>) -> Result<String, String> {
+        if let Some(a) = app {
+            let _ = Command::new("wmctrl").args(["-a", a]).status();
+            std::thread::sleep(Duration::from_millis(450));
+        }
+        let out = Command::new("python3").arg("-c").arg(ATSPI_PY).output();
+        match out {
+            Ok(o) if o.status.success() => {
+                let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                if s.is_empty() {
+                    Ok(EMPTY.to_string())
+                } else {
+                    Ok(s)
+                }
+            }
+            // AT-SPI unreachable (no a11y bus, or python3/pygobject/Atspi missing):
+            // degrade to the vision-fallback marker instead of a hard error.
+            Ok(o) => {
+                let why = String::from_utf8_lossy(&o.stderr);
+                let why = why.trim().lines().last().unwrap_or("AT-SPI unavailable").trim();
+                Ok(format!(
+                    "Frontmost app: (unknown)\nWindow: \nClickable elements (role: label @ x,y):\n(No accessibility elements exposed — {why}. Use vision perception mode.)"
+                ))
+            }
+            Err(_) => Ok(EMPTY.to_string()),
+        }
     }
 }

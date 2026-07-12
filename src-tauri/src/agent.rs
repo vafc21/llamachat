@@ -57,9 +57,10 @@ fn agent_system_prompt(tools_prompt: &str, memory: &str, plan_mode: bool, percep
         format!(
             "\n\nThe `computer` tool ALSO controls the mouse and reads the screen:\n\
              - read_screen — see what's on screen. {see}\n\
+             - To see a SPECIFIC app (even while LlamaChat's own window is focused), pass its name: {{\"action\": \"read_screen\", \"app\": \"Discord\"}} — this brings that app forward and reads IT. Always target the app you are working with by name; LlamaChat's own window (app \"fitllm\") is NEVER the target.\n\
              - click / double_click / right_click — need x and y pixel coordinates (get them from read_screen).\n\
              - mouse_move (x,y), drag (x,y,x2,y2), scroll (direction: up|down).\n\
-             To operate an app: open_app, then read_screen, then click the element you want by its x,y."
+             To operate an app: read_screen with app=\"<that app>\" to bring it forward and see its elements, then click one by its x,y, then type. If read_screen shows app \"fitllm\"/LlamaChat, you targeted the wrong window — re-read with the app name."
         )
     };
     let mut s = format!("{base}\n\n{tools_prompt}{desktop}");

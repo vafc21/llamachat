@@ -92,7 +92,14 @@ mod mac {
 
     pub fn control(action: &str, args: &Value) -> Result<String, String> {
         match action {
-            "read_screen" | "read_ui" | "screen" => read_screen(),
+            "read_screen" | "read_ui" | "screen" => {
+                let app = args.get("app").and_then(|v| v.as_str())
+                    .or_else(|| args.get("target").and_then(|v| v.as_str()))
+                    .or_else(|| args.get("window").and_then(|v| v.as_str()))
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty());
+                read_screen(app)
+            }
             "mouse_move" | "move" | "move_mouse" => {
                 let (x, y) = coords(args)?;
                 enigo()?.move_mouse(x, y, Coordinate::Abs).map_err(|e| e.to_string())?;
@@ -133,8 +140,16 @@ mod mac {
         }
     }
 
-    /// Frontmost app's interactive UI elements as text (role: label @ x,y).
-    pub fn read_screen() -> Result<String, String> {
+    /// An app's interactive UI elements as text (role: label @ x,y). If `app`
+    /// is given, bring THAT app to the front first (via `open -a`, which needs
+    /// no extra permission) and read it — so the agent can see an app it opened
+    /// even while LlamaChat's own window has keyboard focus. Otherwise reads
+    /// whatever is frontmost.
+    pub fn read_screen(app: Option<&str>) -> Result<String, String> {
+        if let Some(a) = app {
+            let _ = Command::new("open").args(["-a", a]).status();
+            std::thread::sleep(std::time::Duration::from_millis(900));
+        }
         let script = r#"
 tell application "System Events"
   set frontApp to first application process whose frontmost is true

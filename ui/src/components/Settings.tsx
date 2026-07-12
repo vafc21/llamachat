@@ -199,7 +199,7 @@ export function Settings({ hardware }: Props) {
               <input
                 value={settings.vision_model ?? ''}
                 onChange={(e) => update({ vision_model: e.target.value || null })}
-                placeholder="llava (pull it in the Model Library first)"
+                placeholder="llava:7b (default — auto-used when accessibility is empty)"
                 className="w-full mt-1 bg-bg border border-border rounded px-2 py-2 text-[12px] text-text
                            placeholder:text-text-muted focus:border-accent outline-none font-mono"
               />

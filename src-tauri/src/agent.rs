@@ -72,6 +72,28 @@ fn agent_system_prompt(tools_prompt: &str, memory: &str, plan_mode: bool, percep
     s
 }
 
+/// True when a read_screen accessibility dump exposes nothing useful beyond
+/// window chrome (close/minimize/zoom) — the signal to fall back to vision.
+fn ax_is_empty(text: &str) -> bool {
+    if text.contains("No accessibility elements exposed") {
+        return true;
+    }
+    let useful = text
+        .lines()
+        .filter(|l| {
+            if !l.contains(" @ ") {
+                return false;
+            }
+            let low = l.to_lowercase();
+            !(low.contains("close button")
+                || low.contains("full screen button")
+                || low.contains("minimize button")
+                || low.contains("zoom button"))
+        })
+        .count();
+    useful == 0
+}
+
 /// Find the first balanced `{...}` object containing a "tool" key.
 pub fn parse_tool_call(text: &str) -> Option<(String, Value)> {
     let bytes = text.as_bytes();
@@ -157,7 +179,9 @@ pub fn run(app: tauri::AppHandle, mut messages: Vec<Value>, model: String, mode:
         let tp = inner.tools.system_prompt();
         let mem = crate::memory::read_memory(&inner.settings.memory_dir);
         let perception = inner.settings.perception.clone();
-        let vision_model = inner.settings.vision_model.clone().unwrap_or_else(|| "llava".into());
+        let vision_model = inner.settings.vision_model.clone()
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or_else(|| "llava:7b".into());
         (agent_system_prompt(&tp, &mem, plan_mode, &perception), perception, vision_model)
     };
 
@@ -222,8 +246,29 @@ pub fn run(app: tauri::AppHandle, mut messages: Vec<Value>, model: String, mode:
         // Route by ACTION, not tool name — small models call it "computer" or
         // "desktop" interchangeably. read_screen/click/mouse/scroll always go native.
         let (ok, text) = if crate::desktop::is_desktop_action(action) {
-            let r = if matches!(action, "read_screen" | "read_ui" | "screen") && perception == "vision" {
+            let is_read = matches!(action, "read_screen" | "read_ui" | "screen");
+            let r = if is_read && perception == "vision" {
                 crate::desktop::describe_screen(&vision_model)
+            } else if is_read {
+                // Accessibility read — but auto-upgrade to screenshot vision when
+                // the AX tree exposes nothing useful (Electron apps like Discord
+                // hide their UI from accessibility), so the agent can still see.
+                match crate::desktop::control(action, &args) {
+                    Ok(t) if ax_is_empty(&t) => {
+                        emit("agent_status", json!({ "text": "Accessibility tree empty — reading the screen with vision…" }));
+                        match crate::desktop::describe_screen(&vision_model) {
+                            Ok(desc) => Ok(format!(
+                                "(The accessibility tree was empty, so this is a screenshot description from the vision model instead:)\n{desc}"
+                            )),
+                            // Vision unavailable (usually Screen Recording not granted) —
+                            // return the AX tree plus a clear note so it doesn't flail.
+                            Err(ve) => Ok(format!(
+                                "{t}\n(Only window controls are visible — this app hides its UI from accessibility, and screenshot-vision is unavailable: {ve} Grant Screen Recording, or tell the user you cannot see this app. Do NOT guess coordinates or claim success.)"
+                            )),
+                        }
+                    }
+                    other => other,
+                }
             } else {
                 crate::desktop::control(action, &args)
             };

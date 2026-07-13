@@ -76,10 +76,40 @@ service-principal secrets (`AZURE_CLIENT_ID` / `AZURE_CLIENT_SECRET` /
 `AZURE_TENANT_ID`) in CI. See
 <https://learn.microsoft.com/azure/trusted-signing/>.
 
-## macOS notarization (optional)
+## macOS signing, notarization & the permission (TCC) problem
 
-`tauri.conf.json` currently signs with an Apple *Development* identity for local
-builds. For warning-free public macOS downloads you need a **Developer ID
-Application** certificate + **notarization** (Apple Developer Program, $99/yr).
-Tauri notarizes during `cargo tauri build` when the `APPLE_ID`,
-`APPLE_PASSWORD`, and `APPLE_TEAM_ID` env vars are set in CI.
+**Why Accessibility / Screen Recording read as "not granted" even after you grant
+them:** macOS ties those grants to the app's **code signature**. CI builds are
+**ad-hoc signed** (`codesign -s -`), which has no stable identity — so macOS
+treats each launch/build as a different app and your grant never matches the
+running one. It will keep showing red no matter how many times you click Grant.
+This is a signing limitation, not a bug in the setup checklist.
+
+`tauri.conf.json` no longer hardcodes a signing identity (so CI can ad-hoc sign
+without needing a cert). To get **stable, sticky permissions**, sign the build.
+
+### Build a signed copy for your own Mac (fixes permissions immediately)
+
+Must be run **on a Mac** (macOS apps can't be built on Linux). Find your identity:
+
+```bash
+security find-identity -v -p codesigning
+```
+
+Then build with it — a consistent signature means TCC grants persist:
+
+```bash
+export APPLE_SIGNING_IDENTITY="Apple Development: you@example.com (TEAMID)"
+cargo tauri build
+open src-tauri/target/release/bundle/macos/LlamaChat.app   # or drag to /Applications
+```
+
+Grant Accessibility / Screen Recording once, **restart the app**, and they stick.
+
+### Warning-free public downloads (for everyone else)
+
+Distributed `.dmg`s need a **Developer ID Application** certificate +
+**notarization** (Apple Developer Program, $99/yr). Tauri notarizes during
+`cargo tauri build` when `APPLE_SIGNING_IDENTITY` (a Developer ID cert),
+`APPLE_ID`, `APPLE_PASSWORD`, and `APPLE_TEAM_ID` are set in CI. Once releases are
+signed + notarized, permissions work for all users without any of the above.

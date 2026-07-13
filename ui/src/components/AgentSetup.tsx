@@ -43,31 +43,51 @@ export function AgentSetup({ onDone }: { onDone?: () => void }) {
     await invoke('open_settings_pane', { pane: 'screen_recording' });
     setTimeout(refresh, 800);
   }
+  async function reopenPane(pane: string) {
+    await invoke('open_settings_pane', { pane });
+    setTimeout(refresh, 800);
+  }
   function downloadLlava() {
     setLlava('downloading');
     invoke('download_model', { tag: 'llava:7b' });
   }
 
+  // Every row keeps an action available even once it's granted / installed, so
+  // you can always re-grant, re-open the Settings pane, or re-download.
   const rows: { label: string; desc: string; ok: boolean | null; action?: { label: string; run: () => void } }[] = [
-    { label: 'Ollama running', desc: 'The local model server that powers chat and the agent.', ok: perms.ollama },
+    {
+      label: 'Ollama running',
+      desc: 'The local model server that powers chat and the agent.',
+      ok: perms.ollama,
+      action: { label: 'Re-check', run: refresh },
+    },
     {
       label: 'Accessibility permission',
       desc: 'Lets the agent move the mouse, press keys, and read the screen.',
       ok: perms.accessibility,
-      action: perms.accessibility ? undefined : { label: 'Grant', run: grantAccessibility },
+      action: perms.accessibility
+        ? { label: 'Open Settings', run: () => reopenPane('accessibility') }
+        : { label: 'Grant', run: grantAccessibility },
     },
     {
       label: 'Screen Recording',
       desc: 'Only needed for screenshot-vision perception — not the default. Grant only if you turn that on.',
       ok: perms.screen_recording,
-      action: perms.screen_recording ? undefined : { label: 'Grant', run: grantScreenRecording },
+      action: perms.screen_recording
+        ? { label: 'Open Settings', run: () => reopenPane('screen_recording') }
+        : { label: 'Grant', run: grantScreenRecording },
     },
     {
       label: 'Vision model (LLaVA)',
       desc: 'Optional — lets the agent "look" at the screen. ~4.7 GB.',
       ok: llava === 'done' ? true : null,
-      action: llava === 'done' ? undefined : {
-        label: llava === 'downloading' ? `${Math.round(llavaPct)}%` : 'Download',
+      action: {
+        label:
+          llava === 'downloading'
+            ? `${Math.round(llavaPct)}%`
+            : llava === 'done'
+              ? 'Re-download'
+              : 'Download',
         run: downloadLlava,
       },
     },
@@ -93,6 +113,22 @@ export function AgentSetup({ onDone }: { onDone?: () => void }) {
           )}
         </div>
       ))}
+      {isTauri() && (
+        <div className="flex items-start gap-2 px-1 pt-0.5">
+          <p className="text-[11px] text-text-muted leading-relaxed flex-1">
+            Granted it but still shows red? macOS only applies Screen Recording after a relaunch,
+            and unsigned builds may need re-granting after an update. The buttons above stay
+            available so you can always re-do it.
+          </p>
+          <button
+            onClick={() => invoke('restart_app')}
+            className="flex-shrink-0 px-2.5 py-1 text-[12px] rounded border border-accent/40 text-accent
+                       hover:bg-accent-dim transition-colors"
+          >
+            Restart
+          </button>
+        </div>
+      )}
       {onDone && (
         <button
           onClick={onDone}

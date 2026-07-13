@@ -605,6 +605,14 @@ pub fn request_screen_recording() -> bool {
     }
 }
 
+/// Relaunch the app. Needed after granting Screen Recording, because macOS
+/// caches the per-process screen-capture decision until the app restarts — so
+/// the permission keeps reading as "not granted" until you relaunch.
+#[tauri::command]
+pub fn restart_app(app: tauri::AppHandle) {
+    app.restart();
+}
+
 /// Open a macOS Privacy settings pane ("accessibility" | "screen_recording" | "automation").
 #[tauri::command]
 pub fn open_settings_pane(pane: String) -> Result<(), String> {

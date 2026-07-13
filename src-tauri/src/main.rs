@@ -96,6 +96,7 @@ fn main() {
             commands::check_permissions,
             commands::request_accessibility,
             commands::request_screen_recording,
+            commands::restart_app,
             commands::open_settings_pane,
             commands::list_tools,
             commands::execute_tool,

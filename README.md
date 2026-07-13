@@ -69,6 +69,18 @@ The app is currently **unsigned**, so the first time you launch it:
 2. Choose **Open**
 3. Click **Open** in the dialog
 
+If macOS still blocks it (*"LlamaChat is damaged and can't be opened"* on newer
+versions), clear Apple's quarantine flag from a terminal, then open it normally:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/LlamaChat.app
+```
+
+Doing this also keeps the app's identity stable so **Accessibility** and
+**Screen Recording** grants stick. If a permission still reads as *not granted*
+right after you enable it, **quit and reopen LlamaChat** (or use the **Restart**
+button on the setup screen) — macOS only applies Screen Recording after a relaunch.
+
 This is normal for open-source software. See **[docs/SIGNING.md](./docs/SIGNING.md)** for the path to signed, warning-free releases.
 
 ### Windows

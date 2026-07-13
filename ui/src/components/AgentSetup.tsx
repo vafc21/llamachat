@@ -47,6 +47,11 @@ export function AgentSetup({ onDone }: { onDone?: () => void }) {
     await invoke('open_settings_pane', { pane });
     setTimeout(refresh, 800);
   }
+  async function resetPerms() {
+    // Clears macOS's stale TCC entries for this app so a fresh Grant sticks.
+    await invoke('reset_permissions');
+    setTimeout(refresh, 500);
+  }
   function downloadLlava() {
     setLlava('downloading');
     invoke('download_model', { tag: 'llava:7b' });
@@ -116,17 +121,26 @@ export function AgentSetup({ onDone }: { onDone?: () => void }) {
       {isTauri() && (
         <div className="flex items-start gap-2 px-1 pt-0.5">
           <p className="text-[11px] text-text-muted leading-relaxed flex-1">
-            Granted it but still shows red? macOS only applies Screen Recording after a relaunch,
-            and unsigned builds may need re-granting after an update. The buttons above stay
-            available so you can always re-do it.
+            Granted it but still shows red? Click <span className="text-text">Reset permissions</span>{' '}
+            to clear macOS's stale entries for this app, then Grant again and Restart. (Unsigned
+            builds leave mismatched Accessibility / Screen Recording entries — this fixes them.)
           </p>
-          <button
-            onClick={() => invoke('restart_app')}
-            className="flex-shrink-0 px-2.5 py-1 text-[12px] rounded border border-accent/40 text-accent
-                       hover:bg-accent-dim transition-colors"
-          >
-            Restart
-          </button>
+          <div className="flex-shrink-0 flex gap-2">
+            <button
+              onClick={resetPerms}
+              className="px-2.5 py-1 text-[12px] rounded border border-accent/40 text-accent
+                         hover:bg-accent-dim transition-colors"
+            >
+              Reset permissions
+            </button>
+            <button
+              onClick={() => invoke('restart_app')}
+              className="px-2.5 py-1 text-[12px] rounded border border-accent/40 text-accent
+                         hover:bg-accent-dim transition-colors"
+            >
+              Restart
+            </button>
+          </div>
         </div>
       )}
       {onDone && (

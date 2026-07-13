@@ -76,10 +76,17 @@ versions), clear Apple's quarantine flag from a terminal, then open it normally:
 xattr -dr com.apple.quarantine /Applications/LlamaChat.app
 ```
 
-Doing this also keeps the app's identity stable so **Accessibility** and
-**Screen Recording** grants stick. If a permission still reads as *not granted*
-right after you enable it, **quit and reopen LlamaChat** (or use the **Restart**
-button on the setup screen) — macOS only applies Screen Recording after a relaunch.
+**Permissions stuck on "not granted"?** Unsigned builds leave stale macOS privacy
+(TCC) entries, so Accessibility / Screen Recording read as denied no matter how
+many times you grant them. Reset this app's permissions, then grant again:
+
+```bash
+tccutil reset All org.llamachat.app
+```
+
+(Or click **Reset permissions** on the app's setup screen — it runs the same
+thing.) After granting, **quit and reopen LlamaChat** — macOS only applies Screen
+Recording after a relaunch (the **Restart** button does this for you).
 
 This is normal for open-source software. See **[docs/SIGNING.md](./docs/SIGNING.md)** for the path to signed, warning-free releases.
 

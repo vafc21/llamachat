@@ -613,6 +613,30 @@ pub fn restart_app(app: tauri::AppHandle) {
     app.restart();
 }
 
+/// Reset this app's macOS privacy (TCC) permissions. Unsigned/ad-hoc builds
+/// leave stale, mismatched Accessibility / Screen Recording entries that read as
+/// "not granted" forever; `tccutil reset` clears them so a fresh Grant sticks.
+/// Equivalent to running `tccutil reset All <bundle-id>` in Terminal.
+#[tauri::command]
+pub fn reset_permissions(app: tauri::AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let id = app.config().identifier.clone();
+        // Clear the specific services the agent uses, plus a catch-all.
+        for service in ["Accessibility", "ScreenCapture", "ListenEvent", "All"] {
+            let _ = std::process::Command::new("tccutil")
+                .args(["reset", service, &id])
+                .status();
+        }
+        Ok(())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app;
+        Ok(())
+    }
+}
+
 /// Open a macOS Privacy settings pane ("accessibility" | "screen_recording" | "automation").
 #[tauri::command]
 pub fn open_settings_pane(pane: String) -> Result<(), String> {

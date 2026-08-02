@@ -46,6 +46,13 @@ pub fn build_registry() -> Arc<ToolRegistry> {
     r.register(Box::new(ShellTool::new(ToolLimits::default())));
     r.register(Box::new(FilesystemTool::new(ToolLimits::default())));
     r.register(Box::new(ProcessTool::new(ToolLimits::default())));
+    // Only offer desktop control when there is a desktop. See `register_computer`
+    // in main.rs for why absence beats a tool that always fails.
+    if let Ok(ctrl) = llamachat_core::control::open() {
+        if let Ok(tool) = llamachat_core::tools::computer_use_tool::ComputerUseTool::new(ctrl) {
+            r.register(Box::new(tool));
+        }
+    }
     Arc::new(r)
 }
 

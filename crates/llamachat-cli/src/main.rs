@@ -16,6 +16,7 @@ use clap::{Parser, Subcommand};
 use llamachat_core::{catalog, hardware, recommend, store::Store, Recommendation};
 use llamachat_core::tools::{ShellTool, FilesystemTool, ProcessTool, DesktopTool, ToolLimits, ToolRegistry, ToolRequest};
 
+mod design;
 mod tui;
 
 /// LlamaChat — profile your machine and see which local LLMs will actually run on it.
@@ -51,6 +52,14 @@ enum Command {
         #[arg(long, default_value = "100x30")]
         size: String,
     },
+    /// Print the CLI redesign previews (A inline / B flat / C workbench).
+    ///
+    /// A review surface for picking a direction — not the live TUI.
+    Design {
+        /// Which variant to show: a | b | c. Omit for all three.
+        #[arg(long)]
+        variant: Option<String>,
+    },
     /// Detect this machine's hardware and print the HardwareProfile as JSON.
     Profile,
     /// Load the bundled model catalog and print it as JSON.
@@ -75,6 +84,10 @@ fn main() -> Result<()> {
 
     match cli.command {
         Some(Command::Tui { selftest, screen, size }) => cmd_tui(selftest, &screen, &size),
+        Some(Command::Design { variant }) => {
+            design::run(variant.as_deref());
+            Ok(())
+        }
         Some(Command::Profile) => cmd_profile(),
         Some(Command::Catalog) => cmd_catalog(),
         Some(Command::Recommend) => cmd_recommend(),
@@ -210,6 +223,26 @@ fn print_summary() {
     println!("Run `llamachat <SUBCOMMAND> --help` for more information.");
 }
 
+/// Register the `computer` tool if there is a desktop to drive.
+///
+/// On a headless box (a server, CI, an SSH session with no X) there is nothing
+/// to control, so the tool is simply absent rather than present-and-failing.
+/// A model shown a tool that always errors will keep retrying it; a model that
+/// never sees the tool just does something else.
+fn register_computer(registry: &mut ToolRegistry) {
+    match llamachat_core::control::open() {
+        Ok(ctrl) => match llamachat_core::tools::computer_use_tool::ComputerUseTool::new(ctrl) {
+            Ok(tool) => {
+                let d = tool.display();
+                eprintln!("computer control ready — model sees {}x{}", d.width, d.height);
+                registry.register(Box::new(tool));
+            }
+            Err(e) => eprintln!("computer control unavailable: {e}"),
+        },
+        Err(e) => eprintln!("computer control unavailable: {e}"),
+    }
+}
+
 /// `llamachat tools` — list tools or test one.
 fn cmd_tools(tool_name: Option<String>, args_json: String) -> Result<()> {
     let limits = ToolLimits::default();
@@ -218,6 +251,7 @@ fn cmd_tools(tool_name: Option<String>, args_json: String) -> Result<()> {
     registry.register(Box::new(FilesystemTool::new(ToolLimits::default())));
     registry.register(Box::new(ProcessTool::new(ToolLimits::default())));
     registry.register(Box::new(DesktopTool::new()));
+    register_computer(&mut registry);
 
     match tool_name {
         Some(name) => {

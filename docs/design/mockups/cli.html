@@ -1,0 +1,188 @@
+<!doctype html><html><head><meta charset="utf-8">
+<title>LlamaChat CLI — design</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+body{background:#0d0d12;color:#e3e3e8;font-family:Inter,system-ui,sans-serif;padding:40px 26px 80px;margin:0}
+.w{max-width:1000px;margin:0 auto}
+h1{font-size:23px;font-weight:600;letter-spacing:-.02em;margin:0 0 6px}
+p.s{color:#8c8c9d;font-size:13.5px;line-height:1.6;margin:0 0 26px;max-width:660px}
+h2{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#5a5a6b;
+ margin:34px 0 10px;padding-bottom:8px;border-bottom:1px solid rgba(255,255,255,.07)}
+pre{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;line-height:1.5;
+ background:#0d0d12;padding:16px;border-radius:9px;border:1px solid rgba(255,255,255,.08);
+ overflow-x:auto;margin:0;white-space:pre}
+nav{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+nav a{font-size:12px;color:#8c8c9d;text-decoration:none;border:1px solid rgba(255,255,255,.09);
+ border-radius:7px;padding:5px 11px}
+nav a:hover{color:#e3e3e8;border-color:rgba(255,255,255,.2)}
+</style></head><body><div class="w">
+<h1>LlamaChat CLI — design</h1>
+<p class="s">Rendered from the real binary (<code>llamachat design</code>), true colour preserved.
+No mascot. Start with <b>Rating</b> — six ways to show &ldquo;will this run here&rdquo;,
+replacing the &#9648;&#9648;&#9648;&#9648;&#9649; blocks.</p>
+<nav><a href="#meters">Rating options</a><a href="#d">D · Designed</a><a href="#rows">Row grammar</a><a href="#b">B · Flat</a></nav>
+<h2 id="meters">Rating — six options</h2><pre>
+<span style="color:rgb(108,108,124)">──────────────────────────────────────────────────────────────────────────────</span>
+  <span style="font-weight:700">Rating</span>   <span style="color:rgb(108,108,124)">six ways to show &quot;will this run here&quot;</span>
+<span style="color:rgb(108,108,124)">──────────────────────────────────────────────────────────────────────────────</span>
+  <span style="color:rgb(77,124,255)">▎</span> <span style="color:rgb(227,227,232);font-weight:700">1 · Blocks</span>
+    <span style="color:rgb(90,90,107)">what you have now — five loose glyphs, font-dependent</span>
+
+      <span style="color:rgb(227,227,232)">Qwen3 30B A3B     </span><span style="color:rgb(77,124,255)">▰▰▰▰▱</span>
+      <span style="color:rgb(227,227,232)">Gemma 3 12B       </span><span style="color:rgb(77,124,255)">▰▰▰▰▰</span>
+      <span style="color:rgb(227,227,232)">Llama 3.2 3B      </span><span style="color:rgb(77,124,255)">▰▰▰▰▰</span>
+      <span style="color:rgb(227,227,232)">DeepSeek R1 8B    </span><span style="color:rgb(77,124,255)">▰▰▰▰▱</span>
+      <span style="color:rgb(227,227,232)">Phi-3 Medium 14B  </span><span style="color:rgb(77,124,255)">▰▰▰▱▱</span>
+
+  <span style="color:rgb(77,124,255)">▎</span> <span style="color:rgb(227,227,232);font-weight:700">2 · Gauge</span>
+    <span style="color:rgb(90,90,107)">eighth blocks against a shaded trough; reads as one object</span>
+
+      <span style="color:rgb(227,227,232)">Qwen3 30B A3B     </span><span style="color:rgb(77,124,255)">█████████▋</span><span style="color:rgb(28,42,86)">░░</span>
+      <span style="color:rgb(227,227,232)">Gemma 3 12B       </span><span style="color:rgb(77,124,255)">████████████</span>
+      <span style="color:rgb(227,227,232)">Llama 3.2 3B      </span><span style="color:rgb(77,124,255)">████████████</span>
+      <span style="color:rgb(227,227,232)">DeepSeek R1 8B    </span><span style="color:rgb(77,124,255)">█████████▋</span><span style="color:rgb(28,42,86)">░░</span>
+      <span style="color:rgb(227,227,232)">Phi-3 Medium 14B  </span><span style="color:rgb(77,124,255)">███████▎</span><span style="color:rgb(28,42,86)">░░░░</span>
+
+  <span style="color:rgb(77,124,255)">▎</span> <span style="color:rgb(227,227,232);font-weight:700">3 · Word only</span>
+    <span style="color:rgb(90,90,107)">no bar at all — the word already is the rating</span>
+
+      <span style="color:rgb(227,227,232)">Qwen3 30B A3B     </span><span style="color:rgb(227,227,232)">great</span>
+      <span style="color:rgb(227,227,232)">Gemma 3 12B       </span><span style="color:rgb(227,227,232)">blazing</span>
+      <span style="color:rgb(227,227,232)">Llama 3.2 3B      </span><span style="color:rgb(227,227,232)">blazing</span>
+      <span style="color:rgb(227,227,232)">DeepSeek R1 8B    </span><span style="color:rgb(227,227,232)">great</span>
+      <span style="color:rgb(227,227,232)">Phi-3 Medium 14B  </span><span style="color:rgb(227,227,232)">okay</span>
+
+  <span style="color:rgb(77,124,255)">▎</span> <span style="color:rgb(227,227,232);font-weight:700">4 · Word + speed</span>
+    <span style="color:rgb(90,90,107)">the rating and the number that justifies it, together</span>
+
+      <span style="color:rgb(227,227,232)">Qwen3 30B A3B     </span><span style="color:rgb(227,227,232)">great    </span><span style="color:rgb(140,140,157)"> 62 tok/s</span>
+      <span style="color:rgb(227,227,232)">Gemma 3 12B       </span><span style="color:rgb(227,227,232)">blazing  </span><span style="color:rgb(140,140,157)"> 94 tok/s</span>
+      <span style="color:rgb(227,227,232)">Llama 3.2 3B      </span><span style="color:rgb(227,227,232)">blazing  </span><span style="color:rgb(140,140,157)">180 tok/s</span>
+      <span style="color:rgb(227,227,232)">DeepSeek R1 8B    </span><span style="color:rgb(227,227,232)">great    </span><span style="color:rgb(140,140,157)"> 88 tok/s</span>
+      <span style="color:rgb(227,227,232)">Phi-3 Medium 14B  </span><span style="color:rgb(227,227,232)">okay     </span><span style="color:rgb(140,140,157)"> 41 tok/s</span>
+
+  <span style="color:rgb(77,124,255)">▎</span> <span style="color:rgb(227,227,232);font-weight:700">5 · Gauge + word</span>
+    <span style="color:rgb(90,90,107)">bar for scanning, word for certainty</span>
+
+      <span style="color:rgb(227,227,232)">Qwen3 30B A3B     </span><span style="color:rgb(77,124,255)">████████</span><span style="color:rgb(28,42,86)">░░</span>  <span style="color:rgb(227,227,232)">great</span>
+      <span style="color:rgb(227,227,232)">Gemma 3 12B       </span><span style="color:rgb(77,124,255)">██████████</span>  <span style="color:rgb(227,227,232)">blazing</span>
+      <span style="color:rgb(227,227,232)">Llama 3.2 3B      </span><span style="color:rgb(77,124,255)">██████████</span>  <span style="color:rgb(227,227,232)">blazing</span>
+      <span style="color:rgb(227,227,232)">DeepSeek R1 8B    </span><span style="color:rgb(77,124,255)">████████</span><span style="color:rgb(28,42,86)">░░</span>  <span style="color:rgb(227,227,232)">great</span>
+      <span style="color:rgb(227,227,232)">Phi-3 Medium 14B  </span><span style="color:rgb(77,124,255)">██████</span><span style="color:rgb(28,42,86)">░░░░</span>  <span style="color:rgb(227,227,232)">okay</span>
+
+  <span style="color:rgb(77,124,255)">▎</span> <span style="color:rgb(227,227,232);font-weight:700">6 · Nothing</span>
+    <span style="color:rgb(90,90,107)">sort best-first and let the order carry it; speed is the only number</span>
+
+      <span style="color:rgb(227,227,232)">Qwen3 30B A3B     </span><span style="color:rgb(140,140,157)"> 62 tok/s</span>
+      <span style="color:rgb(227,227,232)">Gemma 3 12B       </span><span style="color:rgb(140,140,157)"> 94 tok/s</span>
+      <span style="color:rgb(227,227,232)">Llama 3.2 3B      </span><span style="color:rgb(140,140,157)">180 tok/s</span>
+      <span style="color:rgb(227,227,232)">DeepSeek R1 8B    </span><span style="color:rgb(140,140,157)"> 88 tok/s</span>
+      <span style="color:rgb(227,227,232)">Phi-3 Medium 14B  </span><span style="color:rgb(140,140,157)"> 41 tok/s</span>
+
+  <span style="color:rgb(90,90,107)">My pick is 4 — it survives NO_COLOR, any font, and any width,</span>
+  <span style="color:rgb(90,90,107)">and it never asks you to decode a glyph. 5 if you want the scan.</span>
+
+</pre>
+<h2 id="d">D · Designed</h2><pre>
+<span style="color:rgb(108,108,124)">──────────────────────────────────────────────────────────────────────────────</span>
+  <span style="font-weight:700">D · Designed</span>   <span style="color:rgb(108,108,124)">background fills, gauges, sparklines — one hue, with depth</span>
+<span style="color:rgb(108,108,124)">──────────────────────────────────────────────────────────────────────────────</span>
+<span style="color:rgb(77,124,255);background:rgb(18,18,26)">  </span><span style="color:rgb(227,227,232);background:rgb(18,18,26);font-weight:700">LlamaChat</span><span style="background:rgb(18,18,26)">                                             </span><span style="color:rgb(140,140,157);background:rgb(18,18,26)">qwen3:30b-a3b · 62.4 tok/s  </span>
+
+  <span style="color:rgb(77,124,255)">▎</span> <span style="color:rgb(227,227,232);font-weight:700">Models</span>
+
+<span style="background:rgb(13,13,18)">    </span><span style="color:rgb(77,124,255);background:rgb(28,42,86)"> GOOD </span><span style="background:rgb(13,13,18)">  </span><span style="color:rgb(227,227,232);background:rgb(13,13,18)">Qwen3 30B A3B     </span><span style="color:rgb(90,90,107);background:rgb(13,13,18)">qwen3:30b-a3b   </span><span style="color:rgb(140,140,157);background:rgb(13,13,18)"> 17.3G</span><span style="background:rgb(13,13,18)">  </span><span style="color:rgb(77,124,255);background:rgb(13,13,18)">█████████▋</span><span style="color:rgb(28,42,86);background:rgb(13,13,18)">░░</span><span style="background:rgb(13,13,18)">  </span><span style="color:rgb(140,140,157);background:rgb(13,13,18)"> 62 tok/s</span><span style="background:rgb(13,13,18)">       </span>
+<span style="color:rgb(77,124,255);background:rgb(30,31,43)">  ▎ </span><span style="color:rgb(13,13,18);background:rgb(77,124,255)"> BEST </span><span style="background:rgb(30,31,43)">  </span><span style="color:rgb(227,227,232);background:rgb(30,31,43);font-weight:700">Gemma 3 12B       </span><span style="color:rgb(90,90,107);background:rgb(30,31,43)">gemma3:12b      </span><span style="color:rgb(140,140,157);background:rgb(30,31,43)">  8.1G</span><span style="background:rgb(30,31,43)">  </span><span style="color:rgb(77,124,255);background:rgb(30,31,43)">████████████</span><span style="background:rgb(30,31,43)">  </span><span style="color:rgb(140,140,157);background:rgb(30,31,43)"> 94 tok/s</span><span style="background:rgb(30,31,43)">       </span>
+<span style="background:rgb(13,13,18)">    </span><span style="color:rgb(13,13,18);background:rgb(77,124,255)"> BEST </span><span style="background:rgb(13,13,18)">  </span><span style="color:rgb(227,227,232);background:rgb(13,13,18)">Llama 3.2 3B      </span><span style="color:rgb(90,90,107);background:rgb(13,13,18)">llama3.2:3b     </span><span style="color:rgb(140,140,157);background:rgb(13,13,18)">  2.0G</span><span style="background:rgb(13,13,18)">  </span><span style="color:rgb(77,124,255);background:rgb(13,13,18)">████████████</span><span style="background:rgb(13,13,18)">  </span><span style="color:rgb(140,140,157);background:rgb(13,13,18)">180 tok/s</span><span style="background:rgb(13,13,18)">       </span>
+<span style="background:rgb(13,13,18)">    </span><span style="color:rgb(77,124,255);background:rgb(28,42,86)"> GOOD </span><span style="background:rgb(13,13,18)">  </span><span style="color:rgb(227,227,232);background:rgb(13,13,18)">DeepSeek R1 8B    </span><span style="color:rgb(90,90,107);background:rgb(13,13,18)">deepseek-r1:8b  </span><span style="color:rgb(140,140,157);background:rgb(13,13,18)">  4.9G</span><span style="background:rgb(13,13,18)">  </span><span style="color:rgb(77,124,255);background:rgb(13,13,18)">█████████▋</span><span style="color:rgb(28,42,86);background:rgb(13,13,18)">░░</span><span style="background:rgb(13,13,18)">  </span><span style="color:rgb(140,140,157);background:rgb(13,13,18)"> 88 tok/s</span><span style="background:rgb(13,13,18)">       </span>
+<span style="background:rgb(13,13,18)">            </span><span style="color:rgb(227,227,232);background:rgb(13,13,18)">Phi-3 Medium 14B  </span><span style="color:rgb(90,90,107);background:rgb(13,13,18)">phi3:14b        </span><span style="color:rgb(140,140,157);background:rgb(13,13,18)">  7.9G</span><span style="background:rgb(13,13,18)">  </span><span style="color:rgb(77,124,255);background:rgb(13,13,18)">███████▎</span><span style="color:rgb(28,42,86);background:rgb(13,13,18)">░░░░</span><span style="background:rgb(13,13,18)">  </span><span style="color:rgb(140,140,157);background:rgb(13,13,18)"> 41 tok/s</span><span style="background:rgb(13,13,18)">       </span>
+
+  <span style="color:rgb(77,124,255)">▎</span> <span style="color:rgb(227,227,232);font-weight:700">Gemma 3 12B</span>
+
+<span style="background:rgb(22,22,31)">                                                                                    </span>
+<span style="background:rgb(22,22,31)">    </span><span style="color:rgb(90,90,107);background:rgb(22,22,31)">runs          </span><span style="color:rgb(227,227,232);background:rgb(22,22,31)">blazing — 94 tok/s, entirely on the GPU</span><span style="background:rgb(22,22,31)">                           </span>
+<span style="background:rgb(22,22,31)">    </span><span style="color:rgb(90,90,107);background:rgb(22,22,31)">memory        </span><span style="color:rgb(227,227,232);background:rgb(22,22,31)">8.1 GB of 24 GB VRAM · 15.9 GB headroom</span><span style="background:rgb(22,22,31)">                           </span>
+<span style="background:rgb(22,22,31)">    </span><span style="color:rgb(90,90,107);background:rgb(22,22,31)">context       </span><span style="color:rgb(227,227,232);background:rgb(22,22,31)">32,768 tokens · KV f16 2.1 GB</span><span style="background:rgb(22,22,31)">                                     </span>
+<span style="background:rgb(22,22,31)">    </span><span style="color:rgb(90,90,107);background:rgb(22,22,31)">pull          </span><span style="color:rgb(77,124,255);background:rgb(22,22,31)">ollama run gemma3:12b</span><span style="background:rgb(22,22,31)">                                             </span>
+<span style="background:rgb(22,22,31)">                                                                                    </span>
+
+  <span style="color:rgb(77,124,255)">▎</span> <span style="color:rgb(227,227,232);font-weight:700">This machine</span>
+
+<span style="background:rgb(13,13,18)">    </span><span style="color:rgb(227,227,232);background:rgb(13,13,18)">GPU     </span><span style="color:rgb(48,74,150);background:rgb(13,13,18)">▂▃▅▄▅▇▇▇▇▇▇▇▇▇▇▇</span><span style="background:rgb(13,13,18)">  </span><span style="color:rgb(77,124,255);background:rgb(13,13,18)">██████████▌</span><span style="color:rgb(28,42,86);background:rgb(13,13,18)">░</span><span style="background:rgb(13,13,18)">  </span><span style="color:rgb(140,140,157);background:rgb(13,13,18)">RTX 4090 · 24 GB      </span><span style="color:rgb(227,227,232);background:rgb(13,13,18)">  87%</span><span style="background:rgb(13,13,18)">             </span>
+<span style="background:rgb(13,13,18)">    </span><span style="color:rgb(227,227,232);background:rgb(13,13,18)">VRAM    </span><span style="color:rgb(48,74,150);background:rgb(13,13,18)">▅▅▅▅▆▇▇▇▇▇▇▇▇▇▇▇</span><span style="background:rgb(13,13,18)">  </span><span style="color:rgb(77,124,255);background:rgb(13,13,18)">██████████▎</span><span style="color:rgb(28,42,86);background:rgb(13,13,18)">░</span><span style="background:rgb(13,13,18)">  </span><span style="color:rgb(140,140,157);background:rgb(13,13,18)">20.3 of 24 GB         </span><span style="color:rgb(227,227,232);background:rgb(13,13,18)">  85%</span><span style="background:rgb(13,13,18)">             </span>
+<span style="background:rgb(13,13,18)">    </span><span style="color:rgb(227,227,232);background:rgb(13,13,18)">CPU     </span><span style="color:rgb(48,74,150);background:rgb(13,13,18)">▄▃▂▃▂▂▂▂▂▂▂▂▂▂▂▂</span><span style="background:rgb(13,13,18)">  </span><span style="color:rgb(77,124,255);background:rgb(13,13,18)">██▏</span><span style="color:rgb(28,42,86);background:rgb(13,13,18)">░░░░░░░░░</span><span style="background:rgb(13,13,18)">  </span><span style="color:rgb(140,140,157);background:rgb(13,13,18)">16 cores · 32 threads </span><span style="color:rgb(227,227,232);background:rgb(13,13,18)">  18%</span><span style="background:rgb(13,13,18)">             </span>
+<span style="background:rgb(13,13,18)">    </span><span style="color:rgb(227,227,232);background:rgb(13,13,18)">RAM     </span><span style="color:rgb(48,74,150);background:rgb(13,13,18)">▃▃▃▃▃▃▃▃▃▃▃▃▃▃▃▃</span><span style="background:rgb(13,13,18)">  </span><span style="color:rgb(77,124,255);background:rgb(13,13,18)">████</span><span style="color:rgb(28,42,86);background:rgb(13,13,18)">░░░░░░░░</span><span style="background:rgb(13,13,18)">  </span><span style="color:rgb(140,140,157);background:rgb(13,13,18)">21.4 of 64 GB         </span><span style="color:rgb(227,227,232);background:rgb(13,13,18)">  33%</span><span style="background:rgb(13,13,18)">             </span>
+
+  <span style="color:rgb(77,124,255)">▎</span> <span style="color:rgb(227,227,232);font-weight:700">Working</span>
+
+    <span style="color:rgb(77,124,255)">◐</span>  <span style="color:rgb(227,227,232)">Reading hardware profile</span>   <span style="color:rgb(90,90,107)">4s · 892 tokens</span>
+    <span style="color:rgb(90,90,107)"> </span>  <span style="color:rgb(77,124,255)">██████████████▉</span><span style="color:rgb(28,42,86)">░░░░░░░░░</span>
+
+<span style="background:rgb(18,18,26)">  </span><span style="color:rgb(227,227,232);background:rgb(18,18,26)">qwen3:30b-a3b</span><span style="color:rgb(28,42,86);background:rgb(18,18,26)"> │ </span><span style="color:rgb(140,140,157);background:rgb(18,18,26)">Q4_K_M</span><span style="color:rgb(28,42,86);background:rgb(18,18,26)"> │ </span><span style="color:rgb(140,140,157);background:rgb(18,18,26)">62.4 tok/s</span><span style="color:rgb(28,42,86);background:rgb(18,18,26)"> │ </span><span style="color:rgb(140,140,157);background:rgb(18,18,26)">ctx 20,317/32,768</span><span style="color:rgb(28,42,86);background:rgb(18,18,26)"> │ </span><span style="color:rgb(210,153,34);background:rgb(18,18,26)">ask before changes</span><span style="background:rgb(18,18,26)">      </span>
+
+</pre>
+<h2 id="rows">One row grammar</h2><pre>
+<span style="color:rgb(108,108,124)">──────────────────────────────────────────────────────────────────────────────</span>
+  <span style="font-weight:700">One row grammar</span>   <span style="color:rgb(108,108,124)">B&#x27;s model row, applied to every list</span>
+<span style="color:rgb(108,108,124)">──────────────────────────────────────────────────────────────────────────────</span>
+
+  <span style="color:rgb(108,108,124)">M O D E L S</span>
+
+    <span style="font-weight:700">Qwen3 30B A3B       </span> <span style="color:rgb(77,124,255)">████████</span><span style="color:rgb(28,42,86)">░░</span>  <span style="color:rgb(108,108,124)">qwen3:30b-a3b             </span>  great
+    <span style="font-weight:700">Gemma 3 12B         </span> <span style="color:rgb(77,124,255)">██████████</span>  <span style="color:rgb(108,108,124)">gemma3:12b                </span>  blazing
+    <span style="font-weight:700">Llama 3.2 3B        </span> <span style="color:rgb(77,124,255)">██████████</span>  <span style="color:rgb(108,108,124)">llama3.2:3b               </span>  blazing
+
+  <span style="color:rgb(108,108,124)">D O W N L O A D S</span>
+
+    <span style="font-weight:700">Gemma 3 12B         </span> <span style="color:rgb(77,124,255)">██████████</span>  <span style="color:rgb(108,108,124)">8.1G of 8.1G              </span>  <span style="color:rgb(63,185,80)">ready</span>
+    <span style="font-weight:700">DeepSeek R1 8B      </span> <span style="color:rgb(77,124,255)">██████▎</span><span style="color:rgb(28,42,86)">░░░</span>  <span style="color:rgb(108,108,124)">3.1G of 4.9G              </span>  <span style="color:rgb(77,124,255)">63%</span>
+    <span style="font-weight:700">Qwen 2.5 32B        </span> <span style="color:rgb(28,42,86)">░░░░░░░░░░</span>  <span style="color:rgb(108,108,124)">queued                    </span>  <span style="color:rgb(108,108,124)">waiting</span>
+
+  <span style="color:rgb(108,108,124)">T O O L S</span>
+
+    <span style="font-weight:700">filesystem          </span> <span style="color:rgb(77,124,255)">██████████</span>  <span style="color:rgb(108,108,124)">read · write · list       </span>  <span style="color:rgb(63,185,80)">on</span>
+    <span style="font-weight:700">shell               </span> <span style="color:rgb(77,124,255)">██████</span><span style="color:rgb(28,42,86)">░░░░</span>  <span style="color:rgb(108,108,124)">run commands              </span>  <span style="color:rgb(210,153,34)">ask</span>
+    <span style="font-weight:700">computer            </span> <span style="color:rgb(28,42,86)">░░░░░░░░░░</span>  <span style="color:rgb(108,108,124)">click · type · screenshot </span>  <span style="color:rgb(108,108,124)">off</span>
+
+  <span style="color:rgb(108,108,124)">H A R D W A R E</span>
+
+    <span style="font-weight:700">GPU                 </span> <span style="color:rgb(77,124,255)">████████▊</span><span style="color:rgb(28,42,86)">░</span>  <span style="color:rgb(108,108,124)">RTX 4090 · 24 GB          </span>  87%
+    <span style="font-weight:700">CPU                 </span> <span style="color:rgb(77,124,255)">█▊</span><span style="color:rgb(28,42,86)">░░░░░░░░</span>  <span style="color:rgb(108,108,124)">16 cores · 32 threads     </span>  18%
+    <span style="font-weight:700">RAM                 </span> <span style="color:rgb(77,124,255)">███▎</span><span style="color:rgb(28,42,86)">░░░░░░</span>  <span style="color:rgb(108,108,124)">64 GB                     </span>  21.4 GB
+
+  <span style="color:rgb(108,108,124)">T A S K S</span>
+
+    <span style="font-weight:700">Rename screenshots  </span> <span style="color:rgb(77,124,255)">███████</span><span style="color:rgb(28,42,86)">░░░</span>  <span style="color:rgb(108,108,124)">142 files                 </span>  <span style="color:rgb(77,124,255)">running</span>
+    <span style="font-weight:700">Sort receipts       </span> <span style="color:rgb(77,124,255)">██████████</span>  <span style="color:rgb(108,108,124)">62 files                  </span>  <span style="color:rgb(63,185,80)">done</span>
+    <span style="font-weight:700">Back up vault       </span> <span style="color:rgb(28,42,86)">░░░░░░░░░░</span>  <span style="color:rgb(108,108,124)">needs confirmation        </span>  <span style="color:rgb(210,153,34)">blocked</span>
+
+  <span style="color:rgb(108,108,124)">Same five columns every time: marker · name · meter · detail · state.</span>
+
+</pre>
+<h2 id="b">B · Flat</h2><pre>
+<span style="color:rgb(108,108,124)">──────────────────────────────────────────────────────────────────────────────</span>
+  <span style="font-weight:700">B · Flat</span>   <span style="color:rgb(108,108,124)">full-screen, every border deleted</span>
+<span style="color:rgb(108,108,124)">──────────────────────────────────────────────────────────────────────────────</span>
+
+  <span style="font-weight:700">llamachat</span>   <span style="color:rgb(108,108,124)">models · hardware · about</span>
+
+  <span style="color:rgb(108,108,124)">M O D E L S</span>
+
+    Qwen3 30B A3B          <span style="color:rgb(108,108,124)"> 30.5B</span>  <span style="color:rgb(108,108,124)"> 17.3G</span>  <span style="color:rgb(108,108,124)"> 62 tok/s</span>   <span style="color:rgb(77,124,255)">▰▰▰▰▱</span>  great
+  <span style="color:rgb(77,124,255)">›</span> <span style="font-weight:700">Gemma 3 12B           </span> <span style="color:rgb(108,108,124)">   12B</span>  <span style="color:rgb(108,108,124)">  8.1G</span>  <span style="color:rgb(108,108,124)"> 94 tok/s</span>   <span style="color:rgb(77,124,255)">▰▰▰▰▰</span>  blazing
+    Llama 3.2 3B           <span style="color:rgb(108,108,124)">    3B</span>  <span style="color:rgb(108,108,124)">  2.0G</span>  <span style="color:rgb(108,108,124)">180 tok/s</span>   <span style="color:rgb(77,124,255)">▰▰▰▰▰</span>  blazing
+    DeepSeek R1 8B         <span style="color:rgb(108,108,124)">    8B</span>  <span style="color:rgb(108,108,124)">  4.9G</span>  <span style="color:rgb(108,108,124)"> 88 tok/s</span>   <span style="color:rgb(77,124,255)">▰▰▰▰▱</span>  great
+    Phi-3 Medium 14B       <span style="color:rgb(108,108,124)">   14B</span>  <span style="color:rgb(108,108,124)">  7.9G</span>  <span style="color:rgb(108,108,124)"> 41 tok/s</span>   <span style="color:rgb(77,124,255)">▰▰▰▱▱</span>  okay
+    Qwen 2.5 32B           <span style="color:rgb(108,108,124)">   32B</span>  <span style="color:rgb(108,108,124)"> 19.8G</span>  <span style="color:rgb(108,108,124)"> 12 tok/s</span>   <span style="color:rgb(77,124,255)">▰▰▱▱▱</span>  slow
+    Llama 3.3 70B          <span style="color:rgb(108,108,124)">   71B</span>  <span style="color:rgb(108,108,124)"> 42.5G</span>  <span style="color:rgb(108,108,124)">        —</span>   <span style="color:rgb(108,108,124)">▰▱▱▱▱</span>  <span style="color:rgb(108,108,124)">won&#x27;t run</span>
+
+  <span style="color:rgb(108,108,124)">G E M M A   3   1 2 B</span>
+
+  <span style="color:rgb(108,108,124)">runs        </span>blazing · 94 tok/s, fully on GPU
+  <span style="color:rgb(108,108,124)">memory      </span>8.1 GB of 24 GB VRAM · 15.9 GB headroom
+  <span style="color:rgb(108,108,124)">context     </span>32,768 tokens · KV f16 2.1 GB
+  <span style="color:rgb(108,108,124)">pull        </span><span style="color:rgb(77,124,255)">ollama run gemma3:12b</span>
+
+  <span style="color:rgb(108,108,124)">↑↓ pick   ⏎ download   r run   tab views   q quit</span>
+
+</pre></div></body></html>

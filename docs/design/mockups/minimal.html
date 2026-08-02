@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LlamaChat — Minimal</title>
+<style>
+  :root {
+    --bg: #0d0d12; --sidebar-bg: #09090e;
+    --text: #e4e4ea; --text2: #9898ae; --text3: #5e5e72;
+    --accent: #4d7cff; --radius: 14px;
+    --font: -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif;
+    --mono: 'SF Mono', 'JetBrains Mono', monospace;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:var(--bg); color:var(--text); font-family:var(--font); font-size:15px; height:100vh; overflow:hidden; display:flex; -webkit-font-smoothing:antialiased; }
+  ::-webkit-scrollbar { width:3px; } ::-webkit-scrollbar-thumb { background:rgba(255,255,255,0.06); border-radius:2px; }
+
+  /* Sidebar — Apple Messages style */
+  .sidebar { width:280px; flex-shrink:0; background:var(--sidebar-bg); display:flex; flex-direction:column; border-right:0.5px solid rgba(255,255,255,0.06); }
+  .sb-search { margin:16px 14px 8px; padding:8px 12px; background:rgba(255,255,255,0.03); border-radius:8px; display:flex; align-items:center; gap:7px; }
+  .sb-search svg { opacity:0.3; flex-shrink:0; }
+  .sb-search input { background:none; border:none; color:var(--text); font-size:13px; outline:none; width:100%; }
+  .sb-search input::placeholder { color:var(--text3); }
+  .sb-list { flex:1; overflow-y:auto; }
+  .sb-item { display:flex; align-items:center; gap:12px; padding:11px 16px; cursor:pointer; transition:background .1s; position:relative; }
+  .sb-item:hover { background:rgba(255,255,255,0.02); }
+  .sb-item.active { background:rgba(77,124,255,0.08); }
+  .sb-item.active::before { content:''; position:absolute; left:0; top:8px; bottom:8px; width:3px; background:var(--accent); border-radius:0 3px 3px 0; }
+  .sb-avatar { width:36px; height:36px; border-radius:50%; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-weight:600; font-size:13px; }
+  .sb-item.active .sb-avatar { background:var(--accent); color:#fff; }
+  .sb-item:not(.active) .sb-avatar { background:rgba(255,255,255,0.06); color:var(--text2); }
+  .sb-info { flex:1; min-width:0; }
+  .sb-name { font-size:14px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .sb-preview { font-size:12px; color:var(--text3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:1px; }
+  .sb-time { font-size:11px; color:var(--text3); flex-shrink:0; }
+  .sb-new { margin:8px 12px 14px; padding:8px; border-radius:8px; background:rgba(77,124,255,0.08); color:var(--accent); border:none; font-size:13px; font-weight:500; cursor:pointer; transition:background .15s; }
+  .sb-new:hover { background:rgba(77,124,255,0.15); }
+
+  /* Main chat */
+  .main { flex:1; display:flex; flex-direction:column; min-width:0; }
+  .topbar { height:44px; flex-shrink:0; display:flex; align-items:center; padding:0 20px; gap:10px; border-bottom:0.5px solid rgba(255,255,255,0.05); }
+  .topbar-back { color:var(--text3); cursor:pointer; display:none; }
+  .topbar-title { font-size:14px; font-weight:500; }
+  .topbar-model { margin-left:auto; font-size:11px; color:var(--text3); background:rgba(255,255,255,0.03); padding:4px 10px; border-radius:6px; }
+
+  /* Messages */
+  .chat { flex:1; overflow-y:auto; padding:24px 20px; }
+  .msg-container { max-width:680px; margin:0 auto; }
+  .msg { margin-bottom:24px; animation:fadeIn .3s ease-out; }
+  @keyframes fadeIn { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
+  .msg.user { display:flex; justify-content:flex-end; }
+  .msg.user .bubble { background:var(--accent); color:#fff; border-radius:18px 18px 4px 18px; padding:10px 16px; max-width:75%; line-height:1.45; font-size:14px; }
+  .msg.assistant .content { line-height:1.6; color:var(--text); padding:0 4px; }
+  .msg.assistant .content p { margin-bottom:8px; }
+  .msg.assistant .content strong { color:var(--text); font-weight:600; }
+  .msg.assistant .content ul, .msg.assistant .content ol { margin:8px 0; padding-left:20px; }
+  .msg.assistant .content li { margin-bottom:4px; }
+
+  /* Clean code block */
+  .code-block { margin:12px 0; border-radius:10px; background:rgba(0,0,0,0.3); overflow:hidden; }
+  .code-block pre { margin:0; padding:14px 18px; font-family:var(--mono); font-size:13px; line-height:1.7; color:#c9d1d9; overflow-x:auto; }
+
+  /* Floating input */
+  .input-wrap { flex-shrink:0; padding:12px 20px 20px; }
+  .input-container { max-width:680px; margin:0 auto; }
+  .input-bar { display:flex; align-items:flex-end; gap:10px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:20px; padding:8px 8px 8px 18px; transition:border-color .2s, box-shadow .2s; }
+  .input-bar:focus-within { border-color:rgba(77,124,255,0.3); box-shadow:0 0 0 3px rgba(77,124,255,0.06); }
+  .input-bar textarea { flex:1; background:none; border:none; color:var(--text); font-family:var(--font); font-size:14px; resize:none; padding:4px 0; outline:none; line-height:1.5; max-height:120px; }
+  .input-bar textarea::placeholder { color:var(--text3); }
+  .input-bar button { background:var(--accent); color:#fff; border:none; border-radius:50%; width:34px; height:34px; flex-shrink:0; display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:16px; transition:opacity .15s, transform .15s; }
+  .input-bar button:hover { opacity:0.9; transform:scale(1.05); }
+  .input-hint { text-align:center; margin-top:8px; font-size:11px; color:var(--text3); }
+  .input-hint kbd { background:rgba(255,255,255,0.04); border-radius:3px; padding:1px 5px; font-family:var(--mono); font-size:10px; }
+</style>
+</head>
+<body>
+
+<div class="sidebar">
+  <div class="sb-search">
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="4" stroke="currentColor" stroke-width="1.5"/><path d="M10 10l4 4" stroke="currentColor" stroke-width="1.5"/></svg>
+    <input placeholder="Search conversations...">
+  </div>
+  <div class="sb-list">
+    <div class="sb-item active">
+      <div class="sb-avatar">L</div>
+      <div class="sb-info"><div class="sb-name">Rust CLI watcher</div><div class="sb-preview">Great choice! You'll want notify for filesystem…</div></div>
+      <div class="sb-time">2m</div>
+    </div>
+    <div class="sb-item">
+      <div class="sb-avatar" style="background:rgba(168,130,255,0.15);color:#a882ff">A</div>
+      <div class="sb-info"><div class="sb-name">Auth middleware refactor</div><div class="sb-preview">Looking at your current setup, the middleware…</div></div>
+      <div class="sb-time">1h</div>
+    </div>
+    <div class="sb-item">
+      <div class="sb-avatar" style="background:rgba(63,185,80,0.12);color:#3fb950">P</div>
+      <div class="sb-info"><div class="sb-name">Postify deployment</div><div class="sb-preview">Let me outline the steps to get Postify onto…</div></div>
+      <div class="sb-time">3h</div>
+    </div>
+    <div class="sb-item">
+      <div class="sb-avatar" style="background:rgba(210,153,34,0.12);color:#d29922">R</div>
+      <div class="sb-info"><div class="sb-name">API rate limiting</div><div class="sb-preview">For your scale, a token bucket approach would…</div></div>
+      <div class="sb-time">Yesterday</div>
+    </div>
+    <div class="sb-item">
+      <div class="sb-avatar" style="background:rgba(88,166,255,0.1);color:#58a6ff">M</div>
+      <div class="sb-info"><div class="sb-name">DB migration script</div><div class="sb-preview">Here's the migration that adds the new columns…</div></div>
+      <div class="sb-time">Yesterday</div>
+    </div>
+    <div class="sb-item">
+      <div class="sb-avatar" style="background:rgba(255,123,114,0.1);color:#ff7b72">S</div>
+      <div class="sb-info"><div class="sb-name">SiteCraft redesign</div><div class="sb-preview">The landing page needs to shift from self-serve…</div></div>
+      <div class="sb-time">2d ago</div>
+    </div>
+  </div>
+  <button class="sb-new">+ New conversation</button>
+</div>
+
+<div class="main">
+  <div class="topbar">
+    <span class="topbar-title">Rust CLI watcher</span>
+    <span class="topbar-model">llama3.2:3b</span>
+  </div>
+
+  <div class="chat">
+    <div class="msg-container">
+      <div class="msg user"><div class="bubble">I want to build a command-line tool in Rust that watches a directory and runs tests when files change. What's the best approach?</div></div>
+      <div class="msg assistant">
+        <div class="content">
+          <p>Great choice! You'll want the <strong>notify</strong> crate for filesystem events. Here's the architecture I'd recommend:</p>
+          <div class="code-block">
+            <pre><span style="color:#ff7b72">use</span> <span style="color:#d2a8ff">notify</span>::{Watcher, RecursiveMode, watcher};
+<span style="color:#ff7b72">use</span> <span style="color:#d2a8ff">std</span>::process::Command;
+
+<span style="color:#ff7b72">fn</span> <span style="color:#d2a8ff">main</span>() {
+    <span style="color:#ff7b72">let</span> (tx, rx) = std::sync::mpsc::channel();
+    <span style="color:#ff7b72">let mut</span> watcher = watcher(tx, Duration::from_secs(<span style="color:#a5d6ff">1</span>)).unwrap();
+    watcher.watch(<span style="color:#a5d6ff">"./src"</span>, RecursiveMode::Recursive).unwrap();
+    
+    <span style="color:#ff7b72">for</span> event <span style="color:#ff7b72">in</span> rx {
+        Command::new(<span style="color:#a5d6ff">"cargo"</span>).arg(<span style="color:#a5d6ff">"test"</span>).status().unwrap();
+    }
+}</pre>
+          </div>
+          <p>Key decisions: <strong>debounce strategy</strong> (batch events within a window), <strong>filter patterns</strong> (ignore .git and target/), and whether to run <strong>all tests</strong> or only tests related to changed files.</p>
+        </div>
+      </div>
+      <div class="msg user"><div class="bubble">Can I also make it watch for config file changes and restart a dev server?</div></div>
+      <div class="msg assistant">
+        <div class="content">
+          <p>Absolutely. The cleanest approach is to make your watcher configurable through a <strong>watch manifest</strong>:</p>
+          <ul>
+            <li>Each <strong>target</strong> defines a glob pattern + command to run</li>
+            <li>When files matching the pattern change → execute the associated command</li>
+            <li>Support <strong>per-target debounce windows</strong> (tests: 500ms, server reload: 200ms)</li>
+          </ul>
+          <p>This pattern is how <strong>cargo-watch</strong> and <strong>watchexec</strong> work under the hood. You'd be building a simpler, more opinionated version — which is a great Rust learning project.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="input-wrap">
+    <div class="input-container">
+      <div class="input-bar">
+        <textarea placeholder="Message…" rows="1"></textarea>
+        <button>↑</button>
+      </div>
+      <div class="input-hint">Type <kbd>/</kbd> for commands · <kbd>⌘K</kbd> for quick actions</div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

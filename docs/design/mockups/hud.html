@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LlamaChat — HUD</title>
+<style>
+  :root {
+    --bg: #080810; --glass: rgba(10,10,20,0.7);
+    --text: #e0e0ec; --text2: #9090b0; --text3: #585880;
+    --accent: #4d7cff; --cyan: #00d4ff; --accent-glow: rgba(77,124,255,0.2);
+    --font: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    --mono: 'JetBrains Mono', 'SF Mono', monospace;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    background:var(--bg); color:var(--text); font-family:var(--font); font-size:13px;
+    height:100vh; overflow:hidden; display:flex;
+    background-image: radial-gradient(rgba(77,124,255,0.03) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.6} }
+  @keyframes glow { 0%,100%{box-shadow:0 0 4px var(--accent-glow)} 50%{box-shadow:0 0 12px var(--accent-glow)} }
+  @keyframes scan { 0%{background-position:0 0} 100%{background-position:0 40px} }
+  @keyframes fadeIn { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
+  ::-webkit-scrollbar { width:3px; } ::-webkit-scrollbar-thumb { background:rgba(77,124,255,0.12); border-radius:2px; }
+
+  /* Glass card */
+  .glass { background:var(--glass); backdrop-filter:blur(20px); -webkit-backdrop-filter:blur(20px); border:1px solid rgba(77,124,255,0.08); }
+  .glow-border { border:1px solid rgba(77,124,255,0.2); box-shadow:0 0 8px rgba(77,124,255,0.08), inset 0 0 8px rgba(77,124,255,0.03); }
+
+  /* Sidebar */
+  .sidebar { width:240px; flex-shrink:0; display:flex; flex-direction:column; padding:6px; gap:4px; }
+  .sb-glass { background:var(--glass); backdrop-filter:blur(20px); -webkit-backdrop-filter:blur(20px); border:1px solid rgba(77,124,255,0.06); border-radius:10px; padding:10px 12px; }
+  .sb-header { display:flex; align-items:center; gap:8px; margin-bottom:10px; }
+  .sb-core { font-family:var(--mono); font-size:10px; color:var(--cyan); letter-spacing:0.08em; text-transform:uppercase; }
+  .sb-core::before { content:''; display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--cyan); margin-right:6px; animation:pulse 2s infinite; }
+  .sb-item { display:flex; align-items:center; gap:8px; padding:7px 10px; border-radius:6px; cursor:pointer; transition:all .15s; font-size:12px; }
+  .sb-item:hover { background:rgba(77,124,255,0.06); }
+  .sb-item.active { background:rgba(77,124,255,0.1); border-left:2px solid var(--accent); }
+  .sb-item .indicator { width:5px; height:5px; border-radius:50%; background:var(--text3); flex-shrink:0; }
+  .sb-item.active .indicator { background:var(--accent); box-shadow:0 0 6px var(--accent); }
+  .sb-new { margin-top:4px; padding:7px; border:1px dashed rgba(77,124,255,0.12); border-radius:6px; color:var(--text3); font-size:11px; text-align:center; cursor:pointer; transition:all .2s; }
+  .sb-new:hover { border-color:var(--accent); color:var(--accent); }
+
+  /* System stats bar */
+  .sys-bar { margin-top:auto; }
+  .sys-bar .stat { display:flex; align-items:center; gap:8px; margin-bottom:4px; font-family:var(--mono); font-size:9px; color:var(--text3); }
+  .sys-bar .stat-bar { flex:1; height:2px; background:rgba(255,255,255,0.05); border-radius:1px; overflow:hidden; }
+  .sys-bar .stat-fill { height:100%; border-radius:1px; }
+  .stat-cpu { background:linear-gradient(90deg,var(--accent),var(--cyan)); width:42%; }
+  .stat-ram { background:linear-gradient(90deg,var(--accent),var(--cyan)); width:58%; }
+
+  /* Main */
+  .main { flex:1; display:flex; flex-direction:column; min-width:0; }
+  .topbar { padding:10px 16px; display:flex; align-items:center; gap:10px; }
+  .topbar-title { font-family:var(--mono); font-size:11px; color:var(--text2); letter-spacing:0.02em; }
+  .topbar-right { margin-left:auto; display:flex; gap:10px; align-items:center; }
+  .topbar-badge { font-family:var(--mono); font-size:9px; padding:3px 8px; border-radius:4px; }
+  .topbar-badge.model { color:var(--accent); border:1px solid rgba(77,124,255,0.2); }
+  .topbar-badge.agent { color:var(--cyan); border:1px solid rgba(0,212,255,0.2); animation:pulse 3s infinite; }
+
+  /* Messages */
+  .chat { flex:1; overflow-y:auto; padding:12px 16px; display:flex; flex-direction:column; gap:14px; }
+  .msg { max-width:680px; animation:fadeIn .3s ease-out; }
+  .msg.user { align-self:flex-end; }
+  .msg.user .bubble { background:rgba(77,124,255,0.08); border:1px solid rgba(77,124,255,0.12); border-radius:10px; padding:10px 14px; line-height:1.5; }
+  .msg.assistant { }
+  .msg.assistant .content { padding:6px 0 6px 12px; border-left:1px solid rgba(77,124,255,0.15); position:relative; }
+  .msg.assistant .content::before { content:''; position:absolute; left:-1px; top:0; bottom:0; width:1px; background:linear-gradient(180deg, transparent, var(--accent), var(--cyan), transparent); animation:scan 3s linear infinite; background-size:1px 40px; }
+  .msg-time { font-family:var(--mono); font-size:9px; color:var(--text3); margin-top:4px; }
+
+  .msg-content { line-height:1.55; }
+  .msg-content p { margin-bottom:6px; }
+  .msg-content strong { color:var(--accent); }
+  .msg-content ul { margin:6px 0; padding-left:16px; }
+  .msg-content li { margin-bottom:3px; }
+
+  /* Code in HUD */
+  .code-hud { margin:10px 0; border-radius:8px; border:1px solid rgba(77,124,255,0.1); background:rgba(0,0,0,0.4); overflow:hidden; }
+  .code-hud pre { margin:0; padding:12px 16px; font-family:var(--mono); font-size:11px; line-height:1.7; color:#c9d1d9; overflow-x:auto; }
+
+  /* Input */
+  .input-area { flex-shrink:0; padding:8px 16px 14px; }
+  .input-glass { background:var(--glass); backdrop-filter:blur(20px); -webkit-backdrop-filter:blur(20px); border:1px solid rgba(77,124,255,0.1); border-radius:12px; padding:6px; }
+  .input-glass:focus-within { border-color:rgba(77,124,255,0.25); animation:glow 2s infinite; }
+  .input-row { display:flex; align-items:center; gap:8px; }
+  .input-row textarea { flex:1; background:none; border:none; color:var(--text); font-family:var(--font); font-size:13px; resize:none; padding:6px 8px; outline:none; line-height:1.5; }
+  .input-row textarea::placeholder { color:var(--text3); }
+  .input-send { width:34px; height:34px; border-radius:8px; border:none; background:var(--accent); color:#fff; cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:16px; transition:all .15s; flex-shrink:0; }
+  .input-send:hover { background:#6b93ff; box-shadow:0 0 16px rgba(77,124,255,0.3); }
+  .input-hint { margin-top:6px; text-align:center; font-family:var(--mono); font-size:9px; color:var(--text3); letter-spacing:0.03em; }
+  .input-hint kbd { background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:2px; padding:1px 4px; }
+</style>
+</head>
+<body>
+
+<div class="sidebar">
+  <div class="sb-glass">
+    <div class="sb-header"><span class="sb-core">AI CORE</span></div>
+    <div class="sb-item active"><span class="indicator"></span>Rust CLI watcher</div>
+    <div class="sb-item"><span class="indicator"></span>Auth middleware</div>
+    <div class="sb-item"><span class="indicator"></span>Postify deploy</div>
+    <div class="sb-item"><span class="indicator"></span>Rate limiter</div>
+    <div class="sb-item"><span class="indicator"></span>DB migration</div>
+    <div class="sb-item"><span class="indicator"></span>SiteCraft v2</div>
+    <div class="sb-new">+ New session</div>
+  </div>
+
+  <div class="sb-glass sys-bar">
+    <div class="stat"><span>CPU</span><div class="stat-bar"><div class="stat-fill stat-cpu"></div></div><span>42%</span></div>
+    <div class="stat"><span>RAM</span><div class="stat-bar"><div class="stat-fill stat-ram"></div></div><span>58%</span></div>
+    <div class="stat"><span>GPU</span><span style="margin-left:auto">RTX 4090</span></div>
+  </div>
+</div>
+
+<div class="main">
+  <div class="topbar">
+    <span class="topbar-title">SESSION // rust-cli-watcher</span>
+    <div class="topbar-right">
+      <span class="topbar-badge model">llama3.2:3b</span>
+      <span class="topbar-badge agent">AUTONOMOUS:ASK</span>
+    </div>
+  </div>
+
+  <div class="chat">
+    <div class="msg user">
+      <div class="bubble">I want to build a command-line tool in Rust that watches a directory and runs tests when files change. What's the best approach?</div>
+      <div class="msg-time">14:15:32</div>
+    </div>
+    <div class="msg assistant">
+      <div class="content">
+        <div class="msg-content">
+          <p>Great choice — you'll want the <strong>notify</strong> crate for filesystem events.</p>
+          <div class="code-hud">
+            <pre><span style="color:#ff7b72">use</span> <span style="color:#d2a8ff">notify</span>::{Watcher, RecursiveMode, watcher};
+<span style="color:#ff7b72">use</span> <span style="color:#d2a8ff">std</span>::process::Command;
+
+<span style="color:#ff7b72">fn</span> <span style="color:#d2a8ff">main</span>() {
+    <span style="color:#ff7b72">let</span> (tx, rx) = std::sync::mpsc::channel();
+    <span style="color:#ff7b72">let mut</span> watcher = watcher(tx, Duration::from_secs(<span style="color:#a5d6ff">1</span>)).unwrap();
+    watcher.watch(<span style="color:#a5d6ff">"./src"</span>, RecursiveMode::Recursive).unwrap();
+    
+    <span style="color:#ff7b72">for</span> event <span style="color:#ff7b72">in</span> rx {
+        Command::new(<span style="color:#a5d6ff">"cargo"</span>).arg(<span style="color:#a5d6ff">"test"</span>).status().unwrap();
+    }
+}</pre>
+          </div>
+          <p>Architecture decisions: <strong>debounce strategy</strong> to batch events within a window, <strong>glob filters</strong> to ignore noise, and whether to run <strong>all tests</strong> or only affected ones by path.</p>
+        </div>
+      </div>
+      <div class="msg-time">14:15:34 · 234ms</div>
+    </div>
+    <div class="msg user">
+      <div class="bubble">Can I also make it watch for config file changes and restart a dev server?</div>
+      <div class="msg-time">14:17:01</div>
+    </div>
+    <div class="msg assistant">
+      <div class="content">
+        <div class="msg-content">
+          <p>Yes — the cleanest pattern is a <strong>watch manifest</strong> with per-target configuration. Define each target with a glob pattern, command, and debounce window:</p>
+          <ul>
+            <li><strong>test target:</strong> <code>src/**/*.rs</code> → <code>cargo test</code> (500ms debounce)</li>
+            <li><strong>server target:</strong> <code>config/**/*.yaml</code> → <code>kill -HUP $(pgrep server)</code> (200ms debounce)</li>
+          </ul>
+          <p>This is how <strong>cargo-watch</strong> and <strong>watchexec</strong> work. You'd be building a focused, opinionated alternative — ideal Rust learning project.</p>
+        </div>
+      </div>
+      <div class="msg-time">14:17:03 · 187ms</div>
+    </div>
+  </div>
+
+  <div class="input-area">
+    <div class="input-glass">
+      <div class="input-row">
+        <textarea placeholder="Enter directive…" rows="1"></textarea>
+        <button class="input-send">↑</button>
+      </div>
+    </div>
+    <div class="input-hint">
+      <kbd>/</kbd> COMMANDS &nbsp;·&nbsp; <kbd>⌘K</kbd> PALETTE &nbsp;·&nbsp; <kbd>⌘⇧A</kbd> AGENT
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

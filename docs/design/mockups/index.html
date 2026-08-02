@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LlamaChat — UI concepts</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0d0d12;--surface:#12121a;--surface2:#191922;--border:rgba(255,255,255,.06);
+--border2:rgba(255,255,255,.11);--text:#e3e3e8;--text2:#8c8c9d;--text3:#5a5a6b;--accent:#4d7cff;--ok:#3fb950}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:'Inter',system-ui,sans-serif;font-size:14px;
+ -webkit-font-smoothing:antialiased;padding:56px 24px 80px}
+.wrap{max-width:940px;margin:0 auto}
+h1{font-size:25px;font-weight:600;letter-spacing:-.02em;margin-bottom:7px}
+.sub{color:var(--text2);font-size:13.5px;line-height:1.65;max-width:660px;margin-bottom:34px}
+.sub code{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text)}
+h2{font-size:11px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--text3);
+ margin:0 0 12px;padding-bottom:9px;border-bottom:1px solid var(--border)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(272px,1fr));gap:13px;margin-bottom:40px}
+a.card{display:block;background:var(--surface);border:1px solid var(--border);border-radius:11px;
+ padding:19px;text-decoration:none;color:inherit;transition:border-color .13s,background .13s}
+a.card:hover{border-color:var(--border2);background:var(--surface2)}
+.tagrow{display:flex;align-items:center;gap:8px;margin-bottom:11px}
+.v{font-family:'JetBrains Mono',monospace;font-size:10.5px;color:var(--accent);
+ border:1px solid rgba(77,124,255,.3);border-radius:5px;padding:2px 6px}
+.new{font-size:9.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ok);
+ border:1px solid rgba(63,185,80,.3);border-radius:5px;padding:2px 6px}
+a.card h3{font-size:15px;font-weight:600;margin-bottom:7px;letter-spacing:-.01em}
+a.card p{font-size:12.5px;color:var(--text2);line-height:1.6}
+a.card .k{display:block;margin-top:11px;padding-top:11px;border-top:1px solid var(--border);
+ font-size:11.5px;color:var(--text3)}
+a.card .k b{color:var(--text2);font-weight:500}
+ul{margin:0 0 34px 0;padding-left:19px;color:var(--text2);font-size:13px;line-height:1.85}
+ul b{color:var(--text);font-weight:500}
+.old a{color:var(--text3);font-size:12.5px;text-decoration:none;font-family:'JetBrains Mono',monospace}
+.old a:hover{color:var(--text2)}
+.old{display:flex;flex-wrap:wrap;gap:7px 16px}
+.note{background:var(--surface);border:1px solid var(--border);border-left:2px solid var(--accent);
+ border-radius:7px;padding:14px 17px;font-size:12.5px;color:var(--text2);line-height:1.65;margin-bottom:34px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>LlamaChat — UI concepts</h1>
+  <p class="sub">Three structural answers to your brief. All built to
+  <code>docs/design/REQUIREMENTS.md</code>, which is your own feedback written down verbatim.
+  Every version has working <b>Chat / Cowork / Code</b> switching — click through them.</p>
+
+  <div class="note">
+    Your rule was <b>one</b> way to switch between Chat, Cowork and Code. Real Claude has two
+    (<code>Home | Code</code> in the sidebar <i>and</i> <code>Chat | Cowork</code> in the composer).
+    So the three versions below are three different places to put that single switcher — they are
+    not three colour skins of the same layout.
+  </div>
+
+  <h2>CLI Redesign <span class="new" style="margin-left:6px">New</span></h2>
+  <div class="grid">
+    <a class="card" href="cli-redesign.html" style="border-color:rgba(77,124,255,.4)">
+      <div class="tagrow"><span class="v">CLI</span><span class="new">Start here</span></div>
+      <h3>Terminal UI proposals</h3>
+      <p>Current state vs. three proposed directions, plus 6 concrete defects found by running the CLI.
+      Vision pipeline analysis included. Research based on Claude Code (Ink/React) and Codex CLI (Rust/ratatui).</p>
+      <span class="k"><b>Compiles:</b> zero errors</span>
+    </a>
+  </div>
+
+  <h2>Current — v6, built on Version B</h2>
+  <div class="grid">
+    <a class="card" href="v6-compare.html" style="border-color:rgba(77,124,255,.4)">
+      <div class="tagrow"><span class="v">v6</span><span class="new">Start here</span></div>
+      <h3>Simple vs Developer</h3>
+      <p>Side by side, live. LlamaChat asks once at startup whether you're a developer; that one
+      setting decides whether models, context, tokens/sec, system load and the Code workspace exist
+      at all. Changeable any time in Settings.</p>
+      <span class="k"><b>Includes:</b> the startup question + the full diff</span>
+    </a>
+    <a class="card" href="v6.html">
+      <div class="tagrow"><span class="v">v6</span></div>
+      <h3>The app itself</h3>
+      <p>Version B's layout with the persona split wired in. Use the preview bar at the top to flip
+      between Simple and Developer, empty state and mid-conversation.</p>
+      <span class="k"><b>Real brand mark</b> from the llamachat-brand kit</span>
+    </a>
+    <a class="card" href="v6.html?screen=setup">
+      <div class="tagrow"><span class="v">v6</span></div>
+      <h3>Startup question</h3>
+      <p>The one-time setup screen. "Just use it" or "I'm a developer", with each option spelling out
+      exactly what you get and what stays hidden.</p>
+      <span class="k"><b>Default:</b> Just use it</span>
+    </a>
+  </div>
+
+  <h2>Earlier round — the three structural options</h2>
+  <div class="grid">
+    <a class="card" href="v5-a-rail.html">
+      <div class="tagrow"><span class="v">A</span></div>
+      <h3>Rail</h3>
+      <p>An icon rail down the far left is the switcher. The sidebar next to it swaps contents per
+      mode. Reads like a proper desktop app; the mode is always visible without hunting.</p>
+      <span class="k"><b>Switcher:</b> left icon rail</span>
+    </a>
+    <a class="card" href="v5-b-segmented.html">
+      <div class="tagrow"><span class="v">B</span><span class="new">Picked</span></div>
+      <h3>Segmented — chosen</h3>
+      <p>Closest to your screenshots. One segmented control lives inside the composer and the sidebar
+      has no toggle at all. Chat centres the greeting; Code docks the composer to the bottom.</p>
+      <span class="k"><b>Switcher:</b> inside the composer</span>
+    </a>
+    <a class="card" href="v5-c-statusbar.html">
+      <div class="tagrow"><span class="v">C</span></div>
+      <h3>Command bar</h3>
+      <p>Keyboard-first. Mode lives in the top bar with ⌘1/⌘2/⌘3, ⌘K opens a palette, no sidebar at
+      all. A permanent status bar keeps CPU, RAM, GPU, VRAM and context on screen in every mode.</p>
+      <span class="k"><b>Switcher:</b> top bar + ⌘K</span>
+    </a>
+  </div>
+
+  <h2>What all three do differently from last time</h2>
+  <ul>
+    <li><b>One switcher</b>, never two.</li>
+    <li><b>Zero emoji</b> — single-weight line glyphs everywhere, including the tier badges.</li>
+    <li><b>Code shows no source code.</b> It is a GUI over <code>llama-cli</code>: load lines, layer
+      offload, KV cache, tok/s, sampler values, and file work rendered as one-line actions.</li>
+    <li><b>Context window</b> is a ring next to the composer (A, B) or in the status bar (C).</li>
+    <li><b>CPU / RAM / GPU / VRAM</b> as thin flat meters — no gauges, no glow.</li>
+    <li><b>The library</b> is reachable from Code, with your real tiers (Quick / Smart / Best) and
+      real hardware ratings (Blazing → Won't run).</li>
+    <li><b>Tool mode</b> is called out in the Code composer so it's obvious the model has tools.</li>
+    <li><b>"Good evening, Vlad."</b> kept, since that was the one thing you liked.</li>
+    <li>LlamaChat's own palette (<code>#0d0d12</code> / <code>#4d7cff</code>), not Claude's warm
+      charcoal and orange. No gradients, no glass, no neon.</li>
+  </ul>
+
+  <h2>Reference screenshots you sent</h2>
+  <div class="old" style="margin-bottom:34px">
+    <a href="ref1-chat.png">ref1-chat.png</a>
+    <a href="ref2-cowork.png">ref2-cowork.png</a>
+    <a href="ref3-code.png">ref3-code.png</a>
+  </div>
+
+  <h2>Earlier round (DeepSeek)</h2>
+  <div class="old">
+    <a href="var-a-faithful.html">var-a-faithful</a>
+    <a href="var-b-minimal.html">var-b-minimal</a>
+    <a href="var-c-power.html">var-c-power</a>
+    <a href="v4-clean.html">v4-clean</a>
+    <a href="v3-claude-inspired.html">v3-claude-inspired</a>
+    <a href="v2-chat-cowork-code.html">v2-chat-cowork-code</a>
+    <a href="command-center.html">command-center</a>
+    <a href="studio.html">studio</a>
+    <a href="minimal.html">minimal</a>
+    <a href="hud.html">hud</a>
+  </div>
+</div>
+</body>
+</html>

@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LlamaChat — Variant B: Focused Minimal</title>
+<style>
+  :root {
+    --bg: #141418; --surface: #1a1a20;
+    --border: rgba(255,255,255,0.06);
+    --text: #eeeef2; --text2: #9e9ead; --text3: #636374;
+    --accent: #4d7cff; --accent-dim: rgba(77,124,255,0.10);
+    --green:#3fb950; --yellow:#d29922; --cyan:#00d4ff;
+    --font: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', system-ui, sans-serif;
+    --serif: 'Georgia', 'Times New Roman', serif;
+    --mono: 'SF Mono', 'JetBrains Mono', 'Cascadia Code', monospace;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:var(--bg); color:var(--text); font-family:var(--font); font-size:14px; height:100vh; overflow:hidden; display:flex; flex-direction:column; -webkit-font-smoothing:antialiased; }
+  ::selection { background:rgba(77,124,255,0.3); }
+  ::-webkit-scrollbar { width:4px; } ::-webkit-scrollbar-thumb { background:rgba(255,255,255,0.06); border-radius:2px; }
+
+  /* TOP BAR — everything lives here */
+  .topbar {
+    height:42px; flex-shrink:0; display:flex; align-items:center; padding:0 14px; gap:12px;
+    border-bottom:1px solid var(--border);
+  }
+  .win { display:flex; gap:5px; }
+  .win-d { width:10px; height:10px; border-radius:50%; }
+  .win-d.r{background:#ff5f56} .win-d.y{background:#ffbd2e} .win-d.g{background:#27c93f}
+  .mode-switch {
+    display:flex; background:rgba(255,255,255,0.03); border-radius:8px; padding:2px; margin:0 auto;
+  }
+  .ms-btn {
+    padding:5px 18px; border-radius:6px; font-size:12px; font-weight:500; color:var(--text3);
+    cursor:pointer; border:none; background:none; font-family:var(--font); transition:all .15s;
+    display:flex; align-items:center; gap:6px;
+  }
+  .ms-btn:hover { color:var(--text2); }
+  .ms-btn.active { background:var(--accent-dim); color:var(--accent); }
+  .ms-btn svg { width:13px; height:13px; opacity:0.5; }
+  .ms-btn.active svg { opacity:1; }
+  .tb-meta { display:flex; gap:8px; align-items:center; }
+  .tb-pill { font-size:10px; color:var(--text2); padding:2px 8px; border-radius:4px; font-family:var(--mono); cursor:pointer; }
+  .tb-pill:hover { background:rgba(255,255,255,0.04); }
+
+  /* VIEWS — full height below topbar */
+  .view { flex:1; overflow-y:auto; display:none; flex-direction:column; }
+  .view.active { display:flex; }
+
+  /* CHAT — centered, maximum whitespace */
+  .chat-center { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:40px 24px; }
+  .chat-greet { font-family:var(--serif); font-size:36px; font-weight:400; color:var(--text); text-align:center; line-height:1.3; letter-spacing:-0.02em; margin-bottom:4px; }
+  .chat-sub { font-size:14px; color:var(--text2); text-align:center; }
+
+  .inp-area { flex-shrink:0; width:100%; max-width:640px; padding:0 24px 28px; margin:0 auto; }
+  .inp-bar { display:flex; align-items:flex-end; gap:10px; background:var(--surface); border:1px solid var(--border); border-radius:20px; padding:8px 8px 8px 18px; transition:border-color .2s, box-shadow .2s; }
+  .inp-bar:focus-within { border-color:rgba(77,124,255,0.3); box-shadow:0 0 0 3px rgba(77,124,255,0.06); }
+  .inp-bar textarea { flex:1; background:none; border:none; color:var(--text); font-family:var(--font); font-size:14px; resize:none; padding:5px 0; outline:none; line-height:1.5; max-height:140px; }
+  .inp-bar textarea::placeholder { color:var(--text3); }
+  .inp-send { width:36px; height:36px; border-radius:50%; background:var(--accent); color:#fff; border:none; flex-shrink:0; display:flex; align-items:center; justify-content:center; cursor:pointer; transition:opacity .15s, transform .15s; }
+  .inp-send:hover { opacity:0.9; transform:scale(1.05); }
+  .inp-send svg { width:16px; height:16px; }
+  .inp-hint { text-align:center; font-size:10px; color:var(--text3); margin-top:8px; }
+  .inp-hint kbd { background:rgba(255,255,255,0.04); border:1px solid var(--border); border-radius:3px; padding:1px 5px; font-family:var(--mono); font-size:10px; }
+
+  /* SIDEBAR — hidden by default, slides in */
+  .sidebar-overlay {
+    position:fixed; top:42px; left:0; bottom:0; width:240px; background:var(--surface);
+    border-right:1px solid var(--border); display:flex; flex-direction:column; padding:12px;
+    transform:translateX(-100%); transition:transform .2s ease; z-index:10;
+  }
+  .sidebar-overlay.open { transform:translateX(0); }
+  .sb-search { padding:7px 10px; background:rgba(255,255,255,0.03); border:1px solid var(--border); border-radius:8px; display:flex; gap:8px; align-items:center; margin-bottom:12px; }
+  .sb-search input { background:none; border:none; color:var(--text); font-size:12px; outline:none; width:100%; }
+  .sb-search input::placeholder{color:var(--text3)}
+  .sb-item { display:flex; align-items:center; gap:8px; padding:6px 8px; border-radius:6px; font-size:12px; color:var(--text2); cursor:pointer; transition:all .12s; margin-bottom:2px; }
+  .sb-item:hover { background:rgba(255,255,255,0.03); color:var(--text); }
+  .sb-item svg { width:13px; height:13px; opacity:0.4; flex-shrink:0; }
+  .sb-new { margin-bottom:10px; padding:7px; border-radius:6px; border:1px solid var(--border); color:var(--text); font-size:12px; cursor:pointer; text-align:center; transition:all .15s; }
+  .sb-new:hover { border-color:var(--border-strong); }
+  .hw-mini { margin-top:auto; padding:8px 0; border-top:1px solid var(--border); display:flex; gap:10px; font-family:var(--mono); font-size:9px; color:var(--text3); }
+  .hw-dot { width:5px; height:5px; border-radius:50%; }
+  .hw-dot.c{background:var(--accent)} .hw-dot.r{background:var(--cyan)} .hw-dot.g{background:var(--green)}
+
+  /* COWORK */
+  .cw-content { flex:1; overflow-y:auto; padding:24px; }
+  .cw-task { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:14px 16px; max-width:680px; margin:0 auto 12px; }
+  .cw-head { display:flex; align-items:center; gap:8px; margin-bottom:8px; font-weight:600; }
+  .cw-badge { font-size:10px; padding:2px 7px; border-radius:4px; font-weight:500; margin-left:auto; font-family:var(--mono); }
+  .cw-badge.done { color:var(--green); background:rgba(63,185,80,0.1); }
+  .cw-badge.run { color:var(--accent); background:var(--accent-dim); }
+  .cw-tool { border-left:2px solid rgba(77,124,255,0.12); padding:6px 12px; margin-bottom:6px; }
+  .cw-tool.done { border-left-color:var(--green); }
+  .cw-tool-head { display:flex; align-items:center; gap:8px; margin-bottom:3px; font-size:13px; }
+  .cw-tool-name { font-family:var(--mono); font-size:11px; font-weight:600; color:var(--accent); }
+  .cw-tool.done .cw-tool-name { color:var(--green); }
+  .cw-tool-path { font-family:var(--mono); font-size:11px; color:var(--text3); }
+  .cw-tool-out { font-family:var(--mono); font-size:11px; background:rgba(0,0,0,0.2); border-radius:4px; padding:5px 8px; margin-top:2px; color:var(--text2); line-height:1.5; max-height:80px; overflow-y:auto; }
+  .cw-perms { display:flex; gap:4px; margin-left:8px; }
+  .cw-perm { font-size:9px; padding:2px 8px; border-radius:4px; border:1px solid var(--border); background:none; color:var(--text3); cursor:pointer; font-family:var(--mono); }
+  .cw-perm.active { border-color:rgba(0,212,255,0.25); color:var(--cyan); background:rgba(0,212,255,0.06); }
+
+  /* CODE */
+  .code-layout { flex:1; display:none; }
+  .code-layout.active { display:flex; }
+  .code-files { width:180px; flex-shrink:0; border-right:1px solid var(--border); padding:12px 8px; overflow-y:auto; }
+  .cf { display:flex; align-items:center; gap:5px; padding:3px 8px; border-radius:4px; font-size:12px; font-family:var(--mono); color:var(--text2); cursor:pointer; margin-bottom:1px; }
+  .cf:hover { background:rgba(255,255,255,0.03); }
+  .cf svg { width:12px; height:12px; opacity:0.4; flex-shrink:0; }
+  .cf-i { font-size:10px; margin-left:auto; }
+  .cf-i.m{color:var(--yellow)} .cf-i.a{color:var(--green)}
+  .code-main { flex:1; display:flex; flex-direction:column; }
+  .ctx { display:flex; align-items:center; gap:8px; padding:6px 14px; border-bottom:1px solid var(--border); }
+  .ctx-label { font-size:9px; color:var(--text3); font-family:var(--mono); text-transform:uppercase; }
+  .ctx-track { flex:1; height:3px; background:rgba(255,255,255,0.04); border-radius:2px; overflow:hidden; }
+  .ctx-fill { height:100%; border-radius:2px; background:linear-gradient(90deg, var(--green), var(--yellow) 65%, var(--red)); width:68%; }
+  .ctx-val { font-size:9px; color:var(--text2); font-family:var(--mono); }
+  .code-body { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:40px; }
+  .code-stats { display:flex; gap:24px; margin-bottom:16px; }
+  .code-stat { text-align:center; }
+  .code-stat-n { font-family:var(--mono); font-size:32px; color:var(--text); font-weight:300; }
+  .code-stat-l { font-size:10px; color:var(--text3); text-transform:uppercase; margin-top:2px; }
+  .code-desc { font-size:13px; color:var(--text2); text-align:center; max-width:420px; line-height:1.6; }
+  .code-inp { padding:8px 14px; border-top:1px solid var(--border); }
+  .code-inp-inner { display:flex; gap:8px; max-width:680px; margin:0 auto; }
+  .code-inp-inner textarea { flex:1; background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:8px 12px; color:var(--text); font-family:var(--font); font-size:13px; resize:none; outline:none; min-height:40px; }
+  .code-inp-inner textarea:focus { border-color:rgba(77,124,255,0.25); }
+  .code-inp-inner button { background:var(--accent); color:#fff; border:none; border-radius:8px; padding:8px 14px; font-size:12px; font-weight:500; cursor:pointer; }
+
+  .hamburger { width:28px; height:28px; display:flex; align-items:center; justify-content:center; border-radius:5px; color:var(--text3); cursor:pointer; border:none; background:none; }
+  .hamburger:hover { background:rgba(255,255,255,0.05); color:var(--text2); }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="win"><div class="win-d r"></div><div class="win-d y"></div><div class="win-d g"></div></div>
+  <div class="hamburger" onclick="document.querySelector('.sidebar-overlay').classList.toggle('open')" title="Conversations">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 3h12M2 8h12M2 13h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+  </div>
+
+  <div class="mode-switch">
+    <button class="ms-btn active" onclick="setMode('chat')"><svg viewBox="0 0 16 16" fill="none"><path d="M2 3h12v9a1 1 0 01-1 1H5l-3 3V4a1 1 0 011-1z" stroke="currentColor" stroke-width="1.3"/></svg>Chat</button>
+    <button class="ms-btn" onclick="setMode('cowork')"><svg viewBox="0 0 16 16" fill="none"><rect x="3" y="2" width="10" height="7" rx="1" stroke="currentColor" stroke-width="1.2"/><rect x="6" y="11" width="4" height="3" rx="1" stroke="currentColor" stroke-width="1.1"/></svg>Cowork</button>
+    <button class="ms-btn" onclick="setMode('code')"><svg viewBox="0 0 16 16" fill="none"><path d="M5 5l-3 3 3 3M11 5l3 3-3 3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>Code</button>
+  </div>
+
+  <div class="tb-meta"><div class="tb-pill">llama3.2:3b ▾</div></div>
+</div>
+
+<!-- Hidden sidebar overlay -->
+<div class="sidebar-overlay">
+  <div class="sb-search"><svg width="13" height="13" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="4" stroke="currentColor" opacity="0.3" stroke-width="1.5"/><path d="M10 10l4 4" stroke="currentColor" opacity="0.3" stroke-width="1.5"/></svg><input placeholder="Search..."></div>
+  <div class="sb-new">+ New conversation</div>
+  <div class="sb-item" style="color:var(--text)"><svg viewBox="0 0 16 16" fill="none"><path d="M2 3h12v9a1 1 0 01-1 1H5l-3 3V4a1 1 0 011-1z" stroke="currentColor" stroke-width="1.3"/></svg>Rust CLI watcher</div>
+  <div class="sb-item"><svg viewBox="0 0 16 16" fill="none"><path d="M2 3h12v9a1 1 0 01-1 1H5l-3 3V4a1 1 0 011-1z" stroke="currentColor" stroke-width="1.3"/></svg>Auth middleware</div>
+  <div class="sb-item"><svg viewBox="0 0 16 16" fill="none"><path d="M2 3h12v9a1 1 0 01-1 1H5l-3 3V4a1 1 0 011-1z" stroke="currentColor" stroke-width="1.3"/></svg>Postify deployment</div>
+  <div class="sb-item"><svg viewBox="0 0 16 16" fill="none"><path d="M2 3h12v9a1 1 0 01-1 1H5l-3 3V4a1 1 0 011-1z" stroke="currentColor" stroke-width="1.3"/></svg>SiteCraft redesign</div>
+  <div class="hw-mini"><span><span class="hw-dot c"></span>CPU 42%</span><span><span class="hw-dot r"></span>33/64G</span><span><span class="hw-dot g"></span>RTX4090</span></div>
+</div>
+
+<!-- CHAT -->
+<div class="view active" id="chatView">
+  <div class="chat-center">
+    <div class="chat-greet">Good evening, Vlad.</div>
+    <div class="chat-sub">How can LlamaChat help you tonight?</div>
+  </div>
+  <div class="inp-area">
+    <div class="inp-bar">
+      <textarea placeholder="Message LlamaChat..." rows="1"></textarea>
+      <button class="inp-send"><svg viewBox="0 0 16 16" fill="none"><path d="M5 12l6-4-6-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    </div>
+    <div class="inp-hint"><kbd>/</kbd> for commands &nbsp;·&nbsp; <kbd>⌘K</kbd> quick actions &nbsp;·&nbsp; llama3.2:3b</div>
+  </div>
+</div>
+
+<!-- COWORK -->
+<div class="view" id="coworkView">
+  <div style="max-width:680px; margin:0 auto; padding:24px 24px 0">
+    <h2 style="font-family:var(--serif);font-size:22px;font-weight:400;margin-bottom:6px">What can LlamaChat do for you?</h2>
+    <p style="font-size:13px;color:var(--text2);line-height:1.5;margin-bottom:16px">The agent has access to your shell, files, browser, and web search.</p>
+  </div>
+  <div class="cw-content">
+    <div class="cw-task">
+      <div class="cw-head">Set up the Rust watcher project <span class="cw-badge done">Done</span></div>
+      <div class="cw-tool done"><div class="cw-tool-head"><span class="cw-tool-name">read</span> <span class="cw-tool-path">Cargo.toml</span></div><div class="cw-tool-out">[package]<br>name = "rust-watcher"<br>version = "0.1.0"<br>[dependencies]<br>notify = "6.1"</div></div>
+      <div class="cw-tool done"><div class="cw-tool-head"><span class="cw-tool-name">shell</span> <span class="cw-tool-path">cargo build</span></div><div class="cw-tool-out">Compiling rust-watcher v0.1.0<br>Finished in 1.2s</div></div>
+    </div>
+    <div class="cw-task">
+      <div class="cw-head">Add watch.yaml config <span class="cw-badge run">Running</span></div>
+      <div class="cw-tool done"><div class="cw-tool-head"><span class="cw-tool-name">web_search</span> <span class="cw-tool-path">notify debounce best practices</span></div></div>
+      <div class="cw-tool"><div class="cw-tool-head"><span class="cw-tool-name">write</span> <span class="cw-tool-path">watch.yaml</span></div><div class="cw-tool-out" style="color:var(--text3)">Writing...</div></div>
+    </div>
+  </div>
+  <div class="inp-area">
+    <div class="inp-bar" style="border-color:rgba(0,212,255,0.12);">
+      <textarea placeholder="Describe a task for the agent..." rows="1"></textarea>
+      <button class="inp-send" style="background:var(--cyan)"><svg viewBox="0 0 16 16" fill="none"><path d="M1 8h14M11 3l4 5-4 5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+    </div>
+    <div style="display:flex;gap:4px;justify-content:center;margin-top:8px">
+      <div class="cw-perm">Plan</div><div class="cw-perm active">Ask</div><div class="cw-perm">Auto</div><div class="cw-perm">Bypass</div>
+    </div>
+  </div>
+</div>
+
+<!-- CODE -->
+<div class="code-layout" id="codeView">
+  <div class="code-files">
+    <div class="cf"><svg viewBox="0 0 16 16" fill="none"><path d="M2 3h4l2 2h6a1 1 0 011 1v5a1 1 0 01-1 1H2a1 1 0 01-1-1V4a1 1 0 011-1z" stroke="currentColor" stroke-width="1.2"/></svg>src/</div>
+    <div class="cf" style="padding-left:18px"><svg viewBox="0 0 16 16" fill="none"><path d="M4 2h5l3 3v8a1 1 0 01-1 1H4a1 1 0 01-1-1V3a1 1 0 011-1z" stroke="currentColor" stroke-width="1.2"/></svg>main.rs<span class="cf-i m">M</span></div>
+    <div class="cf" style="padding-left:18px"><svg viewBox="0 0 16 16" fill="none"><path d="M4 2h5l3 3v8a1 1 0 01-1 1H4a1 1 0 01-1-1V3a1 1 0 011-1z" stroke="currentColor" stroke-width="1.2"/></svg>config.rs<span class="cf-i m">M</span></div>
+    <div class="cf"><svg viewBox="0 0 16 16" fill="none"><path d="M4 2h5l3 3v8a1 1 0 01-1 1H4a1 1 0 01-1-1V3a1 1 0 011-1z" stroke="currentColor" stroke-width="1.2"/></svg>Cargo.toml<span class="cf-i m">M</span></div>
+    <div class="cf"><svg viewBox="0 0 16 16" fill="none"><path d="M4 2h5l3 3v8a1 1 0 01-1 1H4a1 1 0 01-1-1V3a1 1 0 011-1z" stroke="currentColor" stroke-width="1.2"/></svg>watch.yaml<span class="cf-i a">+</span></div>
+    <div class="cf"><svg viewBox="0 0 16 16" fill="none"><path d="M4 2h5l3 3v8a1 1 0 01-1 1H4a1 1 0 01-1-1V3a1 1 0 011-1z" stroke="currentColor" stroke-width="1.2"/></svg>README.md</div>
+  </div>
+  <div class="code-main">
+    <div class="ctx"><span class="ctx-label">Context window</span><div class="ctx-track"><div class="ctx-fill"></div></div><span class="ctx-val">8,192 / 12,000</span></div>
+    <div class="code-body">
+      <div class="code-stats"><div class="code-stat"><div class="code-stat-n">7</div><div class="code-stat-l">Files</div></div><div class="code-stat"><div class="code-stat-n">3</div><div class="code-stat-l">Modified</div></div><div class="code-stat"><div class="code-stat-n">1</div><div class="code-stat-l">New</div></div><div class="code-stat"><div class="code-stat-n">247</div><div class="code-stat-l">Lines</div></div></div>
+      <div class="code-desc">Select files to load into context. LlamaChat sees your project structure and can reason about the full codebase.</div>
+    </div>
+    <div class="code-inp"><div class="code-inp-inner"><textarea placeholder="Ask about this codebase..." rows="1"></textarea><button>Send</button></div></div>
+  </div>
+</div>
+
+<script>
+function setMode(m) {
+  document.querySelectorAll('.ms-btn').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.ms-btn').forEach(b=>{if(b.textContent.trim().toLowerCase().includes(m))b.classList.add('active')});
+  document.getElementById('chatView').classList.toggle('active',m==='chat');
+  document.getElementById('coworkView').classList.toggle('active',m==='cowork');
+  const cv=document.getElementById('codeView');
+  cv.style.display=m==='code'?'flex':'none';
+  cv.classList.toggle('active',m==='code');
+}
+</script>
+</body>
+</html>

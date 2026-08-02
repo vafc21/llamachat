@@ -1,0 +1,501 @@
+<!doctype html>
+<html lang="en" data-mode="chat">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LlamaChat — Version A · Rail</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0d0d12; --surface:#111118; --surface2:#16161f; --sidebar:#0b0b10; --rail:#08080c;
+  --border:rgba(255,255,255,.06); --border2:rgba(255,255,255,.10);
+  --text:#e1e1e6; --text2:#8b8b9e; --text3:#5c5c6e;
+  --accent:#4d7cff; --warn:#d29922; --ok:#3fb950; --err:#f85149;
+  --r:9px;
+  --sans:'Inter',-apple-system,system-ui,sans-serif;
+  --serif:'Newsreader',Georgia,serif;
+  --mono:'JetBrains Mono','SF Mono',ui-monospace,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{background:#000;font-family:var(--sans);font-size:13.5px;color:var(--text);
+  -webkit-font-smoothing:antialiased;display:flex;align-items:center;justify-content:center;padding:22px}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+
+.app{width:100%;max-width:1320px;height:calc(100vh - 44px);min-height:660px;background:var(--bg);
+  border:1px solid var(--border2);border-radius:11px;overflow:hidden;display:flex;flex-direction:column}
+
+/* ── title bar ─────────────────────────── */
+.tb{height:37px;flex:none;display:flex;align-items:center;gap:3px;padding:0 9px;
+  border-bottom:1px solid var(--border);background:var(--bg)}
+.tb button{padding:5px;border-radius:6px;color:var(--text3)}
+.tb button:hover{background:var(--surface2);color:var(--text2)}
+.tb .sp{flex:1}
+.tb .wc{display:flex;gap:1px}
+.tb .wc button:hover{background:var(--surface2)}
+.tb .wc .x:hover{background:#c0362c;color:#fff}
+
+.body{flex:1;display:flex;min-height:0}
+
+/* ── rail = THE single mode switcher ───── */
+.rail{width:70px;flex:none;background:var(--rail);border-right:1px solid var(--border);
+  display:flex;flex-direction:column;align-items:center;padding:12px 0 10px}
+.mark{width:28px;height:28px;border-radius:7px;background:var(--text);color:var(--rail);
+  display:grid;place-items:center;margin-bottom:16px}
+.mark svg{width:19px;height:19px;stroke:none;fill:currentColor}
+.modes{display:flex;flex-direction:column;gap:4px;width:100%;align-items:center}
+.mode{width:54px;padding:9px 0 7px;border-radius:9px;display:flex;flex-direction:column;
+  align-items:center;gap:5px;color:var(--text3);transition:background .12s,color .12s}
+.mode span{font-size:10px;letter-spacing:.01em}
+.mode:hover{color:var(--text2);background:rgba(255,255,255,.03)}
+.mode.on{color:var(--text);background:var(--surface2)}
+.mode.on svg{color:var(--accent)}
+.rail .sp{flex:1}
+.rail .util{display:flex;flex-direction:column;gap:2px;align-items:center;
+  padding-top:10px;border-top:1px solid var(--border);width:42px}
+.rail .util button{padding:8px;border-radius:8px;color:var(--text3)}
+.rail .util button:hover{background:var(--surface2);color:var(--text2)}
+.av{width:26px;height:26px;border-radius:50%;background:var(--surface2);border:1px solid var(--border2);
+  display:grid;place-items:center;font-size:10px;font-weight:600;color:var(--text2);margin-top:6px}
+
+/* ── sidebar ───────────────────────────── */
+.side{width:252px;flex:none;background:var(--sidebar);border-right:1px solid var(--border);
+  display:flex;flex-direction:column;padding:12px 10px 10px}
+.newbtn{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;
+  background:var(--surface2);border:1px solid var(--border);font-weight:500;font-size:13px;margin-bottom:14px}
+.newbtn:hover{border-color:var(--border2)}
+.shead{font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--text3);padding:0 8px;margin:14px 0 6px;display:flex;align-items:center;justify-content:space-between}
+.shead:first-of-type{margin-top:0}
+.slist{display:flex;flex-direction:column;gap:1px;overflow-y:auto;min-height:0}
+.sitem{display:flex;align-items:center;gap:8px;padding:6.5px 8px;border-radius:7px;
+  color:var(--text2);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:100%;text-align:left}
+.sitem svg{width:14px;height:14px;color:var(--text3)}
+.sitem:hover{background:rgba(255,255,255,.035);color:var(--text)}
+.sitem.on{background:var(--surface2);color:var(--text)}
+.sitem b{font-weight:400;overflow:hidden;text-overflow:ellipsis}
+.side .sp{flex:1}
+.viewall{font-size:12px;color:var(--text3);padding:7px 8px;text-align:left}
+.viewall:hover{color:var(--text2)}
+
+/* ── main ──────────────────────────────── */
+.main{flex:1;min-width:0;display:flex;flex-direction:column;position:relative}
+.pane{flex:1;display:none;flex-direction:column;min-height:0}
+[data-mode=chat]   .pane[data-m=chat],
+[data-mode=cowork] .pane[data-m=cowork],
+[data-mode=code]   .pane[data-m=code]{display:flex}
+[data-mode=chat]   .side [data-m]:not([data-m~=chat]),
+[data-mode=cowork] .side [data-m]:not([data-m~=cowork]),
+[data-mode=code]   .side [data-m]:not([data-m~=code]){display:none}
+
+.center{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0 28px}
+.greet{font-family:var(--serif);font-size:33px;font-weight:400;letter-spacing:-.01em;
+  display:flex;align-items:center;gap:13px;margin-bottom:26px;color:#f0f0f3}
+.greet i{width:9px;height:9px;border-radius:50%;background:var(--accent);display:block;flex:none}
+
+/* composer */
+.comp{width:100%;max-width:688px;background:var(--surface);border:1px solid var(--border2);
+  border-radius:14px;padding:14px 14px 10px}
+.comp .ph{color:var(--text3);font-size:14px;padding:2px 2px 16px;min-height:26px}
+.crow{display:flex;align-items:center;gap:8px}
+.crow .sp{flex:1}
+.icb{padding:6px;border-radius:7px;color:var(--text3)}
+.icb:hover{background:var(--surface2);color:var(--text2)}
+.modelpick{display:flex;align-items:center;gap:6px;padding:5px 8px;border-radius:7px;color:var(--text2);font-size:12.5px}
+.modelpick:hover{background:var(--surface2)}
+.modelpick b{font-weight:500;color:var(--text)}
+.modelpick em{font-style:normal;color:var(--text3)}
+.sendb{width:29px;height:29px;border-radius:8px;background:var(--surface2);border:1px solid var(--border);
+  display:grid;place-items:center;color:var(--text2)}
+.sendb:hover{border-color:var(--border2);color:var(--text)}
+.hint{max-width:688px;width:100%;font-size:11.5px;color:var(--text3);margin-top:11px;text-align:center}
+
+/* cowork extras */
+.crow2{display:flex;align-items:center;gap:7px;margin-top:11px;padding-top:11px;border-top:1px solid var(--border)}
+.chip{display:flex;align-items:center;gap:6px;padding:5px 9px;border-radius:7px;border:1px solid var(--border);
+  background:var(--surface2);font-size:12px;color:var(--text2)}
+.chip svg{width:13px;height:13px;color:var(--text3)}
+.chip:hover{border-color:var(--border2)}
+.chip.warn{color:var(--warn);border-color:rgba(210,153,34,.28);background:rgba(210,153,34,.07)}
+.chip.warn svg{color:var(--warn)}
+
+.active{width:100%;max-width:688px;margin:30px auto 0;padding:0 0 28px}
+.ahead{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px}
+.ahead h3{font-size:12.5px;font-weight:600;color:var(--text2)}
+.ahead button{font-size:12px;color:var(--text3)}
+.ahead button:hover{color:var(--text2)}
+.arow{display:flex;align-items:center;gap:12px;padding:12px 2px;border-bottom:1px solid var(--border)}
+.arow .dot{width:6px;height:6px;border-radius:50%;flex:none}
+.arow .tx{flex:1;min-width:0}
+.arow .tx b{display:block;font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.arow .tx span{font-size:11.5px;color:var(--text3)}
+.arow .meta{font-size:11.5px;color:var(--text3);font-family:var(--mono)}
+
+/* ── code mode ─────────────────────────── */
+.codetop{flex:1;overflow-y:auto;padding:22px 26px 8px;min-height:0}
+.chead{display:flex;align-items:baseline;gap:11px;margin-bottom:18px}
+.chead h1{font-size:20px;font-weight:600;letter-spacing:-.01em}
+.chead span{font-size:12px;color:var(--text3)}
+
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);margin-bottom:14px}
+.cardh{display:flex;align-items:center;gap:9px;padding:11px 14px;border-bottom:1px solid var(--border)}
+.cardh h2{font-size:12.5px;font-weight:600;letter-spacing:.01em;flex:1}
+.cardh svg{width:15px;height:15px;color:var(--text3)}
+.cardh .tag{font-family:var(--mono);font-size:11px;color:var(--text3)}
+
+/* runtime grid */
+.rt{display:grid;grid-template-columns:1.35fr 1fr;gap:0}
+.rt>div{padding:14px}
+.rt>div+div{border-left:1px solid var(--border)}
+.kv{display:flex;justify-content:space-between;gap:14px;padding:5px 0;font-size:12.5px}
+.kv dt{color:var(--text3)}
+.kv dd{font-family:var(--mono);font-size:12px;color:var(--text2)}
+.kv dd.hl{color:var(--text)}
+
+.mgrid{display:grid;grid-template-columns:1fr 1fr;gap:12px 18px}
+.mlab{display:flex;justify-content:space-between;font-size:11.5px;margin-bottom:5px}
+.mlab span{color:var(--text3)}
+.mlab b{font-family:var(--mono);font-size:11.5px;font-weight:400;color:var(--text2)}
+.bar{height:3px;border-radius:2px;background:rgba(255,255,255,.06);overflow:hidden}
+.bar i{display:block;height:100%;background:var(--text3);border-radius:2px}
+.bar i.a{background:var(--accent)}
+.bar i.w{background:var(--warn)}
+
+/* library */
+.lib{display:flex;flex-direction:column}
+.lrow{display:flex;align-items:center;gap:13px;padding:10px 14px;border-bottom:1px solid var(--border)}
+.lrow:last-child{border-bottom:none}
+.lrow:hover{background:rgba(255,255,255,.02)}
+.lrow .nm{flex:1;min-width:0}
+.lrow .nm b{display:block;font-size:12.5px;font-weight:500}
+.lrow .nm span{font-family:var(--mono);font-size:11px;color:var(--text3)}
+.lrow .sz{font-family:var(--mono);font-size:11.5px;color:var(--text3);width:52px;text-align:right}
+.tier.none{border-color:transparent}
+.tier{font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;
+  padding:2.5px 7px;border-radius:5px;border:1px solid var(--border2);color:var(--text3);width:64px;text-align:center}
+.tier.q{color:var(--text2)} .tier.s{color:var(--text2)} .tier.b{color:var(--accent);border-color:rgba(77,124,255,.32)}
+.rate{display:flex;align-items:center;gap:6px;width:96px;font-size:11.5px;color:var(--text2)}
+.rate i{width:5px;height:5px;border-radius:50%;flex:none}
+.rate.blazing i{background:var(--ok)} .rate.great i{background:var(--ok);opacity:.6}
+.rate.okay i{background:var(--warn)} .rate.slow i{background:var(--warn);opacity:.55}
+.rate.no i{background:var(--err)} .rate.no{color:var(--text3)}
+.lrow .act{font-size:11.5px;color:var(--text3);padding:4px 8px;border-radius:6px;border:1px solid transparent}
+.lrow .act:hover{border-color:var(--border2);color:var(--text2)}
+.lrow .act.on{color:var(--accent)}
+
+/* transcript: actions, never source */
+.log{padding:6px 0}
+.lg{display:flex;align-items:center;gap:11px;padding:7px 14px;font-size:12.5px}
+.lg svg{width:14px;height:14px;color:var(--text3)}
+.lg .p{font-family:var(--mono);font-size:11.5px;color:var(--text2);flex:1;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lg .t{font-family:var(--mono);font-size:11px;color:var(--text3)}
+.lg.ok svg{color:var(--ok)}
+.lg.run svg{color:var(--accent)}
+
+/* docked composer */
+.dock{flex:none;padding:0 26px 16px;background:var(--bg);padding-top:6px}
+.dctx{display:flex;align-items:center;gap:7px;margin-bottom:8px;flex-wrap:wrap}
+.dctx .chip{font-family:var(--mono);font-size:11.5px;padding:4px 8px}
+.dcomp{background:var(--surface);border:1px solid var(--border2);border-radius:12px;padding:12px 13px 9px}
+.dcomp .ph{color:var(--text3);font-size:13.5px;padding:1px 2px 13px}
+.ring{width:22px;height:22px;flex:none}
+.ring circle{fill:none;stroke-width:2.4}
+.ring .bgc{stroke:rgba(255,255,255,.09)}
+.ring .fgc{stroke:var(--accent);stroke-linecap:round;transform:rotate(-90deg);transform-origin:50% 50%}
+.ctxwrap{display:flex;align-items:center;gap:7px;padding:4px 7px;border-radius:7px}
+.ctxwrap:hover{background:var(--surface2)}
+.ctxwrap .n{font-family:var(--mono);font-size:11.5px;color:var(--text2)}
+.tools{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--text2);
+  padding:5px 9px;border-radius:7px;border:1px solid rgba(77,124,255,.26);background:rgba(77,124,255,.07)}
+.tools svg{width:13px;height:13px;color:var(--accent)}
+
+.foot{position:absolute;left:0;right:0;bottom:0;height:0}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-thumb{background:rgba(255,255,255,.09);border-radius:5px;border:2px solid transparent;background-clip:padding-box}
+::-webkit-scrollbar-track{background:transparent}
+.badge{position:fixed;top:6px;left:50%;transform:translateX(-50%);font-size:10.5px;letter-spacing:.09em;
+  text-transform:uppercase;color:#4a4a58;font-weight:600}
+</style>
+</head>
+<body>
+<div class="badge">Version A · Rail</div>
+
+<svg style="display:none">
+<symbol id="i-llama" viewBox="0 0 24 24"><path d="M7 3c-.6 0-1 .5-1 1.1V8c-1.7.7-3 2.4-3 4.4V19c0 1.1.9 2 2 2h2v-4h8v4h2c1.1 0 2-.9 2-2v-4.5c0-1.5-.7-2.9-1.8-3.8l-2.7-2.2V4.1C14.5 3.5 14 3 13.4 3c-.5 0-.9.3-1.1.8l-.6 1.4-.6-1.4C10.9 3.3 10.5 3 10 3H7z"/></symbol>
+<symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></symbol>
+<symbol id="i-panel" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></symbol>
+<symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></symbol>
+<symbol id="i-back" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></symbol>
+<symbol id="i-fwd" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></symbol>
+<symbol id="i-min" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+<symbol id="i-max" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="1.5"/></symbol>
+<symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+<symbol id="i-chat" viewBox="0 0 24 24"><path d="M20 15a2 2 0 0 1-2 2H8l-4 4V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2z"/></symbol>
+<symbol id="i-cowork" viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 12h18"/></symbol>
+<symbol id="i-code" viewBox="0 0 24 24"><path d="M5 5h14a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"/><path d="M8 10l2.5 2.5L8 15M13 15h3"/></symbol>
+<symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+<symbol id="i-set" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 9 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.6 9a1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/></symbol>
+<symbol id="i-msg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/></symbol>
+<symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l2.5 1.5"/></symbol>
+<symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+<symbol id="i-branch" viewBox="0 0 24 24"><circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="9" r="2"/><path d="M6 7v10M18 11c0 4-6 3-6 6"/></symbol>
+<symbol id="i-host" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></symbol>
+<symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></symbol>
+<symbol id="i-send" viewBox="0 0 24 24"><path d="M5 12h13M13 6l6 6-6 6"/></symbol>
+<symbol id="i-chev" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
+<symbol id="i-cpu" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1.5"/><path d="M10 3v3M14 3v3M10 18v3M14 18v3M3 10h3M3 14h3M18 10h3M18 14h3"/></symbol>
+<symbol id="i-box" viewBox="0 0 24 24"><path d="M21 8l-9-5-9 5v8l9 5 9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/></symbol>
+<symbol id="i-term" viewBox="0 0 24 24"><path d="M5 7l4 4-4 4M12 15h7"/></symbol>
+<symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7"/></symbol>
+<symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></symbol>
+<symbol id="i-run" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M10 9l5 3-5 3z"/></symbol>
+<symbol id="i-tool" viewBox="0 0 24 24"><path d="M14.5 6.5a4 4 0 0 0 5 5l-8 8a2.8 2.8 0 0 1-4-4z"/></symbol>
+<symbol id="i-lib" viewBox="0 0 24 24"><path d="M4 5v14M8 5v14M13 6l5 13"/><rect x="3" y="4" width="18" height="16" rx="2"/></symbol>
+<symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h10M18 18h2"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="16" cy="18" r="2"/></symbol>
+</svg>
+
+<div class="app">
+  <!-- title bar -->
+  <div class="tb">
+    <button><svg><use href="#i-menu"/></svg></button>
+    <button><svg><use href="#i-panel"/></svg></button>
+    <button><svg><use href="#i-search"/></svg></button>
+    <button><svg><use href="#i-back"/></svg></button>
+    <button><svg><use href="#i-fwd"/></svg></button>
+    <div class="sp"></div>
+    <div class="wc">
+      <button><svg><use href="#i-min"/></svg></button>
+      <button><svg><use href="#i-max"/></svg></button>
+      <button class="x"><svg><use href="#i-x"/></svg></button>
+    </div>
+  </div>
+
+  <div class="body">
+    <!-- THE single mode switcher -->
+    <nav class="rail">
+      <div class="mark"><svg><use href="#i-llama"/></svg></div>
+      <div class="modes">
+        <button class="mode on" data-go="chat"><svg><use href="#i-chat"/></svg><span>Chat</span></button>
+        <button class="mode" data-go="cowork"><svg><use href="#i-cowork"/></svg><span>Cowork</span></button>
+        <button class="mode" data-go="code"><svg><use href="#i-code"/></svg><span>Code</span></button>
+      </div>
+      <div class="sp"></div>
+      <div class="util">
+        <button><svg><use href="#i-set"/></svg></button>
+        <div class="av">VP</div>
+      </div>
+    </nav>
+
+    <!-- sidebar -->
+    <aside class="side">
+      <button class="newbtn"><svg><use href="#i-plus"/></svg> New <span style="flex:1"></span>
+        <span style="font-family:var(--mono);font-size:10.5px;color:var(--text3)">⌘N</span></button>
+
+      <div class="shead" data-m="chat cowork">Recents</div>
+      <div class="slist" data-m="chat cowork">
+        <button class="sitem on"><svg><use href="#i-msg"/></svg><b>Trig identities refresher</b></button>
+        <button class="sitem"><svg><use href="#i-msg"/></svg><b>Rewrite the FTC auton notes</b></button>
+        <button class="sitem"><svg><use href="#i-msg"/></svg><b>Why is my KV cache spilling</b></button>
+        <button class="sitem"><svg><use href="#i-msg"/></svg><b>Compare Qwen3 vs Gemma3</b></button>
+        <button class="sitem"><svg><use href="#i-msg"/></svg><b>Summarize the Pitt camp packet</b></button>
+        <button class="sitem"><svg><use href="#i-msg"/></svg><b>Dinner ideas with what's in the fridge</b></button>
+        <button class="sitem"><svg><use href="#i-msg"/></svg><b>Explain quantization to my mom</b></button>
+        <button class="sitem"><svg><use href="#i-msg"/></svg><b>Draft the GRO cover letter</b></button>
+      </div>
+      <button class="viewall" data-m="chat cowork">View all</button>
+
+      <div class="shead" data-m="code">Session</div>
+      <div class="slist" data-m="code">
+        <button class="sitem on"><svg><use href="#i-term"/></svg><b>Wire the tier picker to plan</b></button>
+        <button class="sitem"><svg><use href="#i-term"/></svg><b>Fix VRAM spill on 30B</b></button>
+        <button class="sitem"><svg><use href="#i-term"/></svg><b>Strip emoji from chrome</b></button>
+        <button class="sitem"><svg><use href="#i-term"/></svg><b>Tauri build for Windows</b></button>
+      </div>
+      <div class="shead" data-m="code">Loaded</div>
+      <div class="slist" data-m="code">
+        <button class="sitem on"><svg><use href="#i-box"/></svg><b>qwen3:30b-a3b</b></button>
+        <button class="sitem"><svg><use href="#i-box"/></svg><b>llama3.2:3b</b></button>
+        <button class="sitem"><svg><use href="#i-box"/></svg><b>deepseek-r1:8b</b></button>
+      </div>
+
+      <div class="sp"></div>
+    </aside>
+
+    <!-- main -->
+    <main class="main">
+
+      <!-- CHAT: minimal, nothing but greeting + composer -->
+      <div class="pane" data-m="chat">
+        <div class="center">
+          <div class="greet"><i></i>Good evening, Vlad.</div>
+          <div class="comp">
+            <div class="ph">Ask anything</div>
+            <div class="crow">
+              <button class="icb"><svg><use href="#i-plus"/></svg></button>
+              <div class="sp"></div>
+              <button class="modelpick"><b>Qwen3 30B</b><em>Q4_K_M</em><svg style="width:14px;height:14px"><use href="#i-chev"/></svg></button>
+              <button class="icb"><svg><use href="#i-mic"/></svg></button>
+              <button class="sendb"><svg style="width:15px;height:15px"><use href="#i-send"/></svg></button>
+            </div>
+          </div>
+          <div class="hint">Running locally · nothing leaves this machine</div>
+        </div>
+      </div>
+
+      <!-- COWORK: tools, but plain-language. no context ring, no code. -->
+      <div class="pane" data-m="cowork">
+        <div class="center" style="justify-content:flex-start;padding-top:74px;overflow-y:auto">
+          <div class="greet"><i></i>Good evening, Vlad.</div>
+          <div class="comp">
+            <div class="ph">Give me something to work on</div>
+            <div class="crow">
+              <button class="icb"><svg><use href="#i-plus"/></svg></button>
+              <div class="sp"></div>
+              <button class="modelpick"><b>Qwen3 30B</b><em>Q4_K_M</em><svg style="width:14px;height:14px"><use href="#i-chev"/></svg></button>
+              <button class="icb"><svg><use href="#i-mic"/></svg></button>
+              <button class="sendb"><svg style="width:15px;height:15px"><use href="#i-send"/></svg></button>
+            </div>
+            <div class="crow2">
+              <button class="chip"><svg><use href="#i-folder"/></svg> Documents / robotics <svg style="width:12px;height:12px"><use href="#i-chev"/></svg></button>
+              <button class="chip"><svg><use href="#i-tool"/></svg> 6 tools <svg style="width:12px;height:12px"><use href="#i-chev"/></svg></button>
+              <div class="sp"></div>
+              <button class="chip">Ask before changes <svg style="width:12px;height:12px"><use href="#i-chev"/></svg></button>
+            </div>
+          </div>
+
+          <div class="active">
+            <div class="ahead"><h3>Active</h3><button>Clear active</button></div>
+            <div class="arow"><i class="dot" style="background:var(--accent)"></i>
+              <div class="tx"><b>Sort the scanned receipts into folders</b><span>Working · 14 of 62 filed</span></div>
+              <div class="meta">now</div></div>
+            <div class="arow"><i class="dot" style="background:var(--ok)"></i>
+              <div class="tx"><b>Rename the robotics photos by match number</b><span>Finished · 218 files</span></div>
+              <div class="meta">2h</div></div>
+            <div class="arow"><i class="dot" style="background:var(--ok)"></i>
+              <div class="tx"><b>Pull every due date out of the syllabus PDFs</b><span>Finished · added to calendar</span></div>
+              <div class="meta">yesterday</div></div>
+            <div class="arow"><i class="dot" style="background:var(--warn)"></i>
+              <div class="tx"><b>Back up the vault to the NAS</b><span>Waiting for you · confirm overwrite</span></div>
+              <div class="meta">2d</div></div>
+            <button class="viewall" style="padding-left:2px">Show more</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- CODE: a GUI for llama-cli. no source code anywhere. -->
+      <div class="pane" data-m="code">
+        <div class="codetop">
+          <div class="chead"><h1>Good evening, Vlad.</h1><span>llamachat · local runtime</span></div>
+
+          <div class="card">
+            <div class="cardh"><svg><use href="#i-box"/></svg><h2>Runtime</h2>
+              <span class="tag">llama.cpp b4821 · CUDA</span></div>
+            <div class="rt">
+              <div>
+                <dl>
+                  <div class="kv"><dt>Model</dt><dd class="hl">qwen3-30b-a3b</dd></div>
+                  <div class="kv"><dt>Quantization</dt><dd>Q4_K_M · 17.3 GiB</dd></div>
+                  <div class="kv"><dt>Parameters</dt><dd>30.5 B · 3.3 B active</dd></div>
+                  <div class="kv"><dt>Layers offloaded</dt><dd>48 / 48 → GPU</dd></div>
+                  <div class="kv"><dt>Context</dt><dd>32768 tokens</dd></div>
+                  <div class="kv"><dt>KV cache</dt><dd>f16 · 3.0 GiB</dd></div>
+                  <div class="kv"><dt>Throughput</dt><dd class="hl">62.4 tok/s <span style="color:var(--text3)">· prompt 1140 tok/s</span></dd></div>
+                </dl>
+              </div>
+              <div>
+                <div class="mgrid">
+                  <div class="meter"><div class="mlab"><span>CPU</span><b>18%</b></div><div class="bar"><i style="width:18%"></i></div></div>
+                  <div class="meter"><div class="mlab"><span>RAM</span><b>21.4/64G</b></div><div class="bar"><i style="width:33%"></i></div></div>
+                  <div class="meter"><div class="mlab"><span>GPU</span><b>87%</b></div><div class="bar"><i class="a" style="width:87%"></i></div></div>
+                  <div class="meter"><div class="mlab"><span>VRAM</span><b>20.3/24G</b></div><div class="bar"><i class="w" style="width:85%"></i></div></div>
+                </div>
+                <div style="margin-top:16px;padding-top:13px;border-top:1px solid var(--border)">
+                  <div class="kv"><dt>temp</dt><dd>0.7</dd></div>
+                  <div class="kv"><dt>top-k · top-p</dt><dd>40 · 0.95</dd></div>
+                  <div class="kv"><dt>repeat penalty</dt><dd>1.1</dd></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="cardh"><svg><use href="#i-lib"/></svg><h2>Library</h2>
+              <button class="act" style="font-size:11.5px;color:var(--text3)">Manage</button></div>
+            <div class="lib">
+              <div class="lrow"><span class="tier b">Best</span>
+                <div class="nm"><b>Qwen3 30B A3B</b><span>qwen3:30b-a3b · Q4_K_M</span></div>
+                <span class="rate great"><i></i>Great</span><span class="sz">17.3G</span>
+                <button class="act on">Loaded</button></div>
+              <div class="lrow"><span class="tier s">Smart</span>
+                <div class="nm"><b>Gemma 3 12B</b><span>gemma3:12b · Q4_K_M</span></div>
+                <span class="rate blazing"><i></i>Blazing</span><span class="sz">8.1G</span>
+                <button class="act">Load</button></div>
+              <div class="lrow"><span class="tier q">Quick</span>
+                <div class="nm"><b>Llama 3.2 3B</b><span>llama3.2:3b · Q4_K_M</span></div>
+                <span class="rate blazing"><i></i>Blazing</span><span class="sz">2.0G</span>
+                <button class="act">Load</button></div>
+              <div class="lrow"><span class="tier none"></span>
+                <div class="nm"><b>DeepSeek R1 8B</b><span>deepseek-r1:8b · Q4_K_M</span></div>
+                <span class="rate great"><i></i>Great</span><span class="sz">4.9G</span>
+                <button class="act">Load</button></div>
+              <div class="lrow"><span class="tier none"></span>
+                <div class="nm"><b>Llama 3.3 70B</b><span>llama3.3:70b · Q4_K_M</span></div>
+                <span class="rate no"><i></i>Won't run</span><span class="sz">42.5G</span>
+                <button class="act" style="color:var(--text3)">—</button></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="cardh"><svg><use href="#i-term"/></svg><h2>Activity</h2>
+              <span class="tag">4 tools armed</span></div>
+            <div class="log">
+              <div class="lg ok"><svg><use href="#i-check"/></svg><span class="p">read  ui/src/components/InputBar.tsx</span><span class="t">0.2s</span></div>
+              <div class="lg ok"><svg><use href="#i-check"/></svg><span class="p">edit  ui/src/components/InputBar.tsx · 3 hunks</span><span class="t">0.4s</span></div>
+              <div class="lg ok"><svg><use href="#i-check"/></svg><span class="p">edit  ui/src/models.ts · 1 hunk</span><span class="t">0.3s</span></div>
+              <div class="lg ok"><svg><use href="#i-check"/></svg><span class="p">run   npm run lint</span><span class="t">4.1s</span></div>
+              <div class="lg run"><svg><use href="#i-run"/></svg><span class="p">run   cargo tauri build --target x86_64-pc-windows-msvc</span><span class="t">running</span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- docked composer -->
+        <div class="dock">
+          <div class="dctx">
+            <button class="chip"><svg><use href="#i-host"/></svg> local</button>
+            <button class="chip"><svg><use href="#i-folder"/></svg> llamachat</button>
+            <button class="chip"><svg><use href="#i-branch"/></svg> main</button>
+          </div>
+          <div class="dcomp">
+            <div class="ph">Describe a task — tools are on, I can read and change files here</div>
+            <div class="crow">
+              <div class="tools"><svg><use href="#i-tool"/></svg> Tool mode</div>
+              <button class="chip warn">Ask before changes <svg style="width:12px;height:12px"><use href="#i-chev"/></svg></button>
+              <div class="sp"></div>
+              <button class="modelpick"><b>Qwen3 30B</b><em>Q4_K_M</em><svg style="width:14px;height:14px"><use href="#i-chev"/></svg></button>
+              <button class="ctxwrap" title="Context window">
+                <svg class="ring" viewBox="0 0 24 24"><circle class="bgc" cx="12" cy="12" r="9"/>
+                  <circle class="fgc" cx="12" cy="12" r="9" stroke-dasharray="56.5" stroke-dashoffset="21.5"/></svg>
+                <span class="n">62%</span>
+              </button>
+              <button class="sendb"><svg style="width:15px;height:15px"><use href="#i-send"/></svg></button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<script>
+document.querySelectorAll('[data-go]').forEach(b=>b.addEventListener('click',()=>{
+  document.documentElement.dataset.mode=b.dataset.go;
+  document.querySelectorAll('.mode').forEach(m=>m.classList.toggle('on',m===b));
+}));
+</script>
+</body>
+</html>

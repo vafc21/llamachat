@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LlamaChat — Variant A: Faithful Claude</title>
+<style>
+  :root {
+    --bg: #141418; --surface: #1a1a20; --sidebar: #0f0f13;
+    --border: rgba(255,255,255,0.06); --border-strong: rgba(255,255,255,0.10);
+    --text: #eeeef2; --text2: #9e9ead; --text3: #636374;
+    --accent: #4d7cff; --accent-dim: rgba(77,124,255,0.10);
+    --green:#3fb950; --yellow:#d29922; --cyan:#00d4ff;
+    --font: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', system-ui, sans-serif;
+    --serif: 'Georgia', 'Times New Roman', serif;
+    --mono: 'SF Mono', 'JetBrains Mono', 'Cascadia Code', monospace;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:var(--bg); color:var(--text); font-family:var(--font); font-size:14px; height:100vh; overflow:hidden; display:flex; -webkit-font-smoothing:antialiased; }
+  ::selection { background:rgba(77,124,255,0.3); }
+  ::-webkit-scrollbar { width:4px; } ::-webkit-scrollbar-thumb { background:rgba(255,255,255,0.06); border-radius:2px; }
+
+  /* FAITHFUL CLAUDE SIDEBAR */
+  .sidebar {
+    width:200px; flex-shrink:0; background:var(--sidebar);
+    border-right:1px solid var(--border); display:flex; flex-direction:column;
+    padding:8px 10px; font-size:13px;
+  }
+  .sb-section { margin-bottom:16px; }
+  .sb-label { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; color:var(--text3); padding:4px 8px 6px; }
+  .sb-row { display:flex; align-items:center; gap:8px; padding:5px 8px; border-radius:6px; color:var(--text2); cursor:pointer; transition:all .12s; margin-bottom:1px; }
+  .sb-row:hover { background:rgba(255,255,255,0.03); color:var(--text); }
+  .sb-row svg { width:14px; height:14px; opacity:0.45; flex-shrink:0; }
+  .sb-badge { margin-left:auto; font-size:10px; color:var(--accent); background:var(--accent-dim); padding:0 5px; border-radius:4px; font-weight:500; }
+  .sb-new { margin:0 0 10px; padding:7px 10px; border-radius:6px; background:rgba(255,255,255,0.03); border:1px solid var(--border); color:var(--text); font-size:12px; cursor:pointer; display:flex; align-items:center; gap:6px; transition:all .15s; }
+  .sb-new:hover { border-color:var(--border-strong); }
+  .sb-recents { flex:1; overflow-y:auto; }
+  .sb-rec { font-size:12px; color:var(--text3); padding:3px 8px; border-radius:4px; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-bottom:1px; }
+  .sb-rec:hover { color:var(--text2); background:rgba(255,255,255,0.02); }
+  .sb-rec-label { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; color:var(--text3); padding:4px 8px; }
+  .sb-user { display:flex; align-items:center; gap:8px; padding:8px; margin-top:auto; border-top:1px solid var(--border); font-size:12px; color:var(--text2); }
+  .sb-avatar { width:22px; height:22px; border-radius:50%; background:var(--accent); color:#fff; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:600; flex-shrink:0; }
+  .hw-strip { display:flex; gap:10px; padding:4px 8px; font-family:var(--mono); font-size:9px; color:var(--text3); border-top:1px solid var(--border); }
+  .hw-dot { width:5px; height:5px; border-radius:50%; }
+  .hw-dot.cpu{background:var(--accent)} .hw-dot.ram{background:var(--cyan)} .hw-dot.gpu{background:var(--green)}
+
+  /* MAIN */
+  .main { flex:1; display:flex; flex-direction:column; min-width:0; }
+  .topbar { height:40px; flex-shrink:0; display:flex; align-items:center; padding:0 12px; gap:10px; border-bottom:1px solid var(--border); }
+  .win-dots { display:flex; gap:5px; }
+  .dot { width:10px; height:10px; border-radius:50%; }
+  .dot.red{background:#ff5f56} .dot.yel{background:#ffbd2e} .dot.grn{background:#27c93f}
+
+  .home-code-toggle { display:flex; background:rgba(255,255,255,0.03); border-radius:7px; padding:2px; margin:0 auto; }
+  .hc-btn { padding:4px 16px; border-radius:5px; font-size:12px; font-weight:500; color:var(--text3); cursor:pointer; border:none; background:none; font-family:var(--font); transition:all .15s; display:flex; align-items:center; gap:5px; }
+  .hc-btn:hover { color:var(--text2); }
+  .hc-btn.active { background:var(--accent-dim); color:var(--accent); }
+  .hc-btn svg { width:13px; height:13px; opacity:0.5; }
+  .hc-btn.active svg { opacity:1; }
+
+  .topbar-right { margin-left:auto; display:flex; gap:5px; }
+  .tb-btn { width:28px; height:28px; display:flex; align-items:center; justify-content:center; border-radius:5px; color:var(--text3); cursor:pointer; border:none; background:none; transition:all .12s; }
+  .tb-btn:hover { background:rgba(255,255,255,0.05); color:var(--text2); }
+  .tb-btn svg { width:14px; height:14px; }
+
+  /* VIEWS */
+  .view { flex:1; overflow-y:auto; display:none; flex-direction:column; }
+  .view.active { display:flex; }
+
+  /* CHAT */
+  .chat-greet-wrap { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:40px; }
+  .chat-greet { font-family:var(--serif); font-size:34px; font-weight:400; color:var(--text); text-align:center; line-height:1.3; letter-spacing:-0.01em; }
+  .chat-sub { font-size:14px; color:var(--text2); text-align:center; margin-top:4px; }
+
+  .inp-wrap { width:100%; max-width:680px; padding:0 24px 24px; flex-shrink:0; margin:0 auto; }
+  .inp-box { background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:10px 14px 8px; transition:border-color .2s; }
+  .inp-box:focus-within { border-color:rgba(77,124,255,0.3); }
+  .inp-box textarea { width:100%; background:none; border:none; color:var(--text); font-family:var(--font); font-size:14px; resize:none; outline:none; line-height:1.5; padding:2px 0; min-height:44px; }
+  .inp-box textarea::placeholder{color:var(--text3)}
+  .inp-actions { display:flex; align-items:center; justify-content:space-between; margin-top:4px; }
+  .inp-left, .inp-right { display:flex; gap:2px; }
+  .inp-act { width:28px; height:28px; display:flex; align-items:center; justify-content:center; border-radius:6px; color:var(--text3); cursor:pointer; border:none; background:none; transition:all .12s; }
+  .inp-act:hover { background:rgba(255,255,255,0.06); color:var(--text2); }
+  .inp-act svg { width:15px; height:15px; }
+  .inp-send { width:28px; height:28px; border-radius:6px; background:var(--accent); color:#fff; border:none; cursor:pointer; display:flex; align-items:center; justify-content:center; }
+  .inp-send:hover { opacity:0.9; }
+  .inp-send svg { width:14px; height:14px; }
+  .model-row { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+  .model-pill { font-size:10px; color:var(--text2); cursor:pointer; padding:2px 8px; border-radius:4px; transition:background .12s; font-family:var(--mono); display:flex; align-items:center; gap:3px; }
+  .model-pill:hover { background:rgba(255,255,255,0.04); }
+
+  /* COWORK */
+  .cw-task { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:14px 16px; margin:0 24px 12px; max-width:800px; }
+  .cw-task-head { display:flex; align-items:center; gap:8px; margin-bottom:8px; font-weight:600; }
+  .cw-badge { font-size:10px; padding:2px 7px; border-radius:4px; font-weight:500; margin-left:auto; font-family:var(--mono); }
+  .cw-badge.done { color:var(--green); background:rgba(63,185,80,0.1); }
+  .cw-badge.running { color:var(--accent); background:var(--accent-dim); }
+  .cw-tool { border-left:2px solid rgba(77,124,255,0.12); padding:6px 12px; margin-bottom:6px; font-size:13px; }
+  .cw-tool.done { border-left-color:var(--green); }
+  .cw-tool-head { display:flex; align-items:center; gap:8px; margin-bottom:3px; }
+  .cw-tool-name { font-family:var(--mono); font-size:11px; font-weight:600; color:var(--accent); }
+  .cw-tool.done .cw-tool-name { color:var(--green); }
+  .cw-tool-path { font-family:var(--mono); font-size:11px; color:var(--text3); }
+  .cw-tool-out { font-family:var(--mono); font-size:11px; background:rgba(0,0,0,0.2); border-radius:4px; padding:5px 8px; margin-top:2px; color:var(--text2); line-height:1.5; max-height:90px; overflow-y:auto; }
+  .cw-perms { display:flex; gap:4px; }
+  .cw-perm { font-size:9px; padding:2px 8px; border-radius:4px; border:1px solid var(--border); background:none; color:var(--text3); cursor:pointer; font-family:var(--mono); }
+  .cw-perm.active { border-color:rgba(0,212,255,0.25); color:var(--cyan); background:rgba(0,212,255,0.06); }
+
+  /* CODE */
+  .code-view { flex:1; display:none; }
+  .code-view.active { display:flex; }
+  .code-files { width:180px; flex-shrink:0; background:var(--sidebar); border-right:1px solid var(--border); padding:8px 6px; overflow-y:auto; }
+  .cf-item { display:flex; align-items:center; gap:5px; padding:3px 8px; border-radius:4px; font-size:12px; font-family:var(--mono); color:var(--text2); cursor:pointer; margin-bottom:1px; }
+  .cf-item:hover { background:rgba(255,255,255,0.03); }
+  .cf-item svg { width:12px; height:12px; opacity:0.4; flex-shrink:0; }
+  .cf-ind { font-size:10px; margin-left:auto; }
+  .cf-ind.m{color:var(--yellow)} .cf-ind.a{color:var(--green)}
+  .code-body { flex:1; display:flex; flex-direction:column; min-width:0; }
+  .ctx-bar { display:flex; align-items:center; gap:8px; padding:6px 14px; border-bottom:1px solid var(--border); flex-shrink:0; }
+  .ctx-label { font-size:9px; color:var(--text3); font-family:var(--mono); text-transform:uppercase; letter-spacing:0.05em; }
+  .ctx-track { flex:1; height:3px; background:rgba(255,255,255,0.04); border-radius:2px; overflow:hidden; }
+  .ctx-fill { height:100%; border-radius:2px; background:linear-gradient(90deg, var(--green), var(--yellow) 65%, var(--red)); width:68%; transition:width .5s; }
+  .ctx-val { font-size:9px; color:var(--text2); font-family:var(--mono); min-width:80px; text-align:right; }
+  .code-stats { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:40px; }
+  .code-stats-grid { display:flex; gap:20px; margin-bottom:16px; }
+  .code-stat { text-align:center; }
+  .code-stat-n { font-family:var(--mono); font-size:28px; color:var(--text); }
+  .code-stat-l { font-size:10px; color:var(--text3); text-transform:uppercase; margin-top:2px; }
+  .code-desc { font-size:13px; color:var(--text2); text-align:center; max-width:440px; line-height:1.6; }
+  .code-inp { padding:8px 14px; border-top:1px solid var(--border); display:flex; gap:8px; flex-shrink:0; }
+  .code-inp textarea { flex:1; background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:8px 12px; color:var(--text); font-family:var(--font); font-size:13px; resize:none; outline:none; line-height:1.5; min-height:40px; }
+  .code-inp textarea:focus { border-color:rgba(77,124,255,0.25); }
+  .code-inp button { background:var(--accent); color:#fff; border:none; border-radius:8px; padding:8px 14px; font-size:12px; font-weight:500; cursor:pointer; font-family:var(--font); white-space:nowrap; }
+</style>
+</head>
+<body>
+
+<div class="sidebar">
+  <button class="sb-new">
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+    New
+  </button>
+
+  <div class="sb-section">
+    <div class="sb-row" style="color:var(--accent);background:var(--accent-dim)">
+      <svg viewBox="0 0 16 16" fill="none"><path d="M2 3h12v9a1 1 0 01-1 1H5l-3 3V4a1 1 0 011-1z" stroke="currentColor" stroke-width="1.3"/></svg>Chat
+    </div>
+    <div class="sb-row" onclick="setMode('code')">
+      <svg viewBox="0 0 16 16" fill="none"><path d="M5 5l-3 3 3 3M11 5l3 3-3 3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>Code
+    </div>
+  </div>
+
+  <div class="sb-section">
+    <div class="sb-label">Workspace</div>
+    <div class="sb-row"><svg viewBox="0 0 16 16" fill="none"><rect x="2" y="2" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.2"/><rect x="9" y="2" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.2"/><rect x="2" y="9" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.2"/><rect x="9" y="9" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.2"/></svg>Projects</div>
+    <div class="sb-row"><svg viewBox="0 0 16 16" fill="none"><path d="M3 2h10a1 1 0 011 1v10a1 1 0 01-1 1H3a1 1 0 01-1-1V3a1 1 0 011-1z" stroke="currentColor" stroke-width="1.2"/><path d="M3 6h10" stroke="currentColor" stroke-width="1"/></svg>Artifacts</div>
+    <div class="sb-row"><svg viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="5" stroke="currentColor" stroke-width="1.2"/><path d="M8 5v3l2 2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>Scheduled<span class="sb-badge">3</span></div>
+    <div class="sb-row"><svg viewBox="0 0 16 16" fill="none"><path d="M2 4l6 4-6 4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><path d="M8 4l6 4-6 4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>Skills</div>
+    <div class="sb-row"><svg viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="2.5" stroke="currentColor" stroke-width="1.2"/><path d="M8 1v2.5M8 12.5V15M1 8h2.5M12.5 8H15M2.4 2.4l1.8 1.8M11.8 11.8l1.8 1.8M13.6 2.4l-1.8 1.8M4.2 11.8l-1.8 1.8" stroke="currentColor" stroke-width="1" stroke-linecap="round"/></svg>Settings</div>
+  </div>
+
+  <div class="sb-rec-label">Recents</div>
+  <div class="sb-recents">
+    <div class="sb-rec" style="color:var(--text)">Rust watcher</div>
+    <div class="sb-rec">Auth middleware</div>
+    <div class="sb-rec">Postify deploy</div>
+    <div class="sb-rec">DB migration</div>
+    <div class="sb-rec">SiteCraft v2</div>
+  </div>
+
+  <div class="hw-strip">
+    <span><span class="hw-dot cpu"></span> CPU 42%</span>
+    <span><span class="hw-dot ram"></span> 33/64G</span>
+    <span><span class="hw-dot gpu"></span> RTX4090</span>
+  </div>
+  <div class="sb-user"><div class="sb-avatar">V</div>Vlad · Free</div>
+</div>
+
+<div class="main">
+  <div class="topbar">
+    <div class="win-dots"><div class="dot red"></div><div class="dot yel"></div><div class="dot grn"></div></div>
+
+    <div class="home-code-toggle" id="modeTog">
+      <button class="hc-btn active" onclick="setMode('chat')">
+        <svg viewBox="0 0 16 16" fill="none"><path d="M2 3h12v9a1 1 0 01-1 1H5l-3 3V4a1 1 0 011-1z" stroke="currentColor" stroke-width="1.3"/></svg>Chat
+      </button>
+      <button class="hc-btn" onclick="setMode('cowork')">
+        <svg viewBox="0 0 16 16" fill="none"><path d="M4 2h8a1 1 0 011 1v6a1 1 0 01-1 1H4a1 1 0 01-1-1V3a1 1 0 011-1z" stroke="currentColor" stroke-width="1.2"/><rect x="6" y="11" width="4" height="3" rx="1" stroke="currentColor" stroke-width="1.1"/></svg>Cowork
+      </button>
+      <button class="hc-btn" onclick="setMode('code')">
+        <svg viewBox="0 0 16 16" fill="none"><path d="M5 5l-3 3 3 3M11 5l3 3-3 3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>Code
+      </button>
+    </div>
+
+    <div class="topbar-right">
+      <div class="tb-btn"><svg viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="4" stroke="currentColor" stroke-width="1.5"/><path d="M10 10l4 4" stroke="currentColor" stroke-width="1.5"/></svg></div>
+      <div class="tb-btn"><svg viewBox="0 0 16 16" fill="none"><path d="M8 2a3 3 0 00-3 3v2l-1 3h8l-1-3V5a3 3 0 00-3-3z" stroke="currentColor" stroke-width="1.2"/><path d="M6 13a2 2 0 004 0" stroke="currentColor" stroke-width="1.2"/></svg></div>
+    </div>
+  </div>
+
+  <!-- CHAT -->
+  <div class="view active" id="chatView">
+    <div class="chat-greet-wrap">
+      <div class="chat-greet">Good evening, Vlad.</div>
+      <div class="chat-sub">How can LlamaChat help you tonight?</div>
+    </div>
+    <div class="inp-wrap">
+      <div class="model-row">
+        <div class="model-pill">llama3.2:3b ▾</div>
+        <div class="model-pill">High ▾</div>
+      </div>
+      <div class="inp-box">
+        <textarea placeholder="How can LlamaChat help you today?" rows="2"></textarea>
+        <div class="inp-actions">
+          <div class="inp-left">
+            <div class="inp-act"><svg viewBox="0 0 16 16" fill="none"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></div>
+            <div class="inp-act"><svg viewBox="0 0 16 16" fill="none"><rect x="2" y="2" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.2"/><rect x="9" y="2" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.2"/><rect x="2" y="9" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.2"/><rect x="9" y="9" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.2"/></svg></div>
+            <div class="inp-act"><svg viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.2"/><path d="M2 8h12M8 2c1.5 2 2.5 4 2.5 6s-1 4-2.5 6M8 2c-1.5 2-2.5 4-2.5 6s1 4 2.5 6" stroke="currentColor" stroke-width="1"/></svg></div>
+          </div>
+          <div class="inp-right">
+            <div class="inp-act"><svg viewBox="0 0 16 16" fill="none"><rect x="6" y="1" width="4" height="9" rx="2" stroke="currentColor" stroke-width="1.3"/><path d="M4 7a4 4 0 008 0" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M8 12v3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></div>
+            <div class="inp-send"><svg viewBox="0 0 16 16" fill="none"><path d="M5 12l6-4-6-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- COWORK -->
+  <div class="view" id="coworkView">
+    <div style="padding:20px 24px 16px; max-width:800px">
+      <h2 style="font-family:var(--serif);font-size:22px;font-weight:400;margin-bottom:6px">What can LlamaChat do for you?</h2>
+      <p style="font-size:13px;color:var(--text2);line-height:1.5">The agent has access to your shell, files, browser, and web search. It will show you each step as it works.</p>
+    </div>
+
+    <div class="cw-task">
+      <div class="cw-task-head">Set up the Rust watcher project <span class="cw-badge done">Done</span></div>
+      <div class="cw-tool done">
+        <div class="cw-tool-head"><span class="cw-tool-name">read</span> <span class="cw-tool-path">Cargo.toml</span></div>
+        <div class="cw-tool-out">[package]<br>name = "rust-watcher"<br>version = "0.1.0"<br>edition = "2021"<br>[dependencies]<br>notify = "6.1"<br>clap = "4"</div>
+      </div>
+      <div class="cw-tool done">
+        <div class="cw-tool-head"><span class="cw-tool-name">shell</span> <span class="cw-tool-path">cargo build</span></div>
+        <div class="cw-tool-out">Compiling rust-watcher v0.1.0<br>Finished in 1.2s</div>
+      </div>
+    </div>
+
+    <div class="cw-task">
+      <div class="cw-task-head">Add watch.yaml config <span class="cw-badge running">Running</span></div>
+      <div class="cw-tool done"><div class="cw-tool-head"><span class="cw-tool-name">web_search</span> <span class="cw-tool-path">notify crate debounce best practices</span></div></div>
+      <div class="cw-tool"><div class="cw-tool-head"><span class="cw-tool-name">write</span> <span class="cw-tool-path">watch.yaml</span></div><div class="cw-tool-out" style="color:var(--text3)">Writing...</div></div>
+    </div>
+
+    <div class="inp-wrap">
+      <div class="model-row">
+        <div class="model-pill">llama3.2:3b ▾</div>
+        <div class="cw-perms">
+          <div class="cw-perm">Plan</div><div class="cw-perm active">Ask</div><div class="cw-perm">Auto</div><div class="cw-perm">Bypass</div>
+        </div>
+      </div>
+      <div class="inp-box">
+        <textarea placeholder="Describe what you want the agent to do..." rows="2"></textarea>
+        <div class="inp-actions">
+          <div class="inp-left"><div class="inp-act"><svg viewBox="0 0 16 16" fill="none"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></div></div>
+          <div class="inp-right"><div class="inp-send" style="background:var(--cyan)"><svg viewBox="0 0 16 16" fill="none"><path d="M1 8h14M11 3l4 5-4 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CODE -->
+  <div class="code-view" id="codeView">
+    <div class="code-files">
+      <div class="cf-item"><svg viewBox="0 0 16 16" fill="none"><path d="M2 3h4l2 2h6a1 1 0 011 1v5a1 1 0 01-1 1H2a1 1 0 01-1-1V4a1 1 0 011-1z" stroke="currentColor" stroke-width="1.2"/></svg>src/</div>
+      <div class="cf-item" style="padding-left:18px"><svg viewBox="0 0 16 16" fill="none"><path d="M4 2h5l3 3v8a1 1 0 01-1 1H4a1 1 0 01-1-1V3a1 1 0 011-1z" stroke="currentColor" stroke-width="1.2"/></svg>main.rs<span class="cf-ind m">M</span></div>
+      <div class="cf-item" style="padding-left:18px"><svg viewBox="0 0 16 16" fill="none"><path d="M4 2h5l3 3v8a1 1 0 01-1 1H4a1 1 0 01-1-1V3a1 1 0 011-1z" stroke="currentColor" stroke-width="1.2"/></svg>config.rs<span class="cf-ind m">M</span></div>
+      <div class="cf-item"><svg viewBox="0 0 16 16" fill="none"><path d="M4 2h5l3 3v8a1 1 0 01-1 1H4a1 1 0 01-1-1V3a1 1 0 011-1z" stroke="currentColor" stroke-width="1.2"/></svg>Cargo.toml<span class="cf-ind m">M</span></div>
+      <div class="cf-item"><svg viewBox="0 0 16 16" fill="none"><path d="M4 2h5l3 3v8a1 1 0 01-1 1H4a1 1 0 01-1-1V3a1 1 0 011-1z" stroke="currentColor" stroke-width="1.2"/></svg>watch.yaml<span class="cf-ind a">+</span></div>
+      <div class="cf-item"><svg viewBox="0 0 16 16" fill="none"><path d="M4 2h5l3 3v8a1 1 0 01-1 1H4a1 1 0 01-1-1V3a1 1 0 011-1z" stroke="currentColor" stroke-width="1.2"/></svg>README.md</div>
+      <div class="cf-item" style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border)"><svg viewBox="0 0 16 16" fill="none"><path d="M2 3h4l2 2h6a1 1 0 011 1v5a1 1 0 01-1 1H2a1 1 0 01-1-1V4a1 1 0 011-1z" stroke="currentColor" stroke-width="1.2"/></svg>tests/</div>
+    </div>
+    <div class="code-body">
+      <div class="ctx-bar">
+        <span class="ctx-label">Context window</span>
+        <div class="ctx-track"><div class="ctx-fill" style="width:68%"></div></div>
+        <span class="ctx-val">8,192 / 12,000</span>
+      </div>
+      <div class="code-stats">
+        <div class="code-stats-grid">
+          <div class="code-stat"><div class="code-stat-n">7</div><div class="code-stat-l">Files</div></div>
+          <div class="code-stat"><div class="code-stat-n">3</div><div class="code-stat-l">Modified</div></div>
+          <div class="code-stat"><div class="code-stat-n">1</div><div class="code-stat-l">New</div></div>
+          <div class="code-stat"><div class="code-stat-n">247</div><div class="code-stat-l">Lines</div></div>
+        </div>
+        <div class="code-desc">Select files to load into context, then ask LlamaChat to explain, modify, or build on your codebase. The model sees your full file tree and can reason about your project structure.</div>
+      </div>
+      <div class="code-inp">
+        <textarea placeholder="Ask about this codebase..." rows="1"></textarea>
+        <button>Send</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function setMode(m) {
+  document.querySelectorAll('.hc-btn').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.hc-btn').forEach(b=>{if(b.textContent.trim().toLowerCase().includes(m))b.classList.add('active')});
+  document.getElementById('chatView').classList.toggle('active',m==='chat');
+  document.getElementById('coworkView').classList.toggle('active',m==='cowork');
+  const cv=document.getElementById('codeView');
+  cv.style.display=m==='code'?'flex':'none';
+  cv.classList.toggle('active',m==='code');
+}
+</script>
+</body>
+</html>

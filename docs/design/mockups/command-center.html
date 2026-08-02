@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LlamaChat — Command Center</title>
+<style>
+  :root {
+    --bg: #08080c; --surface: #0e0e15; --sidebar: #06060a;
+    --border: rgba(255,255,255,0.05); --glass: rgba(14,14,21,0.85);
+    --text: #d4d4dc; --text2: #8888a0; --text3: #555570;
+    --accent: #4d7cff; --cyan: #00d4ff; --accent-dim: rgba(77,124,255,0.1);
+    --font: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    --mono: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace;
+    --radius: 6px;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:var(--bg); color:var(--text); font-family:var(--font); font-size:13px; height:100vh; overflow:hidden; display:flex; }
+  ::selection { background:rgba(77,124,255,0.3); }
+  ::-webkit-scrollbar { width:3px; } ::-webkit-scrollbar-thumb { background:rgba(255,255,255,0.06); }
+
+  /* Sidebar — terminal tab style */
+  .sidebar { width:230px; flex-shrink:0; background:var(--sidebar); border-right:1px solid var(--border); display:flex; flex-direction:column; }
+  .sb-header { padding:8px 12px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:8px; font-family:var(--mono); font-size:11px; color:var(--accent); }
+  .sb-header span { font-weight:600; letter-spacing:0.04em; }
+  .sb-header .dot { width:8px; height:8px; border-radius:50%; background:var(--accent); }
+  .sb-tabs { padding:4px; display:flex; flex-direction:column; gap:1px; }
+  .sb-tab { display:flex; align-items:center; gap:8px; padding:7px 10px; border-radius:4px; cursor:pointer; font-family:var(--mono); font-size:11px; color:var(--text2); transition:all .1s; }
+  .sb-tab:hover { background:rgba(255,255,255,0.03); color:var(--text); }
+  .sb-tab.active { background:var(--accent-dim); color:var(--accent); border-left:2px solid var(--accent); }
+  .sb-tab .icon { font-size:10px; width:16px; text-align:center; }
+  .sb-tab .name { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .sb-tab .badge { font-size:9px; color:var(--text3); }
+  .sb-new { margin:8px; padding:6px; border:1px dashed var(--border); border-radius:4px; color:var(--text3); font-family:var(--mono); font-size:10px; text-align:center; cursor:pointer; transition:all .15s; }
+  .sb-new:hover { border-color:var(--accent); color:var(--accent); }
+  .sb-footer { margin-top:auto; padding:8px 12px; border-top:1px solid var(--border); font-family:var(--mono); font-size:9px; color:var(--text3); }
+  .sb-footer .row { display:flex; justify-content:space-between; margin-bottom:2px; }
+  .sb-footer .bar { height:3px; background:rgba(255,255,255,0.05); border-radius:1px; margin-top:1px; overflow:hidden; }
+  .sb-footer .bar-fill { height:100%; border-radius:1px; }
+  .bar-cpu { background:var(--accent); width:34%; }
+  .bar-ram { background:var(--cyan); width:52%; }
+
+  /* Main */
+  .main { flex:1; display:flex; flex-direction:column; min-width:0; }
+  .topbar { height:34px; flex-shrink:0; border-bottom:1px solid var(--border); display:flex; align-items:center; padding:0 14px; gap:10px; font-family:var(--mono); font-size:10px; }
+  .topbar-path { color:var(--text3); }
+  .topbar-path .accented { color:var(--accent); }
+  .topbar-right { margin-left:auto; display:flex; gap:10px; color:var(--text3); font-size:10px; }
+  .topbar-right .model { color:var(--accent); }
+  .topbar-right .agent { color:var(--cyan); text-transform:uppercase; letter-spacing:0.05em; }
+
+  /* Chat */
+  .chat { flex:1; overflow-y:auto; padding:16px 18px; display:flex; flex-direction:column; gap:16px; }
+  .msg { max-width:700px; animation:fadeIn .2s ease-out; }
+  @keyframes fadeIn { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:translateY(0); } }
+  .msg.user { align-self:flex-end; }
+  .msg-header { font-family:var(--mono); font-size:10px; color:var(--text3); margin-bottom:4px; display:flex; gap:8px; }
+  .msg.user .msg-header { justify-content:flex-end; color:var(--text2); }
+  .msg.assistant .msg-header { color:var(--accent); }
+  .msg-body { line-height:1.55; }
+  .msg.user .msg-body { background:rgba(255,255,255,0.03); border:1px solid var(--border); border-radius:6px; padding:10px 14px; }
+  .msg.assistant .msg-body { border-left:1px solid rgba(77,124,255,0.2); padding-left:12px; }
+  .msg-body p { margin-bottom:6px; }
+
+  /* Terminal code block */
+  .term-block { margin:10px 0; border-radius:6px; border:1px solid var(--border); background:rgba(0,0,0,0.35); overflow:hidden; }
+  .term-header { display:flex; gap:6px; padding:6px 10px; background:rgba(255,255,255,0.02); border-bottom:1px solid var(--border); align-items:center; }
+  .term-dot { width:8px; height:8px; border-radius:50%; }
+  .term-dot.r { background:#ff5f56; } .term-dot.y { background:#ffbd2e; } .term-dot.g { background:#27c93f; }
+  .term-title { font-family:var(--mono); font-size:9px; color:var(--text3); margin-left:4px; }
+  .term-block pre { margin:0; padding:10px 14px; font-family:var(--mono); font-size:11px; line-height:1.7; color:#c9d1d9; overflow-x:auto; }
+  .term-block .prompt { color:var(--accent); } .term-block .cmd { color:#d2a8ff; }
+  .term-block .output { color:var(--text2); }
+
+  /* Input terminal */
+  .input-area { flex-shrink:0; padding:10px 14px 14px; }
+  .input-shell { background:var(--surface); border:1px solid var(--border); border-radius:8px; overflow:hidden; }
+  .input-shell:focus-within { border-color:rgba(77,124,255,0.3); }
+  .input-row { display:flex; align-items:center; padding:6px 10px; gap:6px; }
+  .input-prompt { font-family:var(--mono); font-size:12px; color:var(--accent); user-select:none; }
+  .input-row input { flex:1; background:none; border:none; color:var(--text); font-family:var(--mono); font-size:12px; outline:none; }
+  .input-row input::placeholder { color:var(--text3); }
+  .input-cursor { display:inline-block; width:8px; height:14px; background:var(--accent); animation:blink 1s step-end infinite; }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+  .input-row button { background:var(--accent); color:#fff; border:none; border-radius:4px; padding:5px 12px; font-family:var(--mono); font-size:10px; cursor:pointer; transition:opacity .15s; letter-spacing:0.03em; }
+  .input-row button:hover { opacity:0.9; }
+  .shortcut-bar { display:flex; gap:14px; padding:6px 10px; border-top:1px solid var(--border); font-family:var(--mono); font-size:9px; color:var(--text3); }
+  .shortcut-bar kbd { background:rgba(255,255,255,0.04); border:1px solid var(--border); border-radius:2px; padding:1px 4px; font-size:8px; margin-right:3px; }
+</style>
+</head>
+<body>
+
+<div class="sidebar">
+  <div class="sb-header">
+    <div class="dot"></div>
+    <span>LLAMACHAT</span>
+  </div>
+  <div class="sb-tabs">
+    <div class="sb-tab active"><span class="icon">▸</span><span class="name">rust-cli-watcher</span><span class="badge">2m</span></div>
+    <div class="sb-tab"><span class="icon">◽</span><span class="name">auth-middleware</span><span class="badge">1h</span></div>
+    <div class="sb-tab"><span class="icon">◽</span><span class="name">deploy-postify</span><span class="badge">3h</span></div>
+    <div class="sb-tab"><span class="icon">◽</span><span class="name">api-rate-limit</span><span class="badge">yday</span></div>
+    <div class="sb-tab"><span class="icon">◽</span><span class="name">db-migration</span><span class="badge">yday</span></div>
+    <div class="sb-tab"><span class="icon">◽</span><span class="name">sitecraft-redesign</span><span class="badge">2d</span></div>
+    <div class="sb-tab"><span class="icon">◽</span><span class="name">jarvis-pipeline</span><span class="badge">3d</span></div>
+  </div>
+  <div class="sb-new">+ New tab</div>
+  <div class="sb-footer">
+    <div class="row"><span>CPU</span><span>34%</span></div>
+    <div class="bar"><div class="bar-fill bar-cpu"></div></div>
+    <div class="row" style="margin-top:3px"><span>RAM</span><span>33.4 / 64 GB</span></div>
+    <div class="bar"><div class="bar-fill bar-ram"></div></div>
+    <div class="row" style="margin-top:3px"><span>MODEL</span><span>llama3.2:3b</span></div>
+  </div>
+</div>
+
+<div class="main">
+  <div class="topbar">
+    <span class="topbar-path">~/projects/<span class="accented">rust-cli-watcher</span></span>
+    <span class="topbar-right">
+      <span class="model">● llama3.2:3b</span>
+      <span class="agent">◉ AGENT:ASK</span>
+      <span>RTX 4090</span>
+    </span>
+  </div>
+
+  <div class="chat">
+    <div class="msg user">
+      <div class="msg-header">vlad@mac ~ $</div>
+      <div class="msg-body">I want to build a CLI tool in Rust that watches a directory and runs tests when files change. What's the best approach?</div>
+    </div>
+    <div class="msg assistant">
+      <div class="msg-header">llama3.2:3b ~ 234ms</div>
+      <div class="msg-body">
+        <p>Use the <strong>notify</strong> crate. Here's the architecture:</p>
+        <div class="term-block">
+          <div class="term-header">
+            <div class="term-dot r"></div><div class="term-dot y"></div><div class="term-dot g"></div>
+            <span class="term-title">src/main.rs</span>
+          </div>
+          <pre><span class="cmd">use</span> notify::{Watcher, RecursiveMode, watcher};
+<span class="cmd">use</span> std::process::Command;
+
+<span class="cmd">fn</span> <span style="color:#d2a8ff">main</span>() {
+    <span class="cmd">let</span> (tx, rx) = std::sync::mpsc::channel();
+    <span class="cmd">let mut</span> watcher = watcher(tx, Duration::from_secs(<span style="color:#79c0ff">1</span>)).unwrap();
+    watcher.watch(<span style="color:#a5d6ff">"./src"</span>, RecursiveMode::Recursive).unwrap();
+    
+    <span class="cmd">for</span> event <span class="cmd">in</span> rx {
+        Command::new(<span style="color:#a5d6ff">"cargo"</span>).arg(<span style="color:#a5d6ff">"test"</span>).status().unwrap();
+    }
+}</pre>
+        </div>
+        <p>Key architecture decisions: <strong>debounce strategy</strong> (batch events within a time window), <strong>filter patterns</strong> to ignore noise (target/, .git/), and whether to run <strong>all tests</strong> or only affected ones via path matching.</p>
+      </div>
+    </div>
+    <div class="msg user">
+      <div class="msg-header">vlad@mac ~ $</div>
+      <div class="msg-body">Can I also make it watch config files and restart a dev server?</div>
+    </div>
+    <div class="msg assistant">
+      <div class="msg-header">llama3.2:3b ~ 187ms</div>
+      <div class="msg-body">
+        <p>Yes — the cleanest pattern is a <strong>watch manifest</strong> with per-target config:</p>
+        <p><strong>watch.yaml:</strong></p>
+        <div class="term-block">
+          <div class="term-header">
+            <div class="term-dot r"></div><div class="term-dot y"></div><div class="term-dot g"></div>
+            <span class="term-title">watch.yaml</span>
+          </div>
+          <pre><span style="color:#ff7b72">targets</span>:
+  <span style="color:#ff7b72">tests</span>:
+    <span style="color:#ff7b72">pattern</span>: <span style="color:#a5d6ff">"src/**/*.rs"</span>
+    <span style="color:#ff7b72">command</span>: <span style="color:#a5d6ff">"cargo test"</span>
+    <span style="color:#ff7b72">debounce</span>: <span style="color:#79c0ff">500ms</span>
+  <span style="color:#ff7b72">server</span>:
+    <span style="color:#ff7b72">pattern</span>: <span style="color:#a5d6ff">"config/**/*.yaml"</span>
+    <span style="color:#ff7b72">command</span>: <span style="color:#a5d6ff">"kill -HUP $(pgrep server)"</span>
+    <span style="color:#ff7b72">debounce</span>: <span style="color:#79c0ff">200ms</span></pre>
+        </div>
+        <p>This is how <strong>cargo-watch</strong> and <strong>watchexec</strong> work — you'd be building a focused, single-purpose alternative. Great Rust learning project.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="input-area">
+    <div class="input-shell">
+      <div class="input-row">
+        <span class="input-prompt">❯</span>
+        <input placeholder="Type a command or message…" value="">
+        <span class="input-cursor"></span>
+        <button>⏎ RUN</button>
+      </div>
+      <div class="shortcut-bar">
+        <span><kbd>⌘K</kbd> command palette</span>
+        <span><kbd>⌘N</kbd> new tab</span>
+        <span><kbd>⌘/</kbd> slash commands</span>
+        <span><kbd>⌘⇧A</kbd> toggle agent</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LlamaChat — Simple vs Developer</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0d0d12;--surface:#12121a;--surface2:#191922;--border:rgba(255,255,255,.06);
+--border2:rgba(255,255,255,.11);--text:#e3e3e8;--text2:#8c8c9d;--text3:#5a5a6b;--accent:#4d7cff;
+--ok:#3fb950;--err:#f85149;--mono:'JetBrains Mono',ui-monospace,monospace}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:'Inter',system-ui,sans-serif;font-size:14px;
+ -webkit-font-smoothing:antialiased;padding:38px 22px 70px}
+.wrap{max-width:1460px;margin:0 auto}
+h1{font-size:24px;font-weight:600;letter-spacing:-.02em;margin-bottom:7px}
+.sub{color:var(--text2);font-size:13.5px;line-height:1.65;max-width:760px;margin-bottom:26px}
+.sub code{font-family:var(--mono);font-size:12px;color:var(--text)}
+.bar{display:flex;align-items:center;gap:7px;margin-bottom:20px;flex-wrap:wrap}
+.bar .lb{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--text3);font-weight:600;margin-right:5px}
+.bar button{font-size:12px;color:var(--text2);padding:5px 12px;border-radius:7px;border:1px solid var(--border);
+ background:var(--surface);cursor:pointer;font-family:inherit}
+.bar button:hover{border-color:var(--border2);color:var(--text)}
+.bar button.on{background:var(--surface2);border-color:var(--border2);color:var(--text)}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:38px}
+.col h2{font-size:14px;font-weight:600;margin-bottom:3px;display:flex;align-items:center;gap:9px}
+.col h2 .tag{font-size:9.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
+ border-radius:4px;padding:2px 6px}
+.col.s h2 .tag{color:var(--ok);border:1px solid rgba(63,185,80,.32)}
+.col.d h2 .tag{color:var(--accent);border:1px solid rgba(77,124,255,.35)}
+.col p.cap{font-size:12px;color:var(--text3);margin-bottom:12px;line-height:1.55;min-height:34px}
+.frame{border:1px solid var(--border2);border-radius:10px;overflow:hidden;background:#000;
+ width:100%;aspect-ratio:1180/745;position:relative}
+.frame iframe{position:absolute;top:0;left:0;width:1180px;height:745px;border:0;
+ transform-origin:top left}
+h3{font-size:11px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--text3);
+ margin:0 0 13px;padding-bottom:9px;border-bottom:1px solid var(--border)}
+table{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:36px}
+th{text-align:left;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;
+ color:var(--text3);padding:0 14px 9px 0}
+td{padding:10px 14px 10px 0;border-top:1px solid var(--border);vertical-align:top;line-height:1.5}
+td:first-child{color:var(--text2);width:26%}
+td.y{color:var(--text)}
+td.n{color:var(--text3)}
+td .dot{display:inline-block;width:5px;height:5px;border-radius:50%;margin-right:8px;vertical-align:middle}
+td.y .dot{background:var(--accent)}
+td.n .dot{background:var(--text3);opacity:.5}
+.note{background:var(--surface);border:1px solid var(--border);border-left:2px solid var(--accent);
+ border-radius:7px;padding:15px 18px;font-size:12.5px;color:var(--text2);line-height:1.7;margin-bottom:34px}
+.note b{color:var(--text);font-weight:500}
+.note code{font-family:var(--mono);font-size:11.5px;color:var(--text)}
+a.back{font-size:12.5px;color:var(--text3);text-decoration:none}
+a.back:hover{color:var(--text2)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="back" href="index.html">← all concepts</a>
+  <h1 style="margin-top:14px">Simple vs Developer</h1>
+  <p class="sub">Same app, same build, one setting. LlamaChat asks once at startup and you can flip it
+  any time in Settings. Both panels below are the live <code>v6.html</code> mockup — change the view
+  and watch what disappears.</p>
+
+  <div class="bar">
+    <span class="lb">View</span>
+    <button data-m="chat" data-v="empty" class="on">Chat · empty</button>
+    <button data-m="chat" data-v="convo">Chat · answering</button>
+    <button data-m="cowork" data-v="empty">Cowork</button>
+    <button data-m="settings" data-v="empty">Settings</button>
+    <span style="flex:1"></span>
+    <button onclick="window.open('v6.html?screen=setup','_blank')">Open the startup question →</button>
+  </div>
+
+  <div class="cols">
+    <div class="col s">
+      <h2>Just use it <span class="tag">Default</span></h2>
+      <p class="cap">No model names, no counters, no context. The app decides and gets out of the way.</p>
+      <div class="frame"><iframe id="f-s" src="v6.html?persona=simple&chrome=0"></iframe></div>
+    </div>
+    <div class="col d">
+      <h2>Developer <span class="tag">Opt-in</span></h2>
+      <p class="cap">Everything visible: model, effort, tokens/sec, context, CPU · GPU · VRAM, plus Code.</p>
+      <div class="frame"><iframe id="f-d" src="v6.html?persona=dev&chrome=0"></iframe></div>
+    </div>
+  </div>
+
+  <h3>What actually differs</h3>
+  <table>
+    <tr><th>Element</th><th>Just use it</th><th>Developer</th></tr>
+    <tr><td>Workspaces</td>
+      <td class="n"><span class="dot"></span>Chat, Cowork</td>
+      <td class="y"><span class="dot"></span>Chat, Cowork, <b>Code</b></td></tr>
+    <tr><td>Model control</td>
+      <td class="n"><span class="dot"></span>An <b>Auto</b> chip. No model is ever named.</td>
+      <td class="y"><span class="dot"></span>Named model + quantization, switchable per message</td></tr>
+    <tr><td>Effort / reasoning</td>
+      <td class="n"><span class="dot"></span>Router decides. One optional "prefer speed" switch.</td>
+      <td class="y"><span class="dot"></span>Set by hand, and the router's pick is shown with its reason</td></tr>
+    <tr><td>Context window</td>
+      <td class="n"><span class="dot"></span>Hidden. Trimmed and summarized silently.</td>
+      <td class="y"><span class="dot"></span>Ring by the composer + exact token count in the status bar</td></tr>
+    <tr><td>Throughput</td>
+      <td class="n"><span class="dot"></span>Hidden — just "Thought for 6 seconds"</td>
+      <td class="y"><span class="dot"></span>tok/s per reply and live in the status bar</td></tr>
+    <tr><td>System load</td>
+      <td class="n"><span class="dot"></span>Hidden</td>
+      <td class="y"><span class="dot"></span>CPU, RAM, GPU, VRAM meters, always on</td></tr>
+    <tr><td>Model library</td>
+      <td class="n"><span class="dot"></span>Not in the sidebar. Downloads happen on their own.</td>
+      <td class="y"><span class="dot"></span>Full library with tiers and hardware ratings</td></tr>
+    <tr><td>Status bar</td>
+      <td class="n"><span class="dot"></span>None</td>
+      <td class="y"><span class="dot"></span>Persistent, bottom of the window</td></tr>
+    <tr><td>Sidebar footer</td>
+      <td class="n"><span class="dot"></span>"Vlad · Local"</td>
+      <td class="y"><span class="dot"></span>"Vlad · Developer · 3 models"</td></tr>
+  </table>
+
+  <h3>How the routing works</h3>
+  <div class="note">
+    Modelled on how ChatGPT works now. OpenAI describes GPT&#8209;5 as <b>a unified system</b>: a fast
+    model for most questions, a deeper reasoning model for hard ones, and a <b>real-time router</b>
+    that picks between them per message based on <b>conversation type, complexity, tool needs, and
+    explicit intent</b> — saying "think hard about this" pushes it to the reasoning path. The router is
+    trained on real usage signals rather than hand-written rules. Users can override with
+    Auto / Instant / Thinking, but Auto is the default and most people never touch it.
+    <br><br>
+    LlamaChat does the same thing locally. The tiers you already benchmark —
+    <code>Quick</code>, <code>Smart</code>, <code>Best</code> — are the routing targets, and the
+    per-machine ratings (<code>blazing → won't run</code>) bound what the router is allowed to pick.
+    A short factual question goes to Quick at low effort; a multi-step technical question goes to Best
+    at high effort. On the simple side that is invisible. On the developer side the same decision is
+    printed above the reply: <code>Router → Qwen3 30B A3B · high effort · reason: technical, multi-step</code>.
+  </div>
+
+  <h3>Logo</h3>
+  <div class="note" style="border-left-color:var(--ok)">
+    Fixed. Earlier concepts used a hand-drawn stand-in. Every mark here is now the real
+    <b>traced-Ollama llama</b> from <code>llamachat-brand/svg/logo-mono.svg</code> — the canonical
+    5,351-character <code>fill-rule="evenodd"</code> path, with the eye as a true cut-out, rendered in
+    <code>currentColor</code>. Same path the brand kit ships to <code>Logo.tsx</code> and the icon set.
+  </div>
+</div>
+
+<script>
+function scale(){
+  document.querySelectorAll('.frame').forEach(f=>{
+    const i=f.querySelector('iframe');
+    i.style.transform='scale('+(f.clientWidth/1180)+')';
+  });
+}
+addEventListener('resize',scale); scale();
+document.querySelectorAll('.bar button[data-m]').forEach(b=>b.addEventListener('click',()=>{
+  document.querySelectorAll('.bar button[data-m]').forEach(x=>x.classList.remove('on'));
+  b.classList.add('on');
+  const q='&mode='+b.dataset.m+'&view='+b.dataset.v;
+  document.getElementById('f-s').src='v6.html?persona=simple&chrome=0'+q;
+  document.getElementById('f-d').src='v6.html?persona=dev&chrome=0'+q;
+  setTimeout(scale,60);
+}));
+</script>
+</body>
+</html>

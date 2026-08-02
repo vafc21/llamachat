@@ -831,7 +831,21 @@ fn slash_palette(f: &mut Frame, input_area: Rect, c: &Chat, p: &Palette) {
         return;
     }
     let h = (matches.len() as u16 + 2).min(input_area.y.saturating_sub(2)).max(3);
-    let w = 52.min(input_area.width);
+
+    // Size the popup to its widest entry. This was a hardcoded 52 columns, which
+    // silently clipped the longer descriptions (`/permissions`, `/effort`,
+    // `/mode`) mid-word with no ellipsis.
+    let name_w = matches.iter().map(|c| c.name.chars().count()).max().unwrap_or(8).max(8);
+    let widest = matches
+        .iter()
+        .map(|c| 2 + 1 + name_w + 2 + c.desc.chars().count())
+        .max()
+        .unwrap_or(40);
+    let w = ((widest + 2) as u16).min(input_area.width).max(24);
+
+    // Whatever room is left for the description after borders, marker and name.
+    let desc_w = (w as usize).saturating_sub(2 + 2 + 1 + name_w + 2);
+
     let rect = Rect::new(input_area.x, input_area.y.saturating_sub(h), w, h);
     f.render_widget(Clear, rect);
 
@@ -844,10 +858,17 @@ fn slash_palette(f: &mut Frame, input_area: Rect, c: &Chat, p: &Palette) {
             let name = Style::default()
                 .fg(if selected { p.brand } else { p.accent })
                 .add_modifier(Modifier::BOLD);
+            // Ellipsize rather than let the widget chop a word in half.
+            let desc: String = if cmd.desc.chars().count() > desc_w && desc_w > 1 {
+                let keep: String = cmd.desc.chars().take(desc_w.saturating_sub(1)).collect();
+                format!("{}…", keep.trim_end())
+            } else {
+                cmd.desc.to_string()
+            };
             ListItem::new(Line::from(vec![
                 Span::styled(if selected { "❯ " } else { "  " }, Style::default().fg(p.brand)),
-                Span::styled(format!("/{:<8}", cmd.name), name),
-                Span::styled(format!("  {}", cmd.desc), Style::default().fg(p.dim)),
+                Span::styled(format!("/{:<w$}", cmd.name, w = name_w), name),
+                Span::styled(format!("  {}", desc), Style::default().fg(p.dim)),
             ]))
         })
         .collect();

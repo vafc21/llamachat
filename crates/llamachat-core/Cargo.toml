@@ -18,6 +18,22 @@ sysinfo.workspace = true
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 tokio = { version = "1", features = ["rt", "macros"] }
 
+# Vision: decode a screenshot, downscale it, hand it to the model as base64.
+# PNG only: every platform backend in tools/desktop.rs writes PNG, and skipping
+# the other codecs keeps the dependency tree small.
+image = { version = "0.25", default-features = false, features = ["png"] }
+base64 = "0.22"
+
+# Linux desktop control: pure-Rust X11 + XTEST, so there is no xdotool to
+# install at runtime and it drives Xvfb and a real display identically.
+[target.'cfg(target_os = "linux")'.dependencies]
+x11rb = { version = "0.13", features = ["xtest"] }
+
+# macOS desktop control: CoreGraphics event posting (the same mechanism the OS
+# uses for real input), plus the built-in `screencapture` for images.
+[target.'cfg(target_os = "macos")'.dependencies]
+core-graphics = { version = "0.24", features = ["highsierra"] }
+
 # Native mouse/keyboard for the `computer` tool's type/key/click on Windows.
 # Windows-only so the core stays free of system GUI deps on Linux/macOS (enigo
 # uses SendInput on Windows — no external libraries). macOS drives type/key via

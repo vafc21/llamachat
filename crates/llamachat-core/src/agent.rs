@@ -24,12 +24,42 @@ impl Agent {
             if let Some(tr) = self.extract_tool_call(&response) {
                 let result = self.registry.execute(&tr);
                 messages.push(serde_json::json!({"role": "assistant", "content": response}));
-                messages.push(serde_json::json!({
-                    "role": "user",
-                    "content": format!("Tool result for {}: {}",
-                        tr.name,
-                        result.output.as_deref().unwrap_or(result.error.as_deref().unwrap_or("no output")))
-                }));
+
+                let text = format!(
+                    "Tool result for {}: {}",
+                    tr.name,
+                    result.output.as_deref().unwrap_or(result.error.as_deref().unwrap_or("no output"))
+                );
+
+                // A tool that produced an image (a screenshot, say) hands back a
+                // path in `media`. Previously that path was pasted in as plain
+                // text and the pixels were thrown away, so the model was asked
+                // to reason about something it could not see. Encode it and send
+                // it properly — but only to a model that can actually look.
+                messages.push(match result.media.as_deref() {
+                    Some(path) if crate::vision::is_vision_model(&self.model) => {
+                        match crate::vision::encode_file(path) {
+                            Ok(img) => crate::vision::user_message_with_images(
+                                &format!("{text}\n[image attached: {}]", img.summary()),
+                                std::slice::from_ref(&img),
+                            ),
+                            // Be explicit rather than silently continuing blind.
+                            Err(e) => serde_json::json!({
+                                "role": "user",
+                                "content": format!("{text}\n[image could not be attached: {e}]"),
+                            }),
+                        }
+                    }
+                    Some(_) => serde_json::json!({
+                        "role": "user",
+                        "content": format!(
+                            "{text}\n[an image was captured, but {} cannot accept images — \
+                             load a vision model to look at it]",
+                            self.model
+                        ),
+                    }),
+                    None => serde_json::json!({"role": "user", "content": text}),
+                });
                 continue;
             }
             return Ok(response);

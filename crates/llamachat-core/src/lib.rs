@@ -18,5 +18,8 @@ pub mod store;
 pub mod tools;
 pub mod agent;
 pub mod types;
+pub mod computer_use;
+pub mod control;
+pub mod vision;
 
 pub use types::*;

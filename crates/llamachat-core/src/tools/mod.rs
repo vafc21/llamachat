@@ -7,6 +7,7 @@ pub mod filesystem;
 pub mod process;
 pub mod desktop;
 pub mod computer;
+pub mod computer_use_tool;
 
 pub use shell::ShellTool;
 pub use filesystem::FilesystemTool;

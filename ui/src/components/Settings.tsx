@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react'
 import type { AppSettings, ModelCatalog, CatalogModel, BenchmarkIntensity, HardwareProfile, TierModel } from '../types'
-import { AgentSetup } from './AgentSetup'
+import { ReadinessChecklist } from './Readiness'
 import { PersonaCards } from './PersonaChoice'
 import { Icon } from './Icon'
 import { INTENSITY_OPTIONS } from '../types'
 import { invoke, isTauri } from '../tauri'
 import type { Persona } from '../persona'
+import type { Platform } from '../platform'
 import type { UiPrefs } from '../prefs'
 
 const INTENSITY_KEY = 'llamachat.benchmarkIntensity'
@@ -31,6 +32,7 @@ interface Props {
   hardware: HardwareProfile | null;
   persona: Persona;
   onPersona: (p: Persona) => void;
+  platform: Platform;
   prefs: UiPrefs;
   onPrefs: (p: UiPrefs) => void;
   tiers: TierModel[];
@@ -63,7 +65,7 @@ function Toggle({ title, blurb, on, onToggle }: { title: string; blurb: string; 
  * simple user never sees a runtime knob and a developer never sees the
  * "let LlamaChat decide" copy aimed at people who don't want to know.
  */
-export function Settings({ hardware, persona, onPersona, prefs, onPrefs, tiers }: Props) {
+export function Settings({ hardware, persona, onPersona, platform, prefs, onPrefs, tiers }: Props) {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [catalog, setCatalog] = useState<CatalogModel[]>([]);
   const [memoryDir, setMemoryDir] = useState('');
@@ -219,15 +221,16 @@ export function Settings({ hardware, persona, onPersona, prefs, onPrefs, tiers }
         {/* Agent abilities. */}
         <div className="sgroup">
           <h2>Agent abilities</h2>
-          <div className="srow" style={{ display: 'block' }}>
-            <div className="tx" style={{ marginBottom: 12 }}>
-              <b>Permissions</b>
-              <span>Cowork and Code need these to act on your machine.</span>
-            </div>
-            <AgentSetup />
-          </div>
+          {/* Same checklist component as the startup readiness step, so the two
+              can never disagree about what is granted. `showVision` is on here
+              and off at startup: a 4.7 GB pull is a settings decision, not a
+              first-run gate. */}
+          <ReadinessChecklist persona={persona} platform={platform} showVision />
 
-          <div className="srow">
+          {/* Perception is a developer choice: "accessibility tree vs
+              screenshot vision" is exactly the jargon R17's persona split
+              exists to keep away from the simple side. */}
+          <div className="srow dev-only">
             <div className="tx">
               <b>How the agent sees your screen</b>
               <span>The accessibility tree is faster and works with text models; screenshot vision is more general but needs a vision model.</span>
@@ -242,7 +245,7 @@ export function Settings({ hardware, persona, onPersona, prefs, onPrefs, tiers }
             </select>
           </div>
           {settings.perception === 'vision' && (
-            <div className="srow">
+            <div className="srow dev-only">
               <div className="tx">
                 <b>Vision model</b>
                 <span>Describes screenshots to the agent.</span>

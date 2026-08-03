@@ -10,6 +10,7 @@ import { SkillsTab } from './components/SkillsTab'
 import { MemoryTab } from './components/MemoryTab'
 import { WelcomeSteps } from './components/WelcomeSteps'
 import { PersonaChoice } from './components/PersonaChoice'
+import { ReadinessStep } from './components/Readiness'
 import { CodeWorkspace } from './components/CodeWorkspace'
 import { CoworkPane, type CoworkTask } from './components/CoworkPane'
 import { StatusBar } from './components/StatusBar'
@@ -24,6 +25,8 @@ import {
   type Persona, type Mode,
 } from './persona'
 import { route, describeRoute } from './router'
+import { detectPlatform, hasSystemPermissions, type Platform } from './platform'
+import { usePermissions } from './permissions'
 import { estimateContext, estimateTokens, type TurnStats, type ActivityEntry } from './runtime'
 import type { Message, Conversation, HardwareProfile, LevelPlan, TierModel, DownloadProgress, Skill, ConvDto } from './types'
 
@@ -51,12 +54,26 @@ function dtoToConversation(d: ConvDto, mkId: () => string): Conversation {
 
 /**
  * First-run order:
- *   persona  — the startup question (R14). Asked once, before anything else.
- *   profiling/setup — hardware detection + tier downloads (unchanged).
- *   welcome  — the optional memory/permissions steps (unchanged).
- *   ready    — the app.
+ *   persona   — the startup question (R14). Asked once, before anything else.
+ *   readiness — can this machine actually run the thing? Placed BEFORE the
+ *               downloads on purpose: Ollama being down is what makes the next
+ *               screen sit at 0% forever, so it is worth catching first.
+ *               Auto-skipped when there is nothing to report or act on.
+ *   profiling/setup — hardware detection + tier downloads.
+ *   welcome   — the optional memory-transfer step.
+ *   ready     — the app.
  */
-type Phase = 'persona' | 'profiling' | 'setup' | 'welcome' | 'ready'
+type Phase = 'persona' | 'readiness' | 'profiling' | 'setup' | 'welcome' | 'ready'
+
+/** Set when the readiness step has been passed, so a restart mid-grant returns to it. */
+const READY_SEEN_KEY = 'llamachat.readinessSeen';
+
+function readinessSeen(): boolean {
+  try { return localStorage.getItem(READY_SEEN_KEY) === '1'; } catch { return false; }
+}
+function markReadinessSeen() {
+  try { localStorage.setItem(READY_SEEN_KEY, '1'); } catch { /* ignore */ }
+}
 
 function uid(): string {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
@@ -102,13 +119,18 @@ function preferredTag(tiers: TierModel[]): string | null {
 }
 
 export default function App() {
-  type Platform = 'linux' | 'macos' | 'windows';
-  const [platform, setPlatform] = useState<Platform>('linux');
+  const [platform, setPlatform] = useState<Platform>(() => detectPlatform());
   const storedPersona = useRef(loadPersona());
   const [persona, setPersona] = useState<Persona>(storedPersona.current ?? 'simple');
   const [mode, setMode] = useState<Mode>(loadMode());
   const [prefs, setPrefs] = useState<UiPrefs>(() => loadPrefs());
-  const [phase, setPhase] = useState<Phase>(storedPersona.current ? 'profiling' : 'persona');
+  const [phase, setPhase] = useState<Phase>(
+    // Quitting during onboarding must not silently skip a step. Persona is
+    // stored the moment it is answered, so the readiness flag is what decides
+    // whether the rest of the first run still has to happen — which matters a
+    // lot here, because granting Screen Recording restarts the app mid-flow.
+    !storedPersona.current ? 'persona' : readinessSeen() ? 'profiling' : 'readiness'
+  );
   const [welcomed, setWelcomed] = useState(() => {
     try { return localStorage.getItem('llamachat.welcomed') === '1'; } catch { return false; }
   });
@@ -144,12 +166,23 @@ export default function App() {
   // Cowork and Code both drive the tool loop; Chat is a plain completion.
   const modes = modesFor(persona);
 
+  useEffect(() => { setPlatform(detectPlatform()); }, []);
+
+  // Readiness is polled only while its step is on screen, so it can be skipped
+  // when there is genuinely nothing to say. A one-row all-green checklist is
+  // noise, not reassurance.
+  const readiness = usePermissions(phase === 'readiness');
   useEffect(() => {
-    const ua = navigator.platform || navigator.userAgent || '';
-    if (ua.includes('Mac')) setPlatform('macos');
-    else if (ua.includes('Win')) setPlatform('windows');
-    else setPlatform('linux');
-  }, []);
+    if (phase !== 'readiness') return;
+    if (!isTauri()) return; // browser dev build: nothing is verifiable, so show it
+    if (!readiness.polled || !readiness.perms) return;
+    const p = readiness.perms;
+    const macGates = hasSystemPermissions(platform);
+    const clean =
+      p.ollama &&
+      (!macGates || (p.accessibility && (persona === 'simple' || p.screen_recording)));
+    if (clean) { markReadinessSeen(); setPhase('profiling'); }
+  }, [phase, readiness.polled, readiness.perms, platform, persona]);
 
   // v6's architecture: persona/mode live on <html> and CSS does the gating.
   useEffect(() => {
@@ -223,23 +256,35 @@ export default function App() {
 
   // ── First-run orchestration ──────────────────────────────
   useEffect(() => {
-    if (phase === 'persona') return;
+    if (phase === 'persona' || phase === 'readiness') return;
     if (setupStarted.current) return;
     setupStarted.current = true;
 
     (async () => {
-      const hw = (await invoke<HardwareProfile>('get_hardware_profile')) ?? MOCK_HARDWARE;
-      setHardware(hw);
+      // The profiling screen has no controls on it at all — it is a pure
+      // spinner. If anything in here throws, the user is stranded on it with
+      // no button, no message and no way out, which is exactly the kind of
+      // dead end onboarding cannot afford. Fall through to mock tiers instead:
+      // a wrong-but-usable model list still lets them reach the app.
+      let built: TierModel[] = [];
+      try {
+        const hw = (await invoke<HardwareProfile>('get_hardware_profile')) ?? MOCK_HARDWARE;
+        setHardware(hw);
 
-      const plan = await invoke<LevelPlan>('get_benchmark_plan');
-      let built = plan ? tiersFromPlan(plan) : [];
-      if (built.length === 0) built = mockTiers();
+        const plan = await invoke<LevelPlan>('get_benchmark_plan');
+        built = plan ? tiersFromPlan(plan) : [];
+        if (built.length === 0) built = mockTiers();
 
-      const installed = (await invoke<string[]>('list_installed_models')) ?? [];
-      const installedSet = new Set(installed);
-      built = built.map((t) =>
-        installedSet.has(t.rec.ollama_pull) ? { ...t, status: 'ready' as const, pct: 100 } : t
-      );
+        const installed = (await invoke<string[]>('list_installed_models')) ?? [];
+        const installedSet = new Set(installed);
+        built = built.map((t) =>
+          installedSet.has(t.rec.ollama_pull) ? { ...t, status: 'ready' as const, pct: 100 } : t
+        );
+      } catch (e) {
+        console.error('hardware profiling failed:', e);
+        setHardware((h) => h ?? MOCK_HARDWARE);
+        if (built.length === 0) built = mockTiers();
+      }
 
       setTiers(built);
       setPhase('setup');
@@ -279,17 +324,27 @@ export default function App() {
     if (tag) setSelectedModel(tag);
   }, [tiers, userPicked]);
 
+  /**
+   * Leave the setup screen. Shared by "Quick is ready", "Continue anyway" and
+   * "Browse all models" so all three land in the same place — previously the
+   * two manual exits jumped straight to the app and the welcome step then
+   * ambushed the user on their *second* launch instead.
+   */
+  const leaveSetup = useCallback((then?: () => void) => {
+    then?.();
+    if (welcomed) { setPhase('ready'); return; }
+    // Persist "seen onboarding" NOW, before showing it — so if the user quits
+    // mid-onboarding it doesn't re-run the flow and re-append their memory.
+    try { localStorage.setItem('llamachat.welcomed', '1'); } catch { /* ignore */ }
+    setPhase('welcome');
+  }, [welcomed]);
+
   // When the Quick model is ready: first run → welcome steps, else → the app.
   useEffect(() => {
     if (phase !== 'setup') return;
     if (tiers[0]?.status !== 'ready') return;
-    if (welcomed) { setPhase('ready'); return; }
-    // Persist "seen onboarding" NOW, before showing it — so if the user quits
-    // mid-onboarding (e.g. to grant Screen Recording, which requires an app
-    // restart) it doesn't re-run the flow and re-append their memory.
-    try { localStorage.setItem('llamachat.welcomed', '1'); } catch { /* ignore */ }
-    setPhase('welcome');
-  }, [phase, tiers, welcomed]);
+    leaveSetup();
+  }, [phase, tiers, leaveSetup]);
 
   // ── Agent-mode events → chat messages + real activity log ─────────
   useEffect(() => {
@@ -764,11 +819,29 @@ export default function App() {
         <IconSprite />
         <div className="lc-shell">
           <PersonaChoice
+            current={storedPersona.current}
             onPick={(p) => {
               setPersona(p);
               savePersona(p);
-              setPhase('profiling');
+              storedPersona.current = p;
+              setPhase('readiness');
             }}
+          />
+        </div>
+      </>
+    );
+  }
+  if (phase === 'readiness') {
+    return (
+      <>
+        <IconSprite />
+        <div className="lc-shell">
+          <ReadinessStep
+            persona={persona}
+            platform={platform}
+            api={readiness}
+            onContinue={() => { markReadinessSeen(); setPhase('profiling'); }}
+            onBack={() => setPhase('persona')}
           />
         </div>
       </>
@@ -779,6 +852,8 @@ export default function App() {
       <>
         <IconSprite />
         <WelcomeSteps
+          persona={persona}
+          platform={platform}
           onFinish={() => {
             try { localStorage.setItem('llamachat.welcomed', '1'); } catch { /* ignore */ }
             setWelcomed(true);
@@ -797,8 +872,8 @@ export default function App() {
           hardware={hardware}
           tiers={tiers}
           persona={persona}
-          onContinue={() => setPhase('ready')}
-          onBrowseAll={() => { setPhase('ready'); setNav('library'); }}
+          onContinue={() => leaveSetup()}
+          onBrowseAll={() => leaveSetup(() => setNav('library'))}
         />
       </>
     );
@@ -869,6 +944,7 @@ export default function App() {
                 hardware={hardware}
                 persona={persona}
                 onPersona={setPersona}
+                platform={platform}
                 prefs={prefs}
                 onPrefs={setPrefs}
                 tiers={tiers}

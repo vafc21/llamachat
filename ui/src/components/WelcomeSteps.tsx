@@ -23,8 +23,8 @@ export function WelcomeSteps({ onFinish }: { onFinish: () => void }) {
               <div>
                 <p className="text-sm text-text font-medium">Enable agent abilities <span className="text-text-muted font-normal">· optional</span></p>
                 <p className="text-[11px] text-text-muted mt-1 leading-relaxed">
-                  To let the agent control your Mac — open apps, read the screen, click and type — grant these. A green ✓ means it's ready.
-                  You can always do this later in Settings.
+                  To let Cowork and Code act on this machine — open apps, read the screen, click and type — grant these.
+                  A green tick means it&apos;s ready. You can always do this later in Settings.
                 </p>
               </div>
               <AgentSetup />

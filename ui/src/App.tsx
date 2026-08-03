@@ -1,20 +1,31 @@
-import { useState, useRef, useCallback, useEffect } from 'react'
-import { Sidebar } from './components/Sidebar'
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
+import { Sidebar, type NavView } from './components/Sidebar'
 import { ChatArea } from './components/ChatArea'
 import { InputBar } from './components/InputBar'
 import { SetupWizard } from './components/SetupWizard'
 import { ModelLibrary } from './components/ModelLibrary'
 import { Settings } from './components/Settings'
+import { loadPrefs, savePrefs, type UiPrefs } from './prefs'
 import { SkillsTab } from './components/SkillsTab'
 import { MemoryTab } from './components/MemoryTab'
 import { WelcomeSteps } from './components/WelcomeSteps'
+import { PersonaChoice } from './components/PersonaChoice'
+import { CodeWorkspace } from './components/CodeWorkspace'
+import { CoworkPane, type CoworkTask } from './components/CoworkPane'
+import { StatusBar } from './components/StatusBar'
+import { IconSprite, Icon } from './components/Icon'
+import { TOOL_MARK } from './components/MessageBubble'
 import { invoke, listen, isTauri } from './tauri'
 import { MOCK_HARDWARE, tiersFromPlan, mockTiers } from './models'
 import { loadSkills, saveSkills } from './skills'
 import { allCommands } from './commands'
+import {
+  loadPersona, savePersona, loadMode, saveMode, modesFor, greeting,
+  type Persona, type Mode,
+} from './persona'
+import { route, describeRoute } from './router'
+import { estimateContext, estimateTokens, type TurnStats, type ActivityEntry } from './runtime'
 import type { Message, Conversation, HardwareProfile, LevelPlan, TierModel, DownloadProgress, Skill, ConvDto } from './types'
-
-type View = 'chat' | 'library' | 'settings' | 'skills' | 'memory'
 
 /** Conversation ⇄ persisted DTO (markdown transcript). */
 function conversationToDto(c: Conversation): ConvDto {
@@ -37,7 +48,15 @@ function dtoToConversation(d: ConvDto, mkId: () => string): Conversation {
     })),
   };
 }
-type Phase = 'profiling' | 'setup' | 'welcome' | 'ready'
+
+/**
+ * First-run order:
+ *   persona  — the startup question (R14). Asked once, before anything else.
+ *   profiling/setup — hardware detection + tier downloads (unchanged).
+ *   welcome  — the optional memory/permissions steps (unchanged).
+ *   ready    — the app.
+ */
+type Phase = 'persona' | 'profiling' | 'setup' | 'welcome' | 'ready'
 
 function uid(): string {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
@@ -52,6 +71,11 @@ const INITIAL_CONVERSATIONS: Conversation[] = [
 
 export type AgentPermMode = 'plan' | 'ask' | 'auto' | 'bypass';
 
+/** Shown in a plain browser dev build, where there is no Tauri backend. */
+const MOCK_REPLY =
+  "I'm running locally. (Browser dev build — no Tauri backend is attached, so this is a canned reply " +
+  'streamed word by word so the runtime counters have something real to measure.)';
+
 /** Compact one-line summary of a tool call's args for the chat. */
 function summarizeArgs(args: Record<string, unknown> | undefined): string {
   if (!args) return '';
@@ -59,6 +83,11 @@ function summarizeArgs(args: Record<string, unknown> | undefined): string {
   const pick = a.target ?? a.command ?? a.url ?? a.query ?? a.path ?? a.action ?? '';
   const s = typeof pick === 'string' ? pick : JSON.stringify(pick);
   return s ? `\`${s.length > 80 ? s.slice(0, 80) + '…' : s}\`` : '';
+}
+
+/** Plain-text arg summary for the Code activity log (no markdown backticks). */
+function plainArgs(args: Record<string, unknown> | undefined): string {
+  return summarizeArgs(args).replace(/`/g, '');
 }
 
 /** Best model to auto-select: prefer Smart, then Quick, then any ready one. */
@@ -75,7 +104,11 @@ function preferredTag(tiers: TierModel[]): string | null {
 export default function App() {
   type Platform = 'linux' | 'macos' | 'windows';
   const [platform, setPlatform] = useState<Platform>('linux');
-  const [phase, setPhase] = useState<Phase>('profiling');
+  const storedPersona = useRef(loadPersona());
+  const [persona, setPersona] = useState<Persona>(storedPersona.current ?? 'simple');
+  const [mode, setMode] = useState<Mode>(loadMode());
+  const [prefs, setPrefs] = useState<UiPrefs>(() => loadPrefs());
+  const [phase, setPhase] = useState<Phase>(storedPersona.current ? 'profiling' : 'persona');
   const [welcomed, setWelcomed] = useState(() => {
     try { return localStorage.getItem('llamachat.welcomed') === '1'; } catch { return false; }
   });
@@ -85,19 +118,31 @@ export default function App() {
     catch { return INITIAL_CONVERSATIONS[0].id; }
   });
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [view, setView] = useState<View>('chat');
+  /** Nav destination overlaying the mode pane, or null when in a mode. */
+  const [nav, setNav] = useState<NavView | null>(null);
   const [streaming, setStreaming] = useState(false);
   const [hardware, setHardware] = useState<HardwareProfile | null>(null);
   const [tiers, setTiers] = useState<TierModel[]>([]);
   const [selectedModel, setSelectedModel] = useState('llama3.2:3b');
   const [userPicked, setUserPicked] = useState(false);
   const [skills, setSkills] = useState<Skill[]>(() => loadSkills());
-  const [agentMode, setAgentMode] = useState(false);
   const [agentPermMode, setAgentPermMode] = useState<AgentPermMode>('ask');
   const [pendingApproval, setPendingApproval] = useState<{ tool: string; args: Record<string, unknown> } | null>(null);
+  /** Measured per-reply runtime, keyed by assistant message id. */
+  const [turnStats, setTurnStats] = useState<Record<string, TurnStats>>({});
+  /** "Thought for N seconds", keyed by assistant message id (simple persona). */
+  const [simpleStatus, setSimpleStatus] = useState<Record<string, string>>({});
+  /** Real tool calls from the agent loop — the Code activity log. */
+  const [activity, setActivity] = useState<ActivityEntry[]>([]);
+  /** Cowork runs in flight. */
+  const [tasks, setTasks] = useState<CoworkTask[]>([]);
   const chatRef = useRef<HTMLDivElement>(null);
   const setupStarted = useRef(false);
   const agentConvId = useRef('');
+  const agentTaskId = useRef('');
+
+  // Cowork and Code both drive the tool loop; Chat is a plain completion.
+  const modes = modesFor(persona);
 
   useEffect(() => {
     const ua = navigator.platform || navigator.userAgent || '';
@@ -106,9 +151,22 @@ export default function App() {
     else setPlatform('linux');
   }, []);
 
+  // v6's architecture: persona/mode live on <html> and CSS does the gating.
   useEffect(() => {
-    document.documentElement.setAttribute('data-platform', platform);
-  }, [platform]);
+    const el = document.documentElement;
+    el.setAttribute('data-platform', platform);
+    el.setAttribute('data-persona', persona);
+    el.setAttribute('data-mode', mode);
+  }, [platform, persona, mode]);
+
+  useEffect(() => { savePersona(persona); }, [persona]);
+  useEffect(() => { saveMode(mode); }, [mode]);
+  useEffect(() => { savePrefs(prefs); }, [prefs]);
+
+  // Code is developer-only (R2) — dropping to the simple persona leaves it.
+  useEffect(() => {
+    if (persona === 'simple' && mode === 'code') setMode('chat');
+  }, [persona, mode]);
 
   // Persist skills whenever they change.
   useEffect(() => { saveSkills(skills); }, [skills]);
@@ -120,7 +178,6 @@ export default function App() {
       if (saved && saved.length) {
         const convs = saved.map((d) => dtoToConversation(d, uid));
         setConversations(convs);
-        // Restore the conversation the user was last on, if it still exists.
         let want = convs[0].id;
         try {
           const s = localStorage.getItem('llamachat.activeId');
@@ -136,6 +193,15 @@ export default function App() {
     try { localStorage.setItem('llamachat.activeId', activeId); } catch { /* ignore */ }
   }, [activeId]);
 
+  // A stored activeId can outlive the conversation it pointed at (deleted, or
+  // a fresh browser session where nothing was restored). Left dangling, every
+  // send silently no-ops because no conversation matches the id. Reconcile.
+  useEffect(() => {
+    if (conversations.length === 0) return;
+    if (conversations.some((c) => c.id === activeId)) return;
+    setActiveId(conversations[0].id);
+  }, [conversations, activeId]);
+
   // Auto-save conversations to markdown (debounced; only non-empty ones).
   useEffect(() => {
     if (!isTauri()) return;
@@ -149,8 +215,15 @@ export default function App() {
     return () => clearTimeout(t);
   }, [conversations]);
 
+  // Keep the thread pinned to the newest turn.
+  useEffect(() => {
+    const el = chatRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [conversations, activeId]);
+
   // ── First-run orchestration ──────────────────────────────
   useEffect(() => {
+    if (phase === 'persona') return;
     if (setupStarted.current) return;
     setupStarted.current = true;
 
@@ -179,7 +252,7 @@ export default function App() {
         if (t.status !== 'ready') invoke('download_model', { tag: t.rec.ollama_pull });
       }
     })();
-  }, []);
+  }, [phase]);
 
   // Live download progress → tier status.
   useEffect(() => {
@@ -206,20 +279,19 @@ export default function App() {
     if (tag) setSelectedModel(tag);
   }, [tiers, userPicked]);
 
-  // When the Quick model is ready: first run → welcome steps, else → chat.
+  // When the Quick model is ready: first run → welcome steps, else → the app.
   useEffect(() => {
     if (phase !== 'setup') return;
     if (tiers[0]?.status !== 'ready') return;
     if (welcomed) { setPhase('ready'); return; }
     // Persist "seen onboarding" NOW, before showing it — so if the user quits
     // mid-onboarding (e.g. to grant Screen Recording, which requires an app
-    // restart) it doesn't re-run the flow and re-append their memory. We still
-    // show the welcome once this session (don't flip in-memory `welcomed`).
+    // restart) it doesn't re-run the flow and re-append their memory.
     try { localStorage.setItem('llamachat.welcomed', '1'); } catch { /* ignore */ }
     setPhase('welcome');
   }, [phase, tiers, welcomed]);
 
-  // Agent-mode events → chat messages on the run's conversation.
+  // ── Agent-mode events → chat messages + real activity log ─────────
   useEffect(() => {
     const uns: Array<(() => void) | null> = [];
     const add = (content: string) =>
@@ -230,20 +302,61 @@ export default function App() {
             : c
         )
       );
+    const touchTask = (detail: string, state?: CoworkTask['state']) =>
+      setTasks((prev) => prev.map((t) =>
+        t.id === agentTaskId.current
+          ? { ...t, detail, updatedAt: Date.now(), state: state ?? t.state }
+          : t));
+
     (async () => {
-      uns.push(await listen<{ tool: string; args: Record<string, unknown> }>('agent_step', (p) => add(`🔧 **${p.tool}** ${summarizeArgs(p.args)}`)));
-      uns.push(await listen<{ ok: boolean; text: string }>('agent_result', (p) => add((p.ok ? '' : '⚠️ ') + '```\n' + (p.text || '(done)') + '\n```')));
+      uns.push(await listen<{ tool: string; args: Record<string, unknown> }>('agent_step', (p) => {
+        add(`${TOOL_MARK}**${p.tool}** ${summarizeArgs(p.args)}`);
+        setActivity((prev) => [...prev, {
+          id: uid(), tool: p.tool, detail: plainArgs(p.args), state: 'running', startedAt: Date.now(),
+        }]);
+        touchTask(`Working · ${p.tool}`);
+      }));
+      uns.push(await listen<{ ok: boolean; text: string }>('agent_result', (p) => {
+        add('```\n' + (p.text || '(done)') + '\n```');
+        setActivity((prev) => {
+          const i = prev.map((a) => a.state).lastIndexOf('running');
+          if (i < 0) return prev;
+          const next = [...prev];
+          next[i] = { ...next[i], state: p.ok ? 'ok' : 'error', endedAt: Date.now() };
+          return next;
+        });
+      }));
       uns.push(await listen<{ text: string }>('agent_answer', (p) => { if (p.text?.trim()) add(p.text); }));
       uns.push(await listen<{ text: string }>('agent_plan', (p) => add('**Plan**\n\n' + p.text)));
-      uns.push(await listen<{ error: string }>('agent_error', (p) => add('⚠️ ' + p.error)));
-      uns.push(await listen<{ tool: string; args: Record<string, unknown> }>('agent_approval', (p) => setPendingApproval(p)));
-      uns.push(await listen('agent_done', () => { setStreaming(false); setPendingApproval(null); }));
+      uns.push(await listen<{ error: string }>('agent_error', (p) => {
+        add('**Error** — ' + p.error);
+        touchTask(p.error.slice(0, 80), 'error');
+      }));
+      uns.push(await listen<{ tool: string; args: Record<string, unknown> }>('agent_approval', (p) => {
+        setPendingApproval(p);
+        touchTask('Waiting for you · confirm the tool call', 'waiting');
+      }));
+      uns.push(await listen('agent_done', () => {
+        setStreaming(false);
+        setPendingApproval(null);
+        touchTask('Finished', 'done');
+      }));
     })();
     return () => uns.forEach((u) => u?.());
-  }, []);
+  }, [activeId]);
 
   const active = conversations.find((c) => c.id === activeId) ?? conversations[0];
   const commands = allCommands(skills);
+  const currentRec = tiers.find((t) => t.rec.ollama_pull === selectedModel)?.rec ?? null;
+  const ctxTotal = currentRec?.context_comfortable ?? 8192;
+  const ctxUsed = useMemo(() => estimateContext(active?.messages ?? []), [active]);
+  const readyModels = tiers.filter((t) => t.status === 'ready').length;
+  const lastTps = useMemo(() => {
+    const vals = Object.values(turnStats);
+    const last = vals[vals.length - 1];
+    return last && last.seconds > 0 ? last.tokensOut / last.seconds : null;
+  }, [turnStats]);
+  const greetLine = greeting('Vlad');
 
   function pickModel(tag: string) {
     setUserPicked(true);
@@ -259,6 +372,12 @@ export default function App() {
   /** Append an assistant "note" (help text, tool output, confirmations). */
   function addNote(content: string, convId: string = activeId) {
     addMessage({ id: uid(), role: 'assistant', content, timestamp: new Date().toISOString() }, convId);
+  }
+
+  /** Leave whatever nav overlay is open and go back to the current mode. */
+  function toMode(m?: Mode) {
+    setNav(null);
+    if (m) setMode(m);
   }
 
   // ── Chat ─────────────────────────────────────────────────
@@ -279,14 +398,31 @@ export default function App() {
       setConversations((prev) => prev.map((c) => (c.id === convId ? { ...c, title } : c)));
     }
 
+    // R18: the simple persona never picks a model — the router does, per
+    // message. Developers keep their manual choice (R16) unless they haven't
+    // touched the picker.
+    const useRouter = persona === 'simple' ? prefs.autoRoute : !userPicked;
+    const decision = useRouter ? route(userText, tiers, selectedModel) : null;
+    const model = decision?.tag ?? selectedModel;
+
     setStreaming(true);
     const assistantId = uid();
     addMessage({ id: assistantId, role: 'assistant', content: '', timestamp: new Date().toISOString() }, convId);
 
-    streamResponse(history, assistantId, convId, opts?.system ?? conv.systemPrompt);
+    if (decision && persona === 'dev' && prefs.explainRouter) {
+      setTurnStats((prev) => ({
+        ...prev,
+        [assistantId]: {
+          model, quant: tiers.find((t) => t.rec.ollama_pull === model)?.rec.quant,
+          tokensOut: 0, seconds: 0, ctxUsed, ctxTotal, router: describeRoute(decision, tiers),
+        },
+      }));
+    }
+
+    streamResponse(history, assistantId, convId, opts?.system ?? conv.systemPrompt, model);
   }
 
-  // ── Agent mode ───────────────────────────────────────────
+  // ── Agent mode (Cowork + Code) ───────────────────────────
   function runAgent(text: string) {
     if (!text.trim() || streaming) return;
     const convId = activeId;
@@ -301,9 +437,23 @@ export default function App() {
     if (conv.messages.length === 0) {
       setConversations((prev) => prev.map((c) => (c.id === convId ? { ...c, title: text.slice(0, 60) } : c)));
     }
+
+    // Cowork surfaces the run in its Active list.
+    const taskId = uid();
+    agentTaskId.current = taskId;
+    setTasks((prev) => [{
+      id: taskId, title: text.slice(0, 80), detail: 'Starting…',
+      state: 'working', startedAt: Date.now(), updatedAt: Date.now(),
+    }, ...prev]);
+
     setStreaming(true);
-    setView('chat');
-    if (!isTauri()) { addMessage({ id: uid(), role: 'assistant', content: '_(Agent runs only in the desktop app.)_', timestamp: new Date().toISOString() }, convId); setStreaming(false); return; }
+    setNav(null);
+    if (!isTauri()) {
+      addNote('_(The tool loop runs only in the desktop app.)_', convId);
+      setStreaming(false);
+      setTasks((prev) => prev.map((t) => t.id === taskId ? { ...t, state: 'error', detail: 'Desktop app only' } : t));
+      return;
+    }
     invoke('run_agent', { messages: history, model: selectedModel, mode: agentPermMode });
   }
 
@@ -313,6 +463,7 @@ export default function App() {
   }
   function stopAgent() {
     invoke('stop_agent');
+    setStreaming(false);
   }
   function cycleAgentMode() {
     const order: AgentPermMode[] = ['ask', 'auto', 'bypass', 'plan'];
@@ -323,9 +474,17 @@ export default function App() {
     messages: { role: string; content: string }[],
     msgId: string,
     convId: string,
-    system?: string
+    system: string | undefined,
+    model: string
   ) {
+    // Measured, not estimated: one `chat_token` event is one token.
+    const startedAt = Date.now();
+    let tokens = 0;
+    let chars = 0;
+
     const appendToken = (token: string) => {
+      tokens += 1;
+      chars += token.length;
       setConversations((prev) =>
         prev.map((c) =>
           c.id === convId
@@ -335,9 +494,39 @@ export default function App() {
       );
     };
 
+    const finish = () => {
+      const seconds = (Date.now() - startedAt) / 1000;
+      setTurnStats((prev) => ({
+        ...prev,
+        [msgId]: {
+          ...prev[msgId],
+          model,
+          quant: tiers.find((t) => t.rec.ollama_pull === model)?.rec.quant,
+          tokensOut: tokens,
+          seconds,
+          ctxUsed: ctxUsed + estimateTokens(String(chars)) + tokens,
+          ctxTotal,
+          router: prev[msgId]?.router,
+        },
+      }));
+      // R17/R18: the simple persona sees only the outcome, in plain words.
+      const secs = Math.max(1, Math.round(seconds));
+      setSimpleStatus((prev) => ({ ...prev, [msgId]: `Thought for ${secs} second${secs === 1 ? '' : 's'}` }));
+    };
+
     if (!isTauri()) {
-      mockResponse(msgId, convId);
-      setStreaming(false);
+      // Stream the canned reply word by word so the dev build's counters are
+      // measured the same way the real ones are, rather than reporting zero.
+      const words = MOCK_REPLY.split(' ');
+      let i = 0;
+      const tick = setInterval(() => {
+        appendToken((i === 0 ? '' : ' ') + words[i]);
+        if (++i >= words.length) {
+          clearInterval(tick);
+          finish();
+          setStreaming(false);
+        }
+      }, 18);
       return;
     }
 
@@ -353,54 +542,49 @@ export default function App() {
 
     try {
       unlistenToken = await listen<string>('chat_token', (token) => appendToken(token));
-      unlistenDone = await listen<boolean>('chat_done', () => { cleanup(); setStreaming(false); });
+      unlistenDone = await listen<boolean>('chat_done', () => { cleanup(); finish(); setStreaming(false); });
       // Big models that spill to CPU load and generate slowly — give them a much
       // longer leash before timing out.
-      const selRec = tiers.find((t) => t.rec.ollama_pull === selectedModel)?.rec;
+      const selRec = tiers.find((t) => t.rec.ollama_pull === model)?.rec;
       const timeoutMs = selRec?.memory_fit.offload ? 900000 : 180000;
       timeout = setTimeout(() => {
         cleanup();
-        appendToken('\n\n⚠️ Timed out waiting for a response. The model may still be loading — try again.');
+        appendToken('\n\n**Timed out** waiting for a response. The model may still be loading — try again.');
+        finish();
         setStreaming(false);
       }, timeoutMs);
-      await invoke('send_message', { messages, model: selectedModel, system: system ?? null });
+      await invoke('send_message', { messages, model, system: system ?? null });
     } catch {
       cleanup();
-      appendToken('\n\n⚠️ Could not start the model. Make sure Ollama is installed and running.');
+      appendToken('\n\n**Could not start the model.** Make sure Ollama is installed and running.');
+      finish();
       setStreaming(false);
     }
-  }
-
-  function mockResponse(msgId: string, convId: string) {
-    const chunk = "I'm running locally. (Browser dev build — no Tauri backend, so this is a canned reply.)";
-    setConversations((prev) =>
-      prev.map((c) =>
-        c.id === convId
-          ? { ...c, messages: c.messages.map((m) => (m.id === msgId ? { ...m, content: chunk } : m)) }
-          : c
-      )
-    );
   }
 
   // ── Slash commands ───────────────────────────────────────
   function handleCommand(name: string, args: string) {
     const skill = skills.find((s) => s.name === name);
     if (skill) {
-      setView('chat');
+      toMode();
       sendChat(args || skill.title, { system: skill.instructions });
       return;
     }
     switch (name) {
-      case 'new': handleNewConversation(); setView('chat'); break;
+      case 'new': handleNewConversation(); toMode(); break;
       case 'clear': setConversations((prev) => prev.map((c) => (c.id === activeId ? { ...c, messages: [] } : c))); break;
       case 'help': showHelp(); break;
       case 'model': switchModelByTier(args); break;
-      case 'models': setView('library'); break;
-      case 'skills': setView('skills'); break;
-      case 'memory': setView('memory'); break;
+      // R17: no model library for the simple persona, by any route.
+      case 'models':
+        if (persona === 'dev') setNav('library');
+        else addNote('LlamaChat manages models for you. Switch to the developer setup in Settings to see the library.');
+        break;
+      case 'skills': setNav('skills'); break;
+      case 'memory': setNav('memory'); break;
       case 'remember': rememberFact(args); break;
       case 'forget': forgetFact(args); break;
-      case 'settings': setView('settings'); break;
+      case 'settings': setNav('settings'); break;
       case 'copy': copyLast(); break;
       case 'retry': retryLast(); break;
       case 'system': setSystemPromptCmd(args); break;
@@ -414,15 +598,21 @@ export default function App() {
   function showHelp() {
     const lines = commands.map((c) => `/${c.name}${c.argHint ? ' ' + c.argHint : ''}  —  ${c.description}`);
     addNote('Commands:\n```\n' + lines.join('\n') + '\n```');
-    setView('chat');
+    toMode();
   }
 
   function switchModelByTier(arg: string) {
+    // R17: the simple persona has no concept of a model to switch to.
+    if (persona === 'simple') {
+      addNote('LlamaChat picks the model for you. Switch to the developer setup in Settings to choose by hand.');
+      toMode();
+      return;
+    }
     const a = arg.trim().toLowerCase();
     if (!a) {
       const lines = tiers.map((t) => `${t.label} · ${t.rec.display_name}${t.status === 'ready' ? '' : ` (${t.status})`}`);
       addNote('Models — use `/model quick|smart|best`:\n```\n' + lines.join('\n') + '\n```');
-      setView('chat');
+      toMode();
       return;
     }
     const t = tiers.find((x) => x.tier === a);
@@ -430,7 +620,7 @@ export default function App() {
     if (t.status !== 'ready') { addNote(`${t.label} isn't ready yet (${t.status}).`); return; }
     pickModel(t.rec.ollama_pull);
     addNote(`Switched to ${t.label} · ${t.rec.display_name}.`);
-    setView('chat');
+    toMode();
   }
 
   async function copyLast() {
@@ -459,15 +649,15 @@ export default function App() {
       )
     );
     setStreaming(true);
-    setView('chat');
-    streamResponse(history, assistantId, activeId, conv.systemPrompt);
+    toMode();
+    streamResponse(history, assistantId, activeId, conv.systemPrompt, selectedModel);
   }
 
   function setSystemPromptCmd(args: string) {
     const p = args.trim();
     setConversations((prev) => prev.map((c) => (c.id === activeId ? { ...c, systemPrompt: p || undefined } : c)));
     addNote(p ? "Updated this chat's system prompt." : 'Cleared the custom system prompt.');
-    setView('chat');
+    toMode();
   }
 
   async function rememberFact(fact: string) {
@@ -476,8 +666,8 @@ export default function App() {
     const cur = (await invoke<string>('get_memory')) ?? '';
     const next = `${cur.trimEnd()}\n- ${f}\n`.replace(/^\n+/, '');
     await invoke('set_memory', { content: next });
-    addNote(`🧠 Remembered: ${f}`);
-    setView('chat');
+    addNote(`Remembered: ${f}`);
+    toMode();
   }
 
   async function forgetFact(fragment: string) {
@@ -489,16 +679,21 @@ export default function App() {
     await invoke('set_memory', { content: kept.join('\n') });
     const removed = before.length - kept.length;
     addNote(removed > 0 ? `Forgot ${removed} line${removed === 1 ? '' : 's'} matching "${q}".` : `Nothing in memory matched "${q}".`);
-    setView('chat');
+    toMode();
   }
 
   // ── Tools ────────────────────────────────────────────────
   async function runTool(toolName: string, args: Record<string, unknown>, display: string) {
-    setView('chat');
+    toMode();
     const convId = activeId;
     addMessage({ id: uid(), role: 'user', content: display, timestamp: new Date().toISOString() }, convId);
 
     if (!isTauri()) { addNote('_(Tools run only in the desktop app.)_', convId); return; }
+
+    const entryId = uid();
+    setActivity((prev) => [...prev, {
+      id: entryId, tool: toolName, detail: plainArgs(args), state: 'running', startedAt: Date.now(),
+    }]);
 
     // The user explicitly invoked a tool — grant consent for destructive tools.
     try {
@@ -515,8 +710,10 @@ export default function App() {
     const res = await invoke<{ ok: boolean; output?: string; error?: string }>('execute_tool', {
       request: { name: toolName, args },
     });
-    if (!res) { addNote('⚠️ Tool call failed.', convId); return; }
-    const body = res.ok ? (res.output || '_(no output)_') : `⚠️ ${res.error || 'failed'}`;
+    setActivity((prev) => prev.map((a) =>
+      a.id === entryId ? { ...a, state: res?.ok ? 'ok' : 'error', endedAt: Date.now() } : a));
+    if (!res) { addNote('**Tool call failed.**', convId); return; }
+    const body = res.ok ? (res.output || '_(no output)_') : `Error: ${res.error || 'failed'}`;
     addNote('```\n' + body + '\n```', convId);
   }
 
@@ -548,6 +745,7 @@ export default function App() {
       ...prev,
     ]);
     setActiveId(id);
+    setNav(null);
   }
 
   function handleDeleteConversation(id: string) {
@@ -559,155 +757,301 @@ export default function App() {
     });
   }
 
+  // ── First-run screens ────────────────────────────────────
+  if (phase === 'persona') {
+    return (
+      <>
+        <IconSprite />
+        <div className="lc-shell">
+          <PersonaChoice
+            onPick={(p) => {
+              setPersona(p);
+              savePersona(p);
+              setPhase('profiling');
+            }}
+          />
+        </div>
+      </>
+    );
+  }
   if (phase === 'welcome') {
     return (
-      <WelcomeSteps
-        onFinish={() => {
-          try { localStorage.setItem('llamachat.welcomed', '1'); } catch { /* ignore */ }
-          setWelcomed(true);
-          setPhase('ready');
-        }}
-      />
+      <>
+        <IconSprite />
+        <WelcomeSteps
+          onFinish={() => {
+            try { localStorage.setItem('llamachat.welcomed', '1'); } catch { /* ignore */ }
+            setWelcomed(true);
+            setPhase('ready');
+          }}
+        />
+      </>
     );
   }
   if (phase === 'profiling' || phase === 'setup') {
     return (
-      <SetupWizard
-        phase={phase}
-        hardware={hardware}
-        tiers={tiers}
-        onContinue={() => setPhase('ready')}
-        onBrowseAll={() => { setPhase('ready'); setView('library'); }}
-      />
+      <>
+        <IconSprite />
+        <SetupWizard
+          phase={phase}
+          hardware={hardware}
+          tiers={tiers}
+          persona={persona}
+          onContinue={() => setPhase('ready')}
+          onBrowseAll={() => { setPhase('ready'); setNav('library'); }}
+        />
+      </>
     );
   }
 
+  // ── The app ──────────────────────────────────────────────
+  const composerCommon = {
+    onCommand: handleCommand,
+    disabled: streaming,
+    commands,
+    persona,
+    mode,
+    modes,
+    onMode: (m: Mode) => toMode(m),
+    tiers,
+    selectedModel,
+    onSelectModel: pickModel,
+    onBrowseAll: () => setNav('library'),
+    ctxUsed,
+    ctxTotal,
+    onStop: streaming ? stopAgent : undefined,
+  };
+
+  const hasThread = active.messages.length > 0;
+
   return (
-    <div className="h-full flex bg-bg">
-      <Sidebar
-        open={sidebarOpen}
-        conversations={conversations}
-        activeId={activeId}
-        hardware={hardware}
-        onSelect={(id) => { setActiveId(id); setView('chat'); }}
-        onNew={handleNewConversation}
-        onDelete={handleDeleteConversation}
-        onToggle={() => setSidebarOpen((o) => !o)}
-      />
-
-      <div className="flex-1 flex flex-col min-w-0">
-        <div className="flex-shrink-0 h-9 border-b border-border flex items-center px-3 gap-2">
-          {!sidebarOpen && (
-            <button onClick={() => setSidebarOpen(true)} className="text-text-secondary hover:text-text p-0.5" title="Toggle sidebar">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <path d="M2 3h12M2 8h12M2 13h12" stroke="currentColor" strokeWidth="1.5" />
-              </svg>
+    <>
+      <IconSprite />
+      <div className="lc-shell">
+        {/* Top bar — the chromeless strip from the reference shots. */}
+        <div className="tb">
+          <button type="button" title="Toggle sidebar" onClick={() => setSidebarOpen((o) => !o)}>
+            <Icon name="panel" />
+          </button>
+          <button type="button" title="New conversation" onClick={handleNewConversation}>
+            <Icon name="plus" />
+          </button>
+          {nav !== null && (
+            <button type="button" title="Back" onClick={() => setNav(null)}>
+              <Icon name="back" />
             </button>
           )}
-          {view === 'chat' ? (
-            <>
-              <span className="text-[11px] text-text-muted truncate">{active.title}</span>
-              <span className="text-[10px] text-accent ml-auto">{selectedModel}</span>
-              {hardware && (
-                <span className="text-[10px] text-text-muted">
-                  &middot; {hardware.cpu.model.split(' ').slice(0, 2).join(' ')}
-                </span>
-              )}
-            </>
-          ) : (
-            <button onClick={() => setView('chat')} className="text-[11px] text-text-secondary hover:text-text flex items-center gap-1" title="Back to chat">
-              <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-                <path d="M10 3L5 8l5 5" stroke="currentColor" strokeWidth="1.5" />
-              </svg>
-              Back to chat
-            </button>
-          )}
-
-          <div className={`flex items-center gap-1 ${view === 'chat' ? '' : 'ml-auto'}`}>
-            <NavButton active={view === 'memory'} onClick={() => setView(view === 'memory' ? 'chat' : 'memory')} title="Memory">
-              <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
-                <path d="M8 2.2c-1.3 0-2.4.9-2.6 2.1C4.2 4.6 3.4 5.6 3.4 6.8c0 .5.1.9.4 1.3-.4.4-.6 1-.6 1.6 0 1.2.9 2.1 2.1 2.2.3.9 1.1 1.5 2.1 1.5s1.8-.6 2.1-1.5c1.2-.1 2.1-1 2.1-2.2 0-.6-.2-1.2-.6-1.6.3-.4.4-.8.4-1.3 0-1.2-.8-2.2-2-2.5C10.4 3.1 9.3 2.2 8 2.2z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round" />
-                <path d="M8 2.2v9.6" stroke="currentColor" strokeWidth="1.1" />
-              </svg>
-            </NavButton>
-            <NavButton active={view === 'skills'} onClick={() => setView(view === 'skills' ? 'chat' : 'skills')} title="Skills">
-              <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
-                <path d="M8 1.5l1.6 3.9 3.9 1.6-3.9 1.6L8 12.5 6.4 8.6 2.5 7l3.9-1.6L8 1.5z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
-              </svg>
-            </NavButton>
-            <NavButton active={view === 'library'} onClick={() => setView(view === 'library' ? 'chat' : 'library')} title="Model library">
-              <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
-                <path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                <circle cx="4.5" cy="4" r="1" fill="currentColor" />
-                <circle cx="4.5" cy="8" r="1" fill="currentColor" />
-                <circle cx="4.5" cy="12" r="1" fill="currentColor" />
-              </svg>
-            </NavButton>
-            <NavButton active={view === 'settings'} onClick={() => setView(view === 'settings' ? 'chat' : 'settings')} title="Settings">
-              <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
-                <circle cx="8" cy="8" r="2.2" stroke="currentColor" strokeWidth="1.5" />
-                <path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M12.6 3.4l-1.4 1.4M4.8 11.2l-1.4 1.4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-              </svg>
-            </NavButton>
-          </div>
+          <span className="title">{nav === null ? active.title : NAV_TITLE[nav]}</span>
+          <div className="sp" />
         </div>
 
-        {view === 'chat' && (
-          <>
-            <ChatArea ref={chatRef} messages={active.messages} streaming={streaming} />
-            {pendingApproval && (
-              <div className="flex-shrink-0 mx-3 mb-2 rounded-lg border border-warning/40 bg-warning/5 px-3 py-2 flex items-center gap-2">
-                <span className="text-[12px] text-text">
-                  Run <span className="font-mono text-warning">{pendingApproval.tool}</span> {summarizeArgs(pendingApproval.args)}?
-                </span>
-                <div className="ml-auto flex gap-1.5">
-                  <button onClick={() => approveAgent(true)} className="px-2.5 py-1 text-[12px] rounded bg-accent text-white hover:opacity-90">Approve</button>
-                  <button onClick={() => approveAgent(false)} className="px-2.5 py-1 text-[12px] rounded border border-border text-text-secondary hover:text-text">Deny</button>
+        <div className="lc-body">
+          <Sidebar
+            open={sidebarOpen}
+            mode={mode}
+            conversations={conversations}
+            activeId={activeId}
+            nav={nav}
+            readyModels={readyModels}
+            onSelect={(id) => { setActiveId(id); setNav(null); }}
+            onNew={handleNewConversation}
+            onDelete={handleDeleteConversation}
+            onNav={(v) => setNav((cur) => (cur === v ? null : v))}
+          />
+
+          <main className="main">
+            {/* Nav overlays. These are destinations, not modes (R1). */}
+            {nav === 'library' && (
+              <ModelLibrary selectedModel={selectedModel} onUseModel={(tag) => { pickModel(tag); setNav(null); }} />
+            )}
+            {nav === 'settings' && (
+              <Settings
+                hardware={hardware}
+                persona={persona}
+                onPersona={setPersona}
+                prefs={prefs}
+                onPrefs={setPrefs}
+                tiers={tiers}
+              />
+            )}
+            {nav === 'skills' && <SkillsTab skills={skills} onChange={setSkills} />}
+            {nav === 'memory' && <MemoryTab />}
+
+            {/* ── Chat ─────────────────────────────────────── */}
+            {nav === null && mode === 'chat' && (
+              <div className="pane">
+                {!hasThread ? (
+                  <div className="center">
+                    {/* R11 — the greeting Vlad liked. */}
+                    <div className="greet"><Icon name="llama" />{greetLine}</div>
+                    <InputBar {...composerCommon} variant="centered" onSend={sendChat} />
+                    <div className="hint simple-only">
+                      Runs entirely on your computer. Nothing leaves this machine.
+                    </div>
+                    <div className="hint dev-only">
+                      {currentRec
+                        ? `${currentRec.ollama_pull} · ${currentRec.quant} · ${readyModels} model${readyModels === 1 ? '' : 's'} ready`
+                        : 'No model loaded yet.'}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="pane">
+                    <ChatArea
+                      ref={chatRef}
+                      messages={active.messages}
+                      streaming={streaming}
+                      persona={persona}
+                      stats={turnStats}
+                      simpleStatus={simpleStatus}
+                    />
+                    <div className="dockchat">
+                      <InputBar {...composerCommon} variant="docked" onSend={sendChat} />
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── Cowork ───────────────────────────────────── */}
+            {nav === null && mode === 'cowork' && (
+              <div className="pane">
+                {hasThread ? (
+                  <>
+                    <ChatArea
+                      ref={chatRef}
+                      messages={active.messages}
+                      streaming={streaming}
+                      persona={persona}
+                      stats={turnStats}
+                      simpleStatus={simpleStatus}
+                    />
+                    {pendingApproval && <ApprovalRow pending={pendingApproval} onAnswer={approveAgent} />}
+                    <div className="dockchat">
+                      <InputBar
+                        {...composerCommon}
+                        variant="docked"
+                        onSend={runAgent}
+                        secondRow={<CoworkRow permMode={agentPermMode} onCycle={cycleAgentMode} />}
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <CoworkPane
+                    greeting={greetLine}
+                    composer={
+                      <InputBar
+                        {...composerCommon}
+                        variant="centered"
+                        onSend={runAgent}
+                        secondRow={<CoworkRow permMode={agentPermMode} onCycle={cycleAgentMode} />}
+                      />
+                    }
+                    tasks={tasks}
+                    onClear={() => setTasks([])}
+                    onOpen={() => setNav(null)}
+                  />
+                )}
+              </div>
+            )}
+
+            {/* ── Code (developer only) ────────────────────── */}
+            {nav === null && mode === 'code' && persona === 'dev' && (
+              <div className="pane">
+                <CodeWorkspace
+                  greeting={greetLine}
+                  hardware={hardware}
+                  tiers={tiers}
+                  selectedModel={selectedModel}
+                  onUseModel={pickModel}
+                  onManageLibrary={() => setNav('library')}
+                  activity={activity}
+                  ctxUsed={ctxUsed}
+                  ctxTotal={ctxTotal}
+                />
+                <div className="dock">
+                  {pendingApproval && <ApprovalRow pending={pendingApproval} onAnswer={approveAgent} />}
+                  <div className="dctx">
+                    <span className="chip"><Icon name="host" /> local</span>
+                    <span className="chip"><Icon name="folder" /> {hardware?.storage.models_dir?.split('/').pop() || 'workspace'}</span>
+                    <span className="chip"><Icon name="term" /> {hardware?.os.name ?? 'local'}</span>
+                  </div>
+                  <InputBar
+                    {...composerCommon}
+                    variant="code"
+                    onSend={runAgent}
+                    agentPermMode={agentPermMode}
+                    onCyclePermMode={cycleAgentMode}
+                  />
                 </div>
               </div>
             )}
-            {streaming && agentMode && !pendingApproval && (
-              <div className="flex-shrink-0 mx-3 mb-2 flex items-center gap-2 text-[11px] text-text-muted">
-                <span className="w-3 h-3 border-2 border-accent border-t-transparent rounded-full animate-spin" />
-                Agent working…
-                <button onClick={stopAgent} className="ml-auto px-2.5 py-1 text-[12px] rounded border border-border text-text-secondary hover:text-error">Stop</button>
-              </div>
-            )}
-            <InputBar
-              onSend={(t) => (agentMode ? runAgent(t) : sendChat(t))}
-              onCommand={handleCommand}
-              disabled={streaming}
-              tiers={tiers}
-              selectedModel={selectedModel}
-              onSelectModel={pickModel}
-              onBrowseAll={() => setView('library')}
-              commands={commands}
-              agentMode={agentMode}
-              agentPermMode={agentPermMode}
-              onToggleAgent={() => setAgentMode((a) => !a)}
-              onCycleMode={cycleAgentMode}
-            />
-          </>
+          </main>
+        </div>
+
+        {/* R16/R19 — the developer status bar. `.dev-only` hides it for simple. */}
+        {prefs.statusBar && (
+          <StatusBar
+            hardware={hardware}
+            tiers={tiers}
+            selectedModel={selectedModel}
+            tokensPerSec={lastTps}
+            ctxUsed={ctxUsed}
+            ctxTotal={ctxTotal}
+          />
         )}
-        {view === 'library' && (
-          <ModelLibrary selectedModel={selectedModel} onUseModel={(tag) => { pickModel(tag); setView('chat'); }} />
-        )}
-        {view === 'settings' && <Settings hardware={hardware} />}
-        {view === 'skills' && <SkillsTab skills={skills} onChange={setSkills} />}
-        {view === 'memory' && <MemoryTab />}
       </div>
+    </>
+  );
+}
+
+const NAV_TITLE: Record<NavView, string> = {
+  library: 'Model library',
+  skills: 'Skills',
+  memory: 'Memory',
+  settings: 'Settings',
+};
+
+/** Cowork's second composer row: scope, tools, and the permission control. */
+function CoworkRow({ permMode, onCycle }: { permMode: AgentPermMode; onCycle: () => void }) {
+  const label: Record<AgentPermMode, string> = {
+    plan: 'Plan only',
+    ask: 'Ask before changes',
+    auto: 'Auto-approve safe',
+    bypass: 'No prompts',
+  };
+  return (
+    <div className="crow2">
+      {/* TODO(scope): there is no per-run working-directory concept in the
+          backend yet — `run_agent` takes no scope argument — so this reports
+          the whole machine rather than pretending a folder is selected. */}
+      <span className="chip"><Icon name="folder" /> This computer</span>
+      <span className="chip"><Icon name="tool" /> Shell · Files · Browser</span>
+      <div className="sp" style={{ flex: 1 }} />
+      <button type="button" className="chip" onClick={onCycle} title="Cycle permission mode">
+        {label[permMode]} <Icon name="chev" size={12} />
+      </button>
     </div>
   );
 }
 
-function NavButton({ active, onClick, title, children }: { active: boolean; onClick: () => void; title: string; children: React.ReactNode }) {
+function ApprovalRow({
+  pending, onAnswer,
+}: {
+  pending: { tool: string; args: Record<string, unknown> };
+  onAnswer: (ok: boolean) => void;
+}) {
   return (
-    <button
-      onClick={onClick}
-      title={title}
-      className={`p-1 rounded transition-colors ${active ? 'text-accent bg-accent-dim' : 'text-text-muted hover:text-text'}`}
-    >
-      {children}
-    </button>
+    <div className="crow2" style={{ marginTop: 0, borderTop: 'none', marginBottom: 8 }}>
+      <span className="chip warn">
+        <Icon name="tool" /> Run {pending.tool} {plainArgs(pending.args)}?
+      </span>
+      <div className="sp" style={{ flex: 1 }} />
+      <button type="button" className="chip ok" onClick={() => onAnswer(true)}>
+        <Icon name="check" /> Approve
+      </button>
+      <button type="button" className="chip" onClick={() => onAnswer(false)}>
+        <Icon name="x" /> Deny
+      </button>
+    </div>
   );
 }

@@ -153,8 +153,6 @@ export interface TierModel {
   tier: TierId;
   /** Short human label: "Quick" | "Smart" | "Best". */
   label: string;
-  /** Emoji marker shown in the picker. */
-  icon: string;
   /** The concrete model (name, scores, ollama_pull tag). */
   rec: Recommendation;
   status: ModelStatus;

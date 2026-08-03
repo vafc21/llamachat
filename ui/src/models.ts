@@ -10,14 +10,15 @@ interface TierMeta {
   /** Which LevelPlan field this tier maps to. */
   key: 'quick' | 'standard' | 'max';
   label: string;
-  icon: string;
 }
 
-/** quick→Quick (fastest), standard→Smart (balanced), max→Best (biggest that runs). */
+/** quick→Quick (fastest), standard→Smart (balanced), max→Best (biggest that runs).
+ *  No icons: the tiers are labelled in words. Emoji are banned in the chrome
+ *  (R7 + standing design law) — v6 renders these as `.tier` word badges. */
 export const TIER_META: TierMeta[] = [
-  { id: 'quick', key: 'quick', label: 'Quick', icon: '⚡' },
-  { id: 'smart', key: 'standard', label: 'Smart', icon: '✦' },
-  { id: 'best', key: 'max', label: 'Best', icon: '★' },
+  { id: 'quick', key: 'quick', label: 'Quick' },
+  { id: 'smart', key: 'standard', label: 'Smart' },
+  { id: 'best', key: 'max', label: 'Best' },
 ];
 
 /**
@@ -33,7 +34,7 @@ export function tiersFromPlan(plan: LevelPlan): TierModel[] {
     const rec = plan[meta.key];
     if (!rec || seen.has(rec.ollama_pull)) continue;
     seen.add(rec.ollama_pull);
-    out.push({ tier: meta.id, label: meta.label, icon: meta.icon, rec, status: 'pending', pct: 0 });
+    out.push({ tier: meta.id, label: meta.label, rec, status: 'pending', pct: 0 });
   }
   return out;
 }
@@ -94,8 +95,8 @@ function mockRec(over: Partial<Recommendation>): Recommendation {
 /** Three mock tiers for the browser dev build. */
 export function mockTiers(): TierModel[] {
   return [
-    { tier: 'quick', label: 'Quick', icon: '⚡', status: 'pending', pct: 0, rec: mockRec({ display_name: 'Llama 3.2 3B', ollama_pull: 'llama3.2:3b', intelligence_score: 6, speed_score: 10 }) },
-    { tier: 'smart', label: 'Smart', icon: '✦', status: 'pending', pct: 0, rec: mockRec({ display_name: 'Qwen2.5 7B', ollama_pull: 'qwen2.5:7b', intelligence_score: 7, speed_score: 8 }) },
-    { tier: 'best', label: 'Best', icon: '★', status: 'pending', pct: 0, rec: mockRec({ display_name: 'Qwen3.5 9B', ollama_pull: 'qwen3.5:9b', intelligence_score: 8, speed_score: 6 }) },
+    { tier: 'quick', label: 'Quick', status: 'pending', pct: 0, rec: mockRec({ display_name: 'Llama 3.2 3B', ollama_pull: 'llama3.2:3b', intelligence_score: 6, speed_score: 10, tier: 'blazing' }) },
+    { tier: 'smart', label: 'Smart', status: 'pending', pct: 0, rec: mockRec({ display_name: 'Qwen2.5 7B', ollama_pull: 'qwen2.5:7b', intelligence_score: 7, speed_score: 8, tier: 'great' }) },
+    { tier: 'best', label: 'Best', status: 'pending', pct: 0, rec: mockRec({ display_name: 'Qwen3.5 9B', ollama_pull: 'qwen3.5:9b', intelligence_score: 8, speed_score: 6, tier: 'okay' }) },
   ];
 }

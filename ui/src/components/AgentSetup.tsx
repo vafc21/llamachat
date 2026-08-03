@@ -4,7 +4,8 @@ import type { DownloadProgress } from '../types'
 
 interface Perms { accessibility: boolean; screen_recording: boolean; ollama: boolean }
 
-/** Checklist of what Agent mode needs, with live ✅/❌ status + grant buttons. */
+/** Checklist of what the tool loop needs, with live tick/cross glyphs (no
+ *  emoji — R7) and grant buttons. */
 export function AgentSetup({ onDone }: { onDone?: () => void }) {
   const [perms, setPerms] = useState<Perms>({ accessibility: false, screen_recording: false, ollama: false });
   const [llava, setLlava] = useState<'idle' | 'downloading' | 'done'>('idle');

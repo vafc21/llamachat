@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { TierModel } from '../types'
+import { Icon } from './Icon'
 
 interface ModelPickerProps {
   tiers: TierModel[];
@@ -10,107 +11,79 @@ interface ModelPickerProps {
   onBrowseAll: () => void;
 }
 
-/** Compact status pill: Ready / NN% / Failed / Queued. */
+/** Compact status word: Ready / NN% / Failed / Queued. No emoji (R7). */
 function StatusPill({ t }: { t: TierModel }) {
-  if (t.status === 'ready')
-    return <span className="text-[9px] text-emerald-400">Ready</span>;
-  if (t.status === 'downloading')
-    return <span className="text-[9px] text-accent">{Math.round(t.pct)}%</span>;
-  if (t.status === 'error')
-    return <span className="text-[9px] text-red-400">Failed</span>;
-  return <span className="text-[9px] text-text-muted">Queued</span>;
+  if (t.status === 'ready') return <span className="tier b">Ready</span>;
+  if (t.status === 'downloading') return <span className="tier">{Math.round(t.pct)}%</span>;
+  if (t.status === 'error') return <span className="tier" style={{ color: 'var(--err)' }}>Failed</span>;
+  return <span className="tier">Queued</span>;
 }
 
 /**
- * Claude-desktop-style model switcher that lives on the input bar. Shows the
- * active tier + model; clicking opens a menu of the three tiers. Models still
- * downloading show progress and can't be selected until ready.
+ * The manual model picker — developer persona only (R16). It shows the model
+ * name plus its quant label, exactly like v6's `.modelpick`.
+ *
+ * The simple persona never renders this at all (R17); the composer swaps in an
+ * `Auto` pill and the router decides.
  */
 export function ModelPicker({ tiers, selected, onSelect, onBrowseAll }: ModelPickerProps) {
   const [open, setOpen] = useState(false);
 
-  // The active tier, or a synthetic label when a custom (non-tier) model is chosen.
-  const currentTier = tiers.find((t) => t.rec.ollama_pull === selected);
-  const currentIcon = currentTier?.icon ?? '●';
-  const currentLabel = currentTier?.label ?? 'Custom';
-  const currentName = currentTier?.rec.display_name ?? selected;
+  const current = tiers.find((t) => t.rec.ollama_pull === selected);
+  const name = current?.rec.display_name ?? selected;
+  const quant = current?.rec.quant ?? '';
 
   return (
-    <div className="relative">
-      <button
-        onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-1 text-[10px] text-text-muted hover:text-text
-                   transition-colors rounded px-1 py-0.5"
-        title="Switch model"
-      >
-        <span>{currentIcon}</span>
-        <span className="text-text font-medium">{currentLabel}</span>
-        <span className="text-text-muted truncate max-w-[140px]">· {currentName}</span>
-        <svg width="9" height="9" viewBox="0 0 16 16" fill="none" className="opacity-70">
-          <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
+    <div style={{ position: 'relative' }}>
+      <button type="button" className="modelpick" onClick={() => setOpen((o) => !o)} title="Switch model">
+        <b>{name}</b>
+        {quant && <em>{quant}</em>}
+        <Icon name="chev" size={14} />
       </button>
 
       {open && (
         <>
-          {/* click-away layer */}
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute bottom-full mb-1.5 left-0 z-20 w-72 rounded-lg border border-border
-                          bg-surface shadow-xl p-1">
-            <div className="px-2 py-1 text-[9px] uppercase tracking-wide text-text-muted">Model</div>
+          <div style={{ position: 'fixed', inset: 0, zIndex: 10 }} onClick={() => setOpen(false)} />
+          <div
+            className="card"
+            style={{
+              position: 'absolute', bottom: '100%', right: 0, marginBottom: 8, zIndex: 20,
+              width: 320, background: 'var(--surface2)',
+            }}
+          >
+            <div className="cardh"><Icon name="box" /><h2>Model</h2></div>
             {tiers.map((t) => {
-              const active = t.rec.ollama_pull === selected;
               const ready = t.status === 'ready';
+              const active = t.rec.ollama_pull === selected;
               return (
-                <button
-                  key={t.tier}
-                  disabled={!ready}
-                  onClick={() => {
-                    if (!ready) return;
-                    onSelect(t.rec.ollama_pull);
-                    setOpen(false);
-                  }}
-                  className={`w-full text-left rounded px-2 py-1.5 flex items-center gap-2 transition-colors
-                    ${active ? 'bg-accent-dim' : ready ? 'hover:bg-white/[0.04]' : ''}
-                    ${ready ? '' : 'opacity-60 cursor-default'}`}
-                >
-                  <span className="text-[13px]">{t.icon}</span>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-[11px] text-text font-medium">{t.label}</span>
-                      <StatusPill t={t} />
-                    </div>
-                    <div className="text-[10px] text-text-muted truncate">
-                      {t.rec.display_name} · smart {t.rec.intelligence_score.toFixed(0)}/10 · fast {t.rec.speed_score.toFixed(0)}/10
-                    </div>
-                    {t.status === 'downloading' && (
-                      <div className="mt-1 h-0.5 bg-white/[0.06] rounded-full overflow-hidden">
-                        <div className="h-full bg-accent rounded-full transition-all" style={{ width: `${t.pct}%` }} />
-                      </div>
-                    )}
+                <div className="lrow" key={t.tier}>
+                  <span className={`tier${active ? ' b' : ''}`}>{t.label}</span>
+                  <div className="nm">
+                    <b>{t.rec.display_name}</b>
+                    <span>{t.rec.ollama_pull} · {t.rec.quant}</span>
                   </div>
-                  {active && (
-                    <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-                      <path d="M3 8l3 3 7-7" stroke="var(--color-accent)" strokeWidth="2" />
-                    </svg>
-                  )}
-                </button>
+                  <StatusPill t={t} />
+                  <button
+                    type="button"
+                    className={`act${active ? ' on' : ''}`}
+                    disabled={!ready}
+                    onClick={() => { if (ready) { onSelect(t.rec.ollama_pull); setOpen(false); } }}
+                  >
+                    {active ? 'In use' : ready ? 'Use' : '—'}
+                  </button>
+                </div>
               );
             })}
-
-            {/* Custom: the whole catalog of AIs */}
-            <div className="my-1 border-t border-border" />
-            <button
-              onClick={() => {
-                onBrowseAll();
-                setOpen(false);
-              }}
-              className="w-full text-left rounded px-2 py-1.5 flex items-center gap-2 hover:bg-white/[0.04]
-                         transition-colors text-[11px] text-text-secondary"
-            >
-              <span className="text-[13px]">＋</span>
-              <span className="font-medium">Browse all models…</span>
-            </button>
+            <div className="lrow">
+              <button
+                type="button"
+                className="act"
+                style={{ marginLeft: 'auto' }}
+                onClick={() => { onBrowseAll(); setOpen(false); }}
+              >
+                Browse all models
+              </button>
+            </div>
           </div>
         </>
       )}

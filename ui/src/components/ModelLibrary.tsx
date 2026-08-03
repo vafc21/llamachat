@@ -265,7 +265,7 @@ function ModelRow({
             {sizeGb && <span className="text-[10px] text-text-muted">{sizeGb} GB download</span>}
             {rec.memory_fit.offload && (
               <span className="text-[10px] text-warning" title="Larger than your memory — runs partly on CPU, so it's slow.">
-                ⚠ slow — larger than your memory
+                Slow — larger than your memory
               </span>
             )}
           </div>

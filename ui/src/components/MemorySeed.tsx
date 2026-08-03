@@ -52,7 +52,7 @@ export function MemorySeed({ onNext, onSkip }: { onNext: () => void; onSkip: () 
       <div className="rounded-lg border border-border bg-surface overflow-hidden">
         <div className="flex items-center justify-between px-3 py-1.5 border-b border-border bg-white/[0.02]">
           <span className="text-[10px] text-text-muted uppercase tracking-wide">Prompt to copy</span>
-          <button onClick={copy} className="text-[11px] text-accent hover:opacity-80">{copied ? 'Copied ✓' : 'Copy'}</button>
+          <button onClick={copy} className="text-[11px] text-accent hover:opacity-80">{copied ? 'Copied' : 'Copy'}</button>
         </div>
         <div className="px-3 py-2 text-[11px] text-text-secondary leading-relaxed max-h-32 overflow-y-auto">
           {SEED_PROMPT}

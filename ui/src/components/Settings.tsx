@@ -1,8 +1,12 @@
 import { useState, useEffect } from 'react'
-import type { AppSettings, ModelCatalog, CatalogModel, BenchmarkIntensity, HardwareProfile } from '../types'
+import type { AppSettings, ModelCatalog, CatalogModel, BenchmarkIntensity, HardwareProfile, TierModel } from '../types'
 import { AgentSetup } from './AgentSetup'
+import { PersonaCards } from './PersonaChoice'
+import { Icon } from './Icon'
 import { INTENSITY_OPTIONS } from '../types'
 import { invoke, isTauri } from '../tauri'
+import type { Persona } from '../persona'
+import type { UiPrefs } from '../prefs'
 
 const INTENSITY_KEY = 'llamachat.benchmarkIntensity'
 
@@ -25,9 +29,41 @@ function defaultSettings(hardware: HardwareProfile | null): AppSettings {
 
 interface Props {
   hardware: HardwareProfile | null;
+  persona: Persona;
+  onPersona: (p: Persona) => void;
+  prefs: UiPrefs;
+  onPrefs: (p: UiPrefs) => void;
+  tiers: TierModel[];
 }
 
-export function Settings({ hardware }: Props) {
+/** A v6 `.srow` with a toggle on the right. */
+function Toggle({ title, blurb, on, onToggle }: { title: string; blurb: string; on: boolean; onToggle: () => void }) {
+  return (
+    <div className="srow">
+      <div className="tx"><b>{title}</b><span>{blurb}</span></div>
+      <button
+        type="button"
+        className={`tog${on ? ' on' : ''}`}
+        role="switch"
+        aria-checked={on}
+        aria-label={title}
+        onClick={onToggle}
+      >
+        <i />
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Settings — restructured to v6's `.setwrap`.
+ *
+ * The persona choice lives at the top (R15): the same two cards as the startup
+ * question, changeable at any time. Everything below is gated by persona, so a
+ * simple user never sees a runtime knob and a developer never sees the
+ * "let LlamaChat decide" copy aimed at people who don't want to know.
+ */
+export function Settings({ hardware, persona, onPersona, prefs, onPrefs, tiers }: Props) {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [catalog, setCatalog] = useState<CatalogModel[]>([]);
   const [memoryDir, setMemoryDir] = useState('');
@@ -54,187 +90,192 @@ export function Settings({ hardware }: Props) {
     window.setTimeout(() => setSaved(false), 1500);
   }
 
+  function togglePref(k: keyof UiPrefs) {
+    onPrefs({ ...prefs, [k]: !prefs[k] });
+  }
+
   if (!settings) {
     return (
-      <div className="flex-1 flex items-center justify-center">
-        <span className="text-[11px] text-text-muted">Loading settings…</span>
-      </div>
+      <div className="setwrap"><div className="setinner">
+        <span style={{ fontSize: 12, color: 'var(--text3)' }}>Loading settings…</span>
+      </div></div>
     );
   }
 
+  const catalogOptions = catalog.length > 0
+    ? catalog.map((m) => ({ value: m.ollama_pull ?? m.model_id, label: m.display_name }))
+    : tiers.map((t) => ({ value: t.rec.ollama_pull, label: t.rec.display_name }));
+
   return (
-    <div className="flex-1 overflow-y-auto">
-      <div className="max-w-xl mx-auto px-6 py-6 space-y-8">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-sm font-semibold text-text">Settings</h1>
-            <p className="text-[11px] text-text-muted mt-0.5">
-              Everything stays on this machine.
-            </p>
-          </div>
-          {saved && <span className="text-[11px] text-success">Saved</span>}
+    <div className="setwrap">
+      <div className="setinner">
+        <h1>Settings{saved && <span style={{ fontSize: 11.5, color: 'var(--ok)', marginLeft: 12, fontWeight: 400 }}>Saved</span>}</h1>
+
+        {/* R15 — persona, changeable any time. */}
+        <div className="sgroup">
+          <h2>How you use LlamaChat</h2>
+          <PersonaCards persona={persona} onPick={onPersona} />
         </div>
 
-        {/* How hard to test */}
-        <Section
-          title="How hard should we test?"
-          hint="How thoroughly LlamaChat measures models on your machine."
-        >
-          <div className="space-y-2">
-            {INTENSITY_OPTIONS.map((opt) => {
-              const active = settings.benchmark_intensity === opt.id;
-              return (
-                <button
-                  key={opt.id}
-                  onClick={() => update({ benchmark_intensity: opt.id })}
-                  className={`w-full text-left rounded-lg p-3 border transition-colors ${
-                    active ? 'border-accent bg-accent-dim' : 'border-border bg-surface hover:border-accent/40'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-[13px] font-medium text-text">
-                      {opt.title} <span className="text-text-muted font-normal">· {opt.blurb}</span>
-                    </span>
-                    <span className={`w-3.5 h-3.5 rounded-full border ${
-                      active ? 'border-accent bg-accent' : 'border-text-muted'
-                    }`} />
-                  </div>
-                  <p className="text-[11px] text-text-muted mt-1">{opt.detail}</p>
-                </button>
-              );
-            })}
-          </div>
-        </Section>
-
-        {/* Which model to use */}
-        <Section
-          title="Which model should chats use?"
-          hint="Pick a specific model, or let LlamaChat choose the best one for your machine."
-        >
-          <select
-            value={settings.model_override ?? ''}
-            onChange={(e) => update({ model_override: e.target.value || null })}
-            className="w-full bg-bg border border-border rounded px-2 py-2 text-[12px] text-text
-                       focus:border-accent outline-none"
-          >
-            <option value="">Auto (recommended)</option>
-            {catalog.map((m) => (
-              <option key={m.model_id} value={m.ollama_pull ?? m.model_id}>
-                {m.display_name}
-              </option>
-            ))}
-          </select>
-          {catalog.length === 0 && (
-            <p className="text-[10px] text-text-muted mt-1">
-              {isTauri() ? 'No models in the catalog yet.' : 'Model list appears when running the desktop app.'}
-            </p>
-          )}
-        </Section>
-
-        {/* Where models live */}
-        <Section title="Where models are stored" hint="Downloaded models are saved here.">
-          <div className="bg-surface border border-border rounded px-3 py-2 text-[12px] text-text-secondary
-                          font-mono truncate" title={settings.models_dir ?? ''}>
-            {settings.models_dir ?? 'Not set'}
-          </div>
-        </Section>
-
-        {/* Where chats & memory live */}
-        <Section
-          title="Where chats & memory are stored"
-          hint="Your conversations and memory.md are saved here as editable markdown files."
-        >
-          <input
-            value={settings.memory_dir ?? ''}
-            onChange={(e) => update({ memory_dir: e.target.value || null })}
-            onBlur={async () => setMemoryDir((await invoke<string>('get_memory_dir')) ?? '')}
-            placeholder={memoryDir || 'Default app data folder'}
-            className="w-full bg-bg border border-border rounded px-2 py-2 text-[12px] text-text
-                       placeholder:text-text-muted focus:border-accent outline-none font-mono"
+        {/* Simple persona knobs — plain words only, no model names (R17). */}
+        <div className="sgroup simple-only">
+          <h2>Answers</h2>
+          <Toggle
+            title="Let LlamaChat decide"
+            blurb="Picks the best model on this machine for each message, and how long to think about it."
+            on={prefs.autoRoute}
+            onToggle={() => togglePref('autoRoute')}
           />
-          <p className="text-[10px] text-text-muted mt-1 font-mono truncate" title={memoryDir}>
-            Currently: {memoryDir || '—'}
-          </p>
-        </Section>
+          <Toggle
+            title="Prefer speed over depth"
+            blurb="Answer faster, think less. Good on battery."
+            on={prefs.preferSpeed}
+            onToggle={() => togglePref('preferSpeed')}
+          />
+        </div>
 
-        {/* Agent abilities & permissions */}
-        <Section
-          title="Agent abilities"
-          hint="Enable these to let the agent control your Mac. Green ✓ means it's ready."
-        >
-          <AgentSetup />
-        </Section>
+        {/* Developer knobs (R16, R19). */}
+        <div className="sgroup dev-only">
+          <h2>Runtime</h2>
+          <Toggle
+            title="Show the status bar"
+            blurb="Tokens/sec, context, CPU, GPU and VRAM along the bottom of the window."
+            on={prefs.statusBar}
+            onToggle={() => togglePref('statusBar')}
+          />
+          <Toggle
+            title="Explain router decisions"
+            blurb="Show which model was chosen for each reply and why."
+            on={prefs.explainRouter}
+            onToggle={() => togglePref('explainRouter')}
+          />
+          <div className="srow">
+            <div className="tx">
+              <b>Default model</b>
+              <span>Used when Auto is off.</span>
+            </div>
+            <select
+              value={settings.model_override ?? ''}
+              onChange={(e) => update({ model_override: e.target.value || null })}
+              aria-label="Default model"
+            >
+              <option value="">Auto (recommended)</option>
+              {catalogOptions.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </div>
+        </div>
 
-        {/* Agent perception */}
-        <Section
-          title="How the agent sees your screen"
-          hint="Agent mode needs to perceive the screen to click things. Text models work best with the accessibility tree."
-        >
-          <div className="space-y-2">
-            {([
-              { id: 'accessibility', title: 'Accessibility tree', desc: 'Reads on-screen elements as text + moves the real mouse. Fast, works with your text models.' },
-              { id: 'vision', title: 'Screenshot vision', desc: 'A vision model describes a screenshot to the agent. More general, but needs a vision model and is slower.' },
-            ]).map((opt) => {
-              const active = (settings.perception || 'accessibility') === opt.id;
-              return (
-                <button
-                  key={opt.id}
-                  onClick={() => update({ perception: opt.id })}
-                  className={`w-full text-left rounded-lg p-3 border transition-colors ${
-                    active ? 'border-accent bg-accent-dim' : 'border-border bg-surface hover:border-accent/40'
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <span className={`w-3.5 h-3.5 rounded-full border ${active ? 'border-accent bg-accent' : 'border-text-muted'}`} />
-                    <span className="text-[13px] font-medium text-text">{opt.title}</span>
-                  </div>
-                  <p className="text-[11px] text-text-muted mt-1 pl-5">{opt.desc}</p>
-                </button>
-              );
-            })}
+        {/* Benchmarking depth — developer-facing detail. */}
+        <div className="sgroup dev-only">
+          <h2>How hard to test</h2>
+          {INTENSITY_OPTIONS.map((opt) => {
+            const active = settings.benchmark_intensity === opt.id;
+            return (
+              <button
+                key={opt.id}
+                type="button"
+                className="srow"
+                style={{ width: '100%', textAlign: 'left', borderColor: active ? 'rgba(77,124,255,.5)' : undefined }}
+                onClick={() => update({ benchmark_intensity: opt.id })}
+              >
+                <div className="tx">
+                  <b>{opt.title} <span style={{ color: 'var(--text3)', fontWeight: 400 }}>· {opt.blurb}</span></b>
+                  <span>{opt.detail}</span>
+                </div>
+                {active && <Icon name="check" size={15} />}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Storage. */}
+        <div className="sgroup">
+          <h2>Storage</h2>
+          <div className="srow">
+            <div className="tx">
+              <b>Models</b>
+              <span style={{ fontFamily: 'var(--mono)' }}>{settings.models_dir ?? 'Not set'}</span>
+            </div>
+          </div>
+          <div className="srow">
+            <div className="tx">
+              <b>Chats &amp; memory</b>
+              <span>Saved as editable markdown. Currently: <span style={{ fontFamily: 'var(--mono)' }}>{memoryDir || '—'}</span></span>
+            </div>
+            <input
+              type="text"
+              value={settings.memory_dir ?? ''}
+              onChange={(e) => update({ memory_dir: e.target.value || null })}
+              onBlur={async () => setMemoryDir((await invoke<string>('get_memory_dir')) ?? '')}
+              placeholder="Default app data folder"
+              aria-label="Chats and memory folder"
+              style={{ width: 220 }}
+            />
+          </div>
+        </div>
+
+        {/* Agent abilities. */}
+        <div className="sgroup">
+          <h2>Agent abilities</h2>
+          <div className="srow" style={{ display: 'block' }}>
+            <div className="tx" style={{ marginBottom: 12 }}>
+              <b>Permissions</b>
+              <span>Cowork and Code need these to act on your machine.</span>
+            </div>
+            <AgentSetup />
+          </div>
+
+          <div className="srow">
+            <div className="tx">
+              <b>How the agent sees your screen</b>
+              <span>The accessibility tree is faster and works with text models; screenshot vision is more general but needs a vision model.</span>
+            </div>
+            <select
+              value={settings.perception || 'accessibility'}
+              onChange={(e) => update({ perception: e.target.value })}
+              aria-label="Agent perception"
+            >
+              <option value="accessibility">Accessibility tree</option>
+              <option value="vision">Screenshot vision</option>
+            </select>
           </div>
           {settings.perception === 'vision' && (
-            <div className="mt-2">
-              <label className="text-[11px] text-text font-medium">Vision model</label>
+            <div className="srow">
+              <div className="tx">
+                <b>Vision model</b>
+                <span>Describes screenshots to the agent.</span>
+              </div>
               <input
+                type="text"
                 value={settings.vision_model ?? ''}
                 onChange={(e) => update({ vision_model: e.target.value || null })}
-                placeholder="llava:7b (default — auto-used when accessibility is empty)"
-                className="w-full mt-1 bg-bg border border-border rounded px-2 py-2 text-[12px] text-text
-                           placeholder:text-text-muted focus:border-accent outline-none font-mono"
+                placeholder="llava:7b"
+                aria-label="Vision model"
+                style={{ width: 200 }}
               />
             </div>
           )}
-          <p className="text-[10px] text-text-muted mt-2">
-            Controlling the mouse/keyboard needs Accessibility permission (System Settings ▸ Privacy &amp; Security ▸ Accessibility); screenshots need Screen Recording.
-          </p>
-        </Section>
+        </div>
 
-        {/* Privacy */}
-        <Section title="Privacy" hint="LlamaChat never phones home.">
-          <div className="flex items-center gap-2 bg-surface border border-border rounded px-3 py-2.5">
-            <span className="w-2 h-2 rounded-full bg-success" />
-            <span className="text-[12px] text-text">
-              Usage reporting is {settings.telemetry_off ? 'off' : 'on'}
-            </span>
-            <span className="text-[11px] text-text-muted ml-auto">
-              Nothing leaves your device
+        {/* Privacy. */}
+        <div className="sgroup">
+          <h2>Privacy</h2>
+          <div className="srow">
+            <div className="tx">
+              <b>Everything stays on this machine</b>
+              <span>
+                No account, no telemetry, no network calls. Models run through your local runtime.
+                {!isTauri() && ' (Browser dev build — the desktop backend isn\u2019t attached.)'}
+              </span>
+            </div>
+            <span style={{ fontSize: 11.5, color: 'var(--ok)' }}>
+              {settings.telemetry_off ? 'Enforced' : 'On'}
             </span>
           </div>
-        </Section>
+        </div>
       </div>
     </div>
-  );
-}
-
-function Section({ title, hint, children }: { title: string; hint: string; children: React.ReactNode }) {
-  return (
-    <section className="space-y-2">
-      <div>
-        <h2 className="text-[13px] font-medium text-text">{title}</h2>
-        <p className="text-[11px] text-text-muted mt-0.5">{hint}</p>
-      </div>
-      {children}
-    </section>
   );
 }

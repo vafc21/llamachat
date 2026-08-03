@@ -1,31 +1,73 @@
-import { useState, useRef, useEffect, useMemo, type KeyboardEvent } from 'react'
+import { useState, useRef, useEffect, useMemo, type KeyboardEvent, type ReactNode } from 'react'
 import type { TierModel } from '../types'
 import { ModelPicker } from './ModelPicker'
 import { CommandMenu } from './CommandMenu'
+import { Icon } from './Icon'
+import { ContextRing } from './ContextRing'
+import { MODE_LABEL, type Mode, type Persona } from '../persona'
 import { menuQuery, parseCommand, type SlashCommand } from '../commands'
+
+/**
+ * The composer — ported from v6.
+ *
+ * It owns the segmented Chat | Cowork | Code control, which is the application's
+ * ONLY mode switcher (R1). The sidebar deliberately does not get a second one.
+ *
+ * Three shapes, all the same component:
+ *   'centered' — the empty state, greeting above it
+ *   'docked'   — pinned under an in-progress conversation
+ *   'code'     — bottom-docked, context chip row above, tool affordance inside
+ */
+
+export type ComposerVariant = 'centered' | 'docked' | 'code';
 
 interface InputBarProps {
   onSend: (text: string) => void;
   /** Run a slash command: name without slash + the raw arg string. */
   onCommand: (name: string, args: string) => void;
   disabled: boolean;
+  /** Built-in commands + one per skill. */
+  commands: SlashCommand[];
+
+  persona: Persona;
+  mode: Mode;
+  modes: Mode[];
+  onMode: (m: Mode) => void;
+
   tiers: TierModel[];
   selectedModel: string;
   onSelectModel: (tag: string) => void;
   onBrowseAll: () => void;
-  /** Built-in commands + one per skill. */
-  commands: SlashCommand[];
-  agentMode: boolean;
-  agentPermMode: 'plan' | 'ask' | 'auto' | 'bypass';
-  onToggleAgent: () => void;
-  onCycleMode: () => void;
+
+  variant?: ComposerVariant;
+  placeholder?: string;
+  /** Estimated tokens currently in the window (dev persona only). */
+  ctxUsed?: number;
+  ctxTotal?: number;
+
+  /** Agent permission mode — the amber chip in the Code composer. */
+  agentPermMode?: string;
+  onCyclePermMode?: () => void;
+  /** Extra row under the control row (Cowork's scope + tools + permission). */
+  secondRow?: ReactNode;
+  /** Stop an in-flight run. */
+  onStop?: () => void;
 }
 
-const AGENT_MODE_LABEL: Record<string, string> = { plan: 'Plan', ask: 'Ask', auto: 'Auto', bypass: 'Bypass' };
+const PERM_LABEL: Record<string, string> = {
+  plan: 'Plan only',
+  ask: 'Ask before changes',
+  auto: 'Auto-approve safe',
+  bypass: 'No prompts',
+};
 
 export function InputBar({
-  onSend, onCommand, disabled, tiers, selectedModel, onSelectModel, onBrowseAll, commands,
-  agentMode, agentPermMode, onToggleAgent, onCycleMode,
+  onSend, onCommand, disabled, commands,
+  persona, mode, modes, onMode,
+  tiers, selectedModel, onSelectModel, onBrowseAll,
+  variant = 'centered', placeholder,
+  ctxUsed = 0, ctxTotal = 0,
+  agentPermMode, onCyclePermMode, secondRow, onStop,
 }: InputBarProps) {
   const [input, setInput] = useState('');
   const [menuIndex, setMenuIndex] = useState(0);
@@ -50,17 +92,14 @@ export function InputBar({
     el.style.height = Math.min(el.scrollHeight, 200) + 'px';
   }, [input]);
 
-  useEffect(() => { inputRef.current?.focus(); }, []);
+  useEffect(() => { inputRef.current?.focus(); }, [mode, variant]);
 
   function submit() {
     const text = input.trim();
     if (!text || disabled) return;
     const cmd = parseCommand(text);
-    if (cmd) {
-      onCommand(cmd.name, cmd.args);
-    } else {
-      onSend(text);
-    }
+    if (cmd) onCommand(cmd.name, cmd.args);
+    else onSend(text);
     setInput('');
     setDismissed(false);
   }
@@ -89,43 +128,20 @@ export function InputBar({
     }
   }
 
-  return (
-    <div className="flex-shrink-0 border-t border-border px-3 py-2">
-      {/* Model picker + hint */}
-      <div className="flex items-center gap-2 mb-1.5 px-1">
-        <ModelPicker tiers={tiers} selected={selectedModel} onSelect={onSelectModel} onBrowseAll={onBrowseAll} />
-        <button
-          onClick={onToggleAgent}
-          title="Agent mode — let the AI control your Mac"
-          className={`text-[10px] px-1.5 py-0.5 rounded border transition-colors ${
-            agentMode ? 'border-accent text-accent bg-accent-dim' : 'border-border text-text-muted hover:text-text'
-          }`}
-        >
-          🤖 Agent{agentMode ? ' on' : ''}
-        </button>
-        {agentMode && (
-          <button
-            onClick={onCycleMode}
-            title="Cycle permission mode: Ask → Auto → Bypass → Plan"
-            className="text-[10px] px-1.5 py-0.5 rounded border border-accent/40 text-accent hover:bg-accent-dim transition-colors"
-          >
-            {AGENT_MODE_LABEL[agentPermMode]}
-          </button>
-        )}
-        <span className="text-[10px] text-text-muted ml-auto">
-          {agentMode ? 'Agent will act on your Mac' : (<>Type <kbd className="px-1 bg-white/[0.04] border border-border rounded font-mono">/</kbd> for commands · Enter to send</>)}
-        </span>
-      </div>
+  const isCode = variant === 'code';
+  const showRing = persona === 'dev' && (variant !== 'centered' || isCode) && ctxTotal > 0;
 
-      {/* Input row (relative anchor for the command menu) */}
-      <div className="relative flex items-end gap-2">
+  const defaultPlaceholder =
+    isCode ? 'Describe a task — tools are on, I can read and change files here'
+      : mode === 'cowork' ? 'Give me something to work on'
+        : variant === 'docked' ? 'Reply'
+          : 'Ask anything';
+
+  return (
+    <div className={isCode ? 'dcomp' : 'comp'}>
+      <div style={{ position: 'relative' }}>
         {menuOpen && (
-          <CommandMenu
-            commands={filtered}
-            activeIndex={menuIndex}
-            onPick={pick}
-            onHover={setMenuIndex}
-          />
+          <CommandMenu commands={filtered} activeIndex={menuIndex} onPick={pick} onHover={setMenuIndex} />
         )}
         <textarea
           ref={inputRef}
@@ -133,23 +149,84 @@ export function InputBar({
           onChange={(e) => { setInput(e.target.value); setDismissed(false); }}
           onKeyDown={handleKeyDown}
           disabled={disabled}
-          placeholder={disabled ? 'Working…' : agentMode ? 'Describe a task for the agent (e.g. open Chrome and search hi)…' : 'Ask anything, or / for commands…'}
           rows={1}
-          className="flex-1 bg-transparent text-[13px] text-text placeholder:text-text-muted
-                     resize-none border-none outline-none leading-relaxed disabled:opacity-50"
+          placeholder={disabled ? 'Working…' : (placeholder ?? defaultPlaceholder)}
         />
-        <button
-          onClick={submit}
-          disabled={disabled || !input.trim()}
-          className={`flex-shrink-0 px-3 py-1.5 rounded text-[12px] font-medium transition-colors
-            ${input.trim() && !disabled
-              ? 'bg-accent text-white hover:opacity-90'
-              : 'bg-white/[0.04] text-text-muted border border-border cursor-not-allowed'
-            }`}
-        >
-          {disabled ? '···' : 'Send'}
-        </button>
       </div>
+
+      <div className="crow">
+        {!isCode && (
+          <button type="button" className="icb" title="Attach — coming soon" disabled>
+            <Icon name="plus" />
+          </button>
+        )}
+
+        {/* R1: the single mode switcher. */}
+        <div className="seg" role="tablist" aria-label="Mode">
+          {modes.map((m) => (
+            <button
+              key={m}
+              type="button"
+              role="tab"
+              aria-selected={m === mode}
+              className={m === mode ? 'on' : undefined}
+              onClick={() => onMode(m)}
+            >
+              {MODE_LABEL[m]}
+            </button>
+          ))}
+        </div>
+
+        {/* R10: Code mode says, in the composer, that the model is tool-equipped. */}
+        {isCode && (
+          <div className="tools" title="This mode gives the model shell, file and browser tools">
+            <Icon name="tool" /> Tool mode
+          </div>
+        )}
+        {isCode && agentPermMode && (
+          <button type="button" className="chip warn" onClick={onCyclePermMode} title="Cycle permission mode">
+            {PERM_LABEL[agentPermMode] ?? agentPermMode}
+          </button>
+        )}
+
+        <div className="sp" />
+
+        {/* R17: simple persona never sees a model name — it gets an Auto pill. */}
+        {persona === 'dev' ? (
+          <ModelPicker tiers={tiers} selected={selectedModel} onSelect={onSelectModel} onBrowseAll={onBrowseAll} />
+        ) : (
+          <span className="modelpick" title="LlamaChat picks the model for each message">
+            <Icon name="spark" size={14} /><b>Auto</b>
+          </span>
+        )}
+
+        {/* R5: the context-window meter. Dev persona only. */}
+        {showRing && <ContextRing used={ctxUsed} total={ctxTotal} />}
+
+        {!isCode && (
+          <button type="button" className="icb" title="Voice input — coming soon" disabled>
+            <Icon name="mic" />
+          </button>
+        )}
+
+        {disabled && onStop ? (
+          <button type="button" className="sendb" onClick={onStop} title="Stop">
+            <Icon name="stop" size={15} />
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="sendb"
+            onClick={submit}
+            disabled={disabled || !input.trim()}
+            title="Send"
+          >
+            <Icon name="send" size={15} />
+          </button>
+        )}
+      </div>
+
+      {secondRow}
     </div>
   );
 }

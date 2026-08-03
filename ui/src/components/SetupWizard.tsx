@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react'
 import type { HardwareProfile, TierModel } from '../types'
 import { downloadGb, modelBlurb } from '../models'
 import { Icon } from './Icon'
@@ -28,6 +29,18 @@ interface Props {
 export function SetupWizard({ phase, hardware, tiers, persona, onContinue, onBrowseAll }: Props) {
   const quick = tiers[0];
   const quickFailed = quick?.status === 'error';
+
+  // A download that stalls without ever emitting an error used to leave the
+  // simple persona on this screen with no button at all — no skip, no back, no
+  // explanation. Offer an escape once it's clearly not progressing.
+  const [stalled, setStalled] = useState(false);
+  useEffect(() => {
+    if (phase !== 'setup') return;
+    setStalled(false);
+    const t = setTimeout(() => setStalled(true), 45000);
+    return () => clearTimeout(t);
+  }, [phase, quick?.pct, quick?.status]);
+  const canSkip = quickFailed || stalled;
   const totalGb = tiers.reduce((sum, t) => sum + (parseFloat(downloadGb(t.rec)) || 0), 0);
   const done = tiers.filter((t) => t.status === 'ready').length;
   const overall = tiers.length ? tiers.reduce((s, t) => s + (t.status === 'ready' ? 100 : t.pct), 0) / tiers.length : 0;
@@ -117,11 +130,13 @@ export function SetupWizard({ phase, hardware, tiers, persona, onContinue, onBro
             {persona === 'dev' && (
               <button type="button" onClick={onBrowseAll}>Browse all models</button>
             )}
-            {quickFailed && <button type="button" onClick={onContinue}>Continue anyway</button>}
+            {canSkip && <button type="button" onClick={onContinue}>Continue anyway</button>}
             <span className="note">
               {quickFailed
                 ? `Couldn't download the first model${quick?.detail ? `: ${quick.detail}` : '.'}`
-                : 'Everything runs on this machine.'}
+                : stalled
+                  ? 'This is taking a while. Large models can be slow — the download keeps going in the background.'
+                  : 'Everything runs on this machine.'}
             </span>
           </div>
         </>

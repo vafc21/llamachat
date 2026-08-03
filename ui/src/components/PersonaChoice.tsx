@@ -11,9 +11,11 @@ import type { Persona } from '../persona'
  * R15 — the same choice is changeable any time in Settings (the same two cards
  * are reused there).
  */
-export function PersonaChoice({ onPick }: { onPick: (p: Persona) => void }) {
-  // Default is the simple side (R14).
-  const [choice, setChoice] = useState<Persona>('simple');
+export function PersonaChoice({ current, onPick }: { current?: Persona | null; onPick: (p: Persona) => void }) {
+  // Default is the simple side (R14) — but if the user has already answered and
+  // stepped back to change it, show what they picked rather than silently
+  // resetting the card to 'simple' under them.
+  const [choice, setChoice] = useState<Persona>(current ?? 'simple');
 
   return (
     <div className="setup">

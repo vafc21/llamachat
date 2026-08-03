@@ -14,7 +14,8 @@ export type IconName =
   | 'llama' | 'menu' | 'panel' | 'search' | 'back' | 'fwd'
   | 'plus' | 'lib' | 'tool' | 'brain' | 'set' | 'folder' | 'branch' | 'host'
   | 'mic' | 'send' | 'chev' | 'box' | 'term' | 'cpu' | 'ram' | 'gpu'
-  | 'check' | 'run' | 'spark' | 'user' | 'code' | 'dash' | 'x' | 'stop' | 'trash';
+  | 'check' | 'run' | 'spark' | 'user' | 'code' | 'dash' | 'x' | 'stop' | 'trash'
+  | 'eye' | 'shield' | 'refresh' | 'alert' | 'ext';
 
 /** The llama mark: the canonical traced path, eye as a true cut-out (R20). */
 const LLAMA_PATH =
@@ -55,6 +56,11 @@ export function IconSprite() {
       <symbol id="i-dash" viewBox="0 0 24 24"><path d="M5 12h14" /></symbol>
       <symbol id="i-stop" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="1.5" /></symbol>
       <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13" /></symbol>
+      <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6z" /><circle cx="12" cy="12" r="3" /></symbol>
+      <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.4 8.2-8 9-4.6-.8-8-4-8-9V6z" /></symbol>
+      <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.6-5.9M20 4v5h-5" /></symbol>
+      <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 4.5L21 20H3z" /><path d="M12 10v4M12 17h.01" /></symbol>
+      <symbol id="i-ext" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-8 8M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" /></symbol>
     </svg>
   );
 }

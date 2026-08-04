@@ -4,6 +4,8 @@ import { ModelPicker } from './ModelPicker'
 import { CommandMenu } from './CommandMenu'
 import { Icon } from './Icon'
 import { ContextRing } from './ContextRing'
+import { PermMenu } from './PermMenu'
+import type { AgentPermMode } from '../perm'
 import { MODE_LABEL, type Mode, type Persona } from '../persona'
 import { menuQuery, parseCommand, type SlashCommand } from '../commands'
 
@@ -46,20 +48,13 @@ interface InputBarProps {
   ctxTotal?: number;
 
   /** Agent permission mode — the amber chip in the Code composer. */
-  agentPermMode?: string;
-  onCyclePermMode?: () => void;
+  agentPermMode?: AgentPermMode;
+  onPermMode?: (m: AgentPermMode) => void;
   /** Extra row under the control row (Cowork's scope + tools + permission). */
   secondRow?: ReactNode;
   /** Stop an in-flight run. */
   onStop?: () => void;
 }
-
-const PERM_LABEL: Record<string, string> = {
-  plan: 'Plan only',
-  ask: 'Ask before changes',
-  auto: 'Auto-approve safe',
-  bypass: 'No prompts',
-};
 
 export function InputBar({
   onSend, onCommand, disabled, commands,
@@ -67,7 +62,7 @@ export function InputBar({
   tiers, selectedModel, onSelectModel, onBrowseAll,
   variant = 'centered', placeholder,
   ctxUsed = 0, ctxTotal = 0,
-  agentPermMode, onCyclePermMode, secondRow, onStop,
+  agentPermMode, onPermMode, secondRow, onStop,
 }: InputBarProps) {
   const [input, setInput] = useState('');
   const [menuIndex, setMenuIndex] = useState(0);
@@ -183,10 +178,8 @@ export function InputBar({
             <Icon name="tool" /> Tool mode
           </div>
         )}
-        {isCode && agentPermMode && (
-          <button type="button" className="chip warn" onClick={onCyclePermMode} title="Cycle permission mode">
-            {PERM_LABEL[agentPermMode] ?? agentPermMode}
-          </button>
+        {isCode && agentPermMode && onPermMode && (
+          <PermMenu mode={agentPermMode} onPick={onPermMode} />
         )}
 
         <div className="sp" />

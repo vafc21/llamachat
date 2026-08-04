@@ -14,6 +14,8 @@ import { ReadinessStep } from './components/Readiness'
 import { CodeWorkspace } from './components/CodeWorkspace'
 import { CoworkPane, type CoworkTask } from './components/CoworkPane'
 import { StatusBar } from './components/StatusBar'
+import { PermMenu } from './components/PermMenu'
+import { asPermMode, type AgentPermMode } from './perm'
 import { IconSprite, Icon } from './components/Icon'
 import { TOOL_MARK } from './components/MessageBubble'
 import { invoke, listen, isTauri } from './tauri'
@@ -86,7 +88,7 @@ const INITIAL_CONVERSATIONS: Conversation[] = [
   { id: uid(), title: 'New conversation', messages: [], createdAt: new Date().toISOString() },
 ];
 
-export type AgentPermMode = 'plan' | 'ask' | 'auto' | 'bypass';
+
 
 /** Shown in a plain browser dev build, where there is no Tauri backend. */
 const MOCK_REPLY =
@@ -148,7 +150,9 @@ export default function App() {
   const [selectedModel, setSelectedModel] = useState('llama3.2:3b');
   const [userPicked, setUserPicked] = useState(false);
   const [skills, setSkills] = useState<Skill[]>(() => loadSkills());
-  const [agentPermMode, setAgentPermMode] = useState<AgentPermMode>('ask');
+  // Mirrors the backend's own default (`state.rs`: PermMode::Manual). The
+  // backend is the source of truth; `syncPermMode` pushes any change to it.
+  const [agentPermMode, setAgentPermMode] = useState<AgentPermMode>('manual');
   const [pendingApproval, setPendingApproval] = useState<{ tool: string; args: Record<string, unknown> } | null>(null);
   /** Measured per-reply runtime, keyed by assistant message id. */
   const [turnStats, setTurnStats] = useState<Record<string, TurnStats>>({});
@@ -539,7 +543,10 @@ export default function App() {
       setTasks((prev) => prev.map((t) => t.id === taskId ? { ...t, state: 'error', detail: 'Desktop app only' } : t));
       return;
     }
-    invoke('run_agent', { messages: history, model: selectedModel, mode: agentPermMode });
+    // NOTE: no `mode` argument — Rust's `run_agent` takes only (messages,
+    // model) and reads the permission mode from its own state. Passing one
+    // here looked like it worked and did nothing; use `set_agent_mode`.
+    invoke('run_agent', { messages: history, model: selectedModel });
   }
 
   function approveAgent(approved: boolean) {
@@ -550,10 +557,41 @@ export default function App() {
     invoke('stop_agent');
     setStreaming(false);
   }
-  function cycleAgentMode() {
-    const order: AgentPermMode[] = ['ask', 'auto', 'bypass', 'plan'];
-    setAgentPermMode((m) => order[(order.indexOf(m) + 1) % order.length]);
-  }
+  /**
+   * Push the permission mode to the backend.
+   *
+   * This used to be local React state only — nothing ever called
+   * `set_agent_mode`, so the backend stayed on its Manual default no matter
+   * what the UI showed. `run_agent` reads the mode from Rust state, not from
+   * its arguments, so the picker was purely decorative.
+   */
+  const syncPermMode = useCallback(async (m: AgentPermMode) => {
+    setAgentPermMode(m);
+    if (!isTauri()) return;
+    try {
+      await invoke('set_agent_mode', { mode: m });
+    } catch (e) {
+      // Don't leave the UI claiming a mode the agent isn't in.
+      console.error('set_agent_mode failed:', e);
+      try {
+        const cur = await invoke<{ mode: string }>('get_agent_mode');
+        const back = asPermMode(cur?.mode);
+        if (back) setAgentPermMode(back);
+      } catch { /* ignore */ }
+    }
+  }, []);
+
+  // Adopt the backend's actual mode on startup rather than asserting ours.
+  useEffect(() => {
+    if (!isTauri()) return;
+    (async () => {
+      try {
+        const cur = await invoke<{ mode: string }>('get_agent_mode');
+        const back = asPermMode(cur?.mode);
+        if (back) setAgentPermMode(back);
+      } catch { /* backend not ready; keep the default */ }
+    })();
+  }, []);
 
   async function streamResponse(
     messages: { role: string; content: string }[],
@@ -1036,7 +1074,7 @@ export default function App() {
                         {...composerCommon}
                         variant="docked"
                         onSend={runAgent}
-                        secondRow={<CoworkRow permMode={agentPermMode} onCycle={cycleAgentMode} />}
+                        secondRow={<CoworkRow permMode={agentPermMode} onPick={syncPermMode} />}
                       />
                     </div>
                   </>
@@ -1048,7 +1086,7 @@ export default function App() {
                         {...composerCommon}
                         variant="centered"
                         onSend={runAgent}
-                        secondRow={<CoworkRow permMode={agentPermMode} onCycle={cycleAgentMode} />}
+                        secondRow={<CoworkRow permMode={agentPermMode} onPick={syncPermMode} />}
                       />
                     }
                     tasks={tasks}
@@ -1085,7 +1123,7 @@ export default function App() {
                     variant="code"
                     onSend={runAgent}
                     agentPermMode={agentPermMode}
-                    onCyclePermMode={cycleAgentMode}
+                    onPermMode={syncPermMode}
                   />
                 </div>
               </div>
@@ -1117,13 +1155,7 @@ const NAV_TITLE: Record<NavView, string> = {
 };
 
 /** Cowork's second composer row: scope, tools, and the permission control. */
-function CoworkRow({ permMode, onCycle }: { permMode: AgentPermMode; onCycle: () => void }) {
-  const label: Record<AgentPermMode, string> = {
-    plan: 'Plan only',
-    ask: 'Ask before changes',
-    auto: 'Auto-approve safe',
-    bypass: 'No prompts',
-  };
+function CoworkRow({ permMode, onPick }: { permMode: AgentPermMode; onPick: (m: AgentPermMode) => void }) {
   return (
     <div className="crow2">
       {/* TODO(scope): there is no per-run working-directory concept in the
@@ -1132,9 +1164,7 @@ function CoworkRow({ permMode, onCycle }: { permMode: AgentPermMode; onCycle: ()
       <span className="chip"><Icon name="folder" /> This computer</span>
       <span className="chip"><Icon name="tool" /> Shell · Files · Browser</span>
       <div className="sp" style={{ flex: 1 }} />
-      <button type="button" className="chip" onClick={onCycle} title="Cycle permission mode">
-        {label[permMode]} <Icon name="chev" size={12} />
-      </button>
+      <PermMenu mode={permMode} onPick={onPick} />
     </div>
   );
 }

@@ -18,7 +18,7 @@ export function ContextRing({ used, total }: { used: number; total: number }) {
       className="ctxwrap"
       title={`Context: ~${used.toLocaleString()} of ${total.toLocaleString()} tokens (estimated)`}
     >
-      <svg className="ring" viewBox="0 0 24 24" aria-hidden="true">
+      <svg className="ctxring" viewBox="0 0 24 24" aria-hidden="true">
         <circle className="bgc" cx="12" cy="12" r={R} />
         <circle
           className="fgc"
@@ -36,7 +36,7 @@ export function ContextRing({ used, total }: { used: number; total: number }) {
 export function ContextRingMini({ used, total }: { used: number; total: number }) {
   const frac = contextFraction(used, total);
   return (
-    <svg className="ring2" viewBox="0 0 24 24" aria-hidden="true">
+    <svg className="ctxring2" viewBox="0 0 24 24" aria-hidden="true">
       <circle className="bgc" cx="12" cy="12" r={R} />
       <circle
         className="fgc"

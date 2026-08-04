@@ -36,6 +36,8 @@ interface Props {
   prefs: UiPrefs;
   onPrefs: (p: UiPrefs) => void;
   tiers: TierModel[];
+  /** Clears the onboarding flags and returns to the very first screen. */
+  onReplayOnboarding: () => void;
 }
 
 /** A v6 `.srow` with a toggle on the right. */
@@ -65,7 +67,7 @@ function Toggle({ title, blurb, on, onToggle }: { title: string; blurb: string; 
  * simple user never sees a runtime knob and a developer never sees the
  * "let LlamaChat decide" copy aimed at people who don't want to know.
  */
-export function Settings({ hardware, persona, onPersona, platform, prefs, onPrefs, tiers }: Props) {
+export function Settings({ hardware, persona, onPersona, platform, prefs, onPrefs, tiers, onReplayOnboarding }: Props) {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [catalog, setCatalog] = useState<CatalogModel[]>([]);
   const [memoryDir, setMemoryDir] = useState('');
@@ -260,6 +262,26 @@ export function Settings({ hardware, persona, onPersona, platform, prefs, onPref
               />
             </div>
           )}
+        </div>
+
+        {/* First run. Without this, re-testing onboarding means clearing
+            localStorage by hand — and a user who was put on the wrong side of
+            the persona question has no way back to it. */}
+        <div className="sgroup">
+          <h2>First run</h2>
+          <div className="srow">
+            <div className="tx">
+              <b>Show the setup again</b>
+              <span>Re-runs the opening question and the readiness checks. Your chats, models and memory are untouched.</span>
+            </div>
+            <button
+              type="button"
+              className="chip"
+              onClick={onReplayOnboarding}
+            >
+              <Icon name="refresh" size={14} />Start over
+            </button>
+          </div>
         </div>
 
         {/* Privacy. */}

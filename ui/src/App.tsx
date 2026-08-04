@@ -21,7 +21,7 @@ import { MOCK_HARDWARE, tiersFromPlan, mockTiers } from './models'
 import { loadSkills, saveSkills } from './skills'
 import { allCommands } from './commands'
 import {
-  loadPersona, savePersona, loadMode, saveMode, modesFor, greeting,
+  loadPersona, savePersona, loadMode, saveMode, modesFor, greeting, PERSONA_KEY,
   type Persona, type Mode,
 } from './persona'
 import { route, describeRoute } from './router'
@@ -192,9 +192,39 @@ export default function App() {
     el.setAttribute('data-mode', mode);
   }, [platform, persona, mode]);
 
-  useEffect(() => { savePersona(persona); }, [persona]);
+  // NOTE: persona is deliberately NOT persisted by an effect. An effect keyed on
+  // `persona` fires once on mount with the default ('simple'), which writes the
+  // key before the user has answered anything — so the very next launch or page
+  // reload sees a stored persona and skips the startup question entirely,
+  // silently locking the user into the simple side. Persona is only ever written
+  // by `choosePersona`, i.e. by an actual human click.
   useEffect(() => { saveMode(mode); }, [mode]);
   useEffect(() => { savePrefs(prefs); }, [prefs]);
+
+  /** The only path that writes the persona: an explicit answer (startup or Settings). */
+  const choosePersona = useCallback((p: Persona) => {
+    setPersona(p);
+    savePersona(p);
+    storedPersona.current = p;
+  }, []);
+
+  /**
+   * Back to the first screen. Only the onboarding flags are cleared — chats,
+   * memory, skills, models and prefs are left alone, which is what "show the
+   * setup again" has to mean if it is going to be safe to press.
+   */
+  const replayOnboarding = useCallback(() => {
+    try {
+      localStorage.removeItem(PERSONA_KEY);
+      localStorage.removeItem(READY_SEEN_KEY);
+      localStorage.removeItem('llamachat.welcomed');
+    } catch { /* ignore */ }
+    storedPersona.current = null;
+    setWelcomed(false);
+    setNav(null);
+    setupStarted.current = false;
+    setPhase('persona');
+  }, []);
 
   // Code is developer-only (R2) — dropping to the simple persona leaves it.
   useEffect(() => {
@@ -821,9 +851,7 @@ export default function App() {
           <PersonaChoice
             current={storedPersona.current}
             onPick={(p) => {
-              setPersona(p);
-              savePersona(p);
-              storedPersona.current = p;
+              choosePersona(p);
               setPhase('readiness');
             }}
           />
@@ -943,11 +971,12 @@ export default function App() {
               <Settings
                 hardware={hardware}
                 persona={persona}
-                onPersona={setPersona}
+                onPersona={choosePersona}
                 platform={platform}
                 prefs={prefs}
                 onPrefs={setPrefs}
                 tiers={tiers}
+                onReplayOnboarding={replayOnboarding}
               />
             )}
             {nav === 'skills' && <SkillsTab skills={skills} onChange={setSkills} />}

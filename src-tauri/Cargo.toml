@@ -25,6 +25,7 @@ enigo = "0.6"
 # Screenshot → vision-model describe (opt-in perception).
 base64 = "0.22"
 reqwest = { version = "0.12", features = ["json", "blocking", "rustls-tls"], default-features = false }
+tauri-plugin-dialog = "2.7.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # Check/prompt for macOS Accessibility permission (agent setup page).

@@ -146,6 +146,8 @@ export default function App() {
   const [nav, setNav] = useState<NavView | null>(null);
   const [streaming, setStreaming] = useState(false);
   const [hardware, setHardware] = useState<HardwareProfile | null>(null);
+  /** Folder the agent is scoped to, or null for the whole machine. */
+  const [workspaceDir, setWorkspaceDir] = useState<string | null>(null);
   const [tiers, setTiers] = useState<TierModel[]>([]);
   const [selectedModel, setSelectedModel] = useState('llama3.2:3b');
   const [userPicked, setUserPicked] = useState(false);
@@ -579,6 +581,18 @@ export default function App() {
         if (back) setAgentPermMode(back);
       } catch { /* ignore */ }
     }
+  }, []);
+
+  // Adopt the backend's persisted folder scope on startup, so the composer
+  // chips tell the truth before Settings has ever been opened.
+  useEffect(() => {
+    if (!isTauri()) return;
+    (async () => {
+      try {
+        const s = await invoke<{ workspace_dir: string | null }>('get_settings');
+        setWorkspaceDir(s?.workspace_dir ?? null);
+      } catch { /* backend not ready; assume unscoped */ }
+    })();
   }, []);
 
   // Adopt the backend's actual mode on startup rather than asserting ours.
@@ -1015,6 +1029,7 @@ export default function App() {
                 onPrefs={setPrefs}
                 tiers={tiers}
                 onReplayOnboarding={replayOnboarding}
+                onWorkspaceDir={setWorkspaceDir}
               />
             )}
             {nav === 'skills' && <SkillsTab skills={skills} onChange={setSkills} />}
@@ -1074,7 +1089,7 @@ export default function App() {
                         {...composerCommon}
                         variant="docked"
                         onSend={runAgent}
-                        secondRow={<CoworkRow permMode={agentPermMode} onPick={syncPermMode} />}
+                        secondRow={<CoworkRow permMode={agentPermMode} onPick={syncPermMode} workspaceDir={workspaceDir} onScope={() => setNav('settings')} />}
                       />
                     </div>
                   </>
@@ -1086,7 +1101,7 @@ export default function App() {
                         {...composerCommon}
                         variant="centered"
                         onSend={runAgent}
-                        secondRow={<CoworkRow permMode={agentPermMode} onPick={syncPermMode} />}
+                        secondRow={<CoworkRow permMode={agentPermMode} onPick={syncPermMode} workspaceDir={workspaceDir} onScope={() => setNav('settings')} />}
                       />
                     }
                     tasks={tasks}
@@ -1115,7 +1130,17 @@ export default function App() {
                   {pendingApproval && <ApprovalRow pending={pendingApproval} onAnswer={approveAgent} />}
                   <div className="dctx">
                     <span className="chip"><Icon name="host" /> local</span>
-                    <span className="chip"><Icon name="folder" /> {hardware?.storage.models_dir?.split('/').pop() || 'workspace'}</span>
+                    {/* This used to show the *models* directory, which is where
+                        downloads live — nothing to do with where the agent runs
+                        commands. It now reflects the real scope. */}
+                    <button
+                      type="button"
+                      className="chip"
+                      onClick={() => setNav('settings')}
+                      title={workspaceDir ?? 'Commands can run anywhere on this computer — click to choose a folder'}
+                    >
+                      <Icon name="folder" /> {workspaceDir ? basename(workspaceDir) : 'This computer'}
+                    </button>
                     <span className="chip"><Icon name="term" /> {hardware?.os.name ?? 'local'}</span>
                   </div>
                   <InputBar
@@ -1155,18 +1180,35 @@ const NAV_TITLE: Record<NavView, string> = {
 };
 
 /** Cowork's second composer row: scope, tools, and the permission control. */
-function CoworkRow({ permMode, onPick }: { permMode: AgentPermMode; onPick: (m: AgentPermMode) => void }) {
+function CoworkRow({
+  permMode, onPick, workspaceDir, onScope,
+}: {
+  permMode: AgentPermMode;
+  onPick: (m: AgentPermMode) => void;
+  workspaceDir: string | null;
+  onScope: () => void;
+}) {
   return (
     <div className="crow2">
-      {/* TODO(scope): there is no per-run working-directory concept in the
-          backend yet — `run_agent` takes no scope argument — so this reports
-          the whole machine rather than pretending a folder is selected. */}
-      <span className="chip"><Icon name="folder" /> This computer</span>
+      <button
+        type="button"
+        className="chip"
+        onClick={onScope}
+        title={workspaceDir ?? 'Commands can run anywhere on this computer — click to choose a folder'}
+      >
+        <Icon name="folder" /> {workspaceDir ? basename(workspaceDir) : 'This computer'}
+      </button>
       <span className="chip"><Icon name="tool" /> Shell · Files · Browser</span>
       <div className="sp" style={{ flex: 1 }} />
       <PermMenu mode={permMode} onPick={onPick} />
     </div>
   );
+}
+
+/** Last path segment, for a chip that has no room for the whole path. */
+function basename(p: string): string {
+  const parts = p.replace(/[/\\]+$/, '').split(/[/\\]/);
+  return parts[parts.length - 1] || p;
 }
 
 function ApprovalRow({

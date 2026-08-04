@@ -20,6 +20,7 @@ import sys
 from typing import Any, Optional, TextIO
 
 from .adapters import get_adapter, list_adapters as _list_adapters
+from .adapters.ollama import OllamaError
 from .benchmark import run_benchmark
 from .sysmon import cpu_load, mem_used_mb
 
@@ -275,6 +276,10 @@ def handle_request(req: dict, out: TextIO) -> dict:
             }
 
         return {"id": req_id, "error": f"unknown method '{method}'"}
+    except OllamaError as exc:
+        # Already phrased for a human ("Model 'x' isn't installed…"); prefixing
+        # it with the class name would only add noise to what the UI shows.
+        return {"id": req_id, "error": str(exc)}
     except Exception as exc:  # never let one bad request kill the loop
         return {"id": req_id, "error": f"{type(exc).__name__}: {exc}"}
 

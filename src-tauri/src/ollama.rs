@@ -75,6 +75,76 @@ pub fn ollama_bin() -> Option<PathBuf> {
 }
 
 /// True when an Ollama server is accepting connections on the default port.
+/// Tags Ollama actually has locally, via `/api/tags`.
+pub fn installed_tags() -> Vec<String> {
+    let Ok(resp) = ureq_get(&format!("http://{OLLAMA_ADDR}/api/tags")) else {
+        return Vec::new();
+    };
+    let Ok(json) = serde_json::from_str::<serde_json::Value>(&resp) else {
+        return Vec::new();
+    };
+    json.get("models")
+        .and_then(|m| m.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|m| m.get("name").and_then(|n| n.as_str()).map(String::from))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Map a catalog tag onto a tag that is actually installed.
+///
+/// The catalog ships base tags (`qwen2.5:7b`) but people pull the variants
+/// (`qwen2.5:7b-instruct-q8_0`), and Ollama does not treat those as the same
+/// model — it 404s. Every catalog entry but one was unusable on a machine with
+/// eight models downloaded, because nothing ever reconciled the two.
+///
+/// Exact match wins; otherwise the first installed tag whose base name (the
+/// part before `:`) matches, preferring the shortest remaining suffix so
+/// `qwen2.5:7b-instruct-q8_0` beats `qwen2.5:7b-instruct-q8_0-something`.
+pub fn resolve_model(desired: &str) -> Option<String> {
+    let installed = installed_tags();
+    if installed.iter().any(|t| t == desired) {
+        return Some(desired.to_string());
+    }
+
+    let want_base = desired.split(':').next().unwrap_or(desired);
+    let want_size = desired.split(':').nth(1).unwrap_or("");
+
+    let mut candidates: Vec<&String> = installed
+        .iter()
+        .filter(|t| t.split(':').next().unwrap_or("") == want_base)
+        .collect();
+
+    // Prefer tags that also carry the requested size ("7b", "9b"), so asking
+    // for qwen2.5:7b never quietly resolves to a 32b that won't fit.
+    if !want_size.is_empty() {
+        let sized: Vec<&String> = candidates
+            .iter()
+            .filter(|t| t.split(':').nth(1).is_some_and(|v| v.starts_with(want_size)))
+            .copied()
+            .collect();
+        if !sized.is_empty() {
+            candidates = sized;
+        }
+    }
+
+    candidates.sort_by_key(|t| t.len());
+    candidates.first().map(|t| t.to_string())
+}
+
+/// Minimal blocking GET (the crate already depends on reqwest's blocking API).
+fn ureq_get(url: &str) -> Result<String, String> {
+    reqwest::blocking::Client::new()
+        .get(url)
+        .timeout(Duration::from_secs(10))
+        .send()
+        .map_err(|e| e.to_string())?
+        .text()
+        .map_err(|e| e.to_string())
+}
+
 pub fn is_running() -> bool {
     OLLAMA_ADDR
         .parse::<SocketAddr>()

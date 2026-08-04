@@ -195,6 +195,14 @@ pub fn chat(
             continue;
         }
 
+        // Handle a reported failure. Without this the loop simply ran out of
+        // lines and returned Ok("") — so a missing model, a crashed runner or
+        // a stopped server all reached the UI as a blank reply with no error.
+        if let Some(err) = obj.get("error").and_then(|e| e.as_str()) {
+            child.wait().ok();
+            return Err(anyhow!("{err}"));
+        }
+
         // Handle final result
         if obj.get("id").is_some() && obj.get("result").is_some() {
             break;

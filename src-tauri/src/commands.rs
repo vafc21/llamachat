@@ -346,6 +346,10 @@ pub fn send_message(
             let _ = app.emit("chat_done", true);
             return;
         }
+        // The catalog ships base tags (`qwen2.5:7b`) but users pull variants
+        // (`qwen2.5:7b-instruct-q8_0`). Ollama 404s on the mismatch, so map
+        // onto something actually installed before asking for it.
+        let model_tag = ollama::resolve_model(&model_tag).unwrap_or(model_tag);
         if let Err(e) = sidecar::chat(&model_tag, &messages, &system_prompt, |token| {
             let _ = app.emit("chat_token", token.to_string());
         }) {
@@ -413,6 +417,45 @@ pub fn set_memory(state: State<AppState>, content: String) -> Result<(), String>
 pub fn get_memory_dir(state: State<AppState>) -> Result<String, String> {
     let dir = state.0.lock().map_err(|e| e.to_string())?.settings.memory_dir.clone();
     Ok(memory::root(&dir).to_string_lossy().to_string())
+}
+
+/// Open a native folder picker and store the choice as the agent's workspace.
+///
+/// Returns the chosen path, or `None` if the user cancelled. Cancelling must
+/// not clear an existing scope — that would make a stray Escape silently widen
+/// the agent back out to the whole machine.
+#[tauri::command]
+pub async fn pick_workspace_dir(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let (tx, rx) = std::sync::mpsc::channel();
+    app.dialog()
+        .file()
+        .set_title("Choose the folder the agent may work in")
+        .pick_folder(move |p| {
+            let _ = tx.send(p);
+        });
+    let picked = rx.recv().map_err(|e| e.to_string())?;
+
+    let Some(path) = picked else { return Ok(None) };
+    let dir = path.to_string();
+
+    let mut inner = state.0.lock().map_err(|e| e.to_string())?;
+    inner.settings.workspace_dir = Some(dir.clone());
+    settings::save_settings(&data_dir(), &inner.settings)?;
+
+    Ok(Some(dir))
+}
+
+/// Clear the workspace scope — the agent may use the whole machine again.
+#[tauri::command]
+pub fn clear_workspace_dir(state: State<AppState>) -> Result<(), String> {
+    let mut inner = state.0.lock().map_err(|e| e.to_string())?;
+    inner.settings.workspace_dir = None;
+    settings::save_settings(&data_dir(), &inner.settings)
 }
 
 // ── Agent mode (tool-use loop) ────────────────────────────────

@@ -30,6 +30,12 @@ pub struct AppSettings {
     pub vision_model: Option<String>,
     /// When true (the default), no telemetry is ever collected.
     pub telemetry_off: bool,
+    /// Folder the agent works in (Cowork + Code). `None` = the whole machine,
+    /// which is what every run did before this existed: the shell tool has
+    /// always accepted a per-call `cwd`, but nothing ever set one, so commands
+    /// inherited whatever directory the app happened to be launched from.
+    #[serde(default)]
+    pub workspace_dir: Option<String>,
 }
 
 fn default_perception() -> String {
@@ -46,6 +52,7 @@ impl Default for AppSettings {
             perception: default_perception(),
             vision_model: None,
             telemetry_off: true,
+            workspace_dir: None,
         }
     }
 }

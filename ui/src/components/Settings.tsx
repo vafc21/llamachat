@@ -25,6 +25,7 @@ function defaultSettings(hardware: HardwareProfile | null): AppSettings {
     perception: 'accessibility',
     vision_model: null,
     telemetry_off: true,
+    workspace_dir: null,
   };
 }
 
@@ -38,6 +39,8 @@ interface Props {
   tiers: TierModel[];
   /** Clears the onboarding flags and returns to the very first screen. */
   onReplayOnboarding: () => void;
+  /** Report the agent's folder scope up, so the composer chips can show it. */
+  onWorkspaceDir?: (dir: string | null) => void;
 }
 
 /** A v6 `.srow` with a toggle on the right. */
@@ -67,7 +70,7 @@ function Toggle({ title, blurb, on, onToggle }: { title: string; blurb: string; 
  * simple user never sees a runtime knob and a developer never sees the
  * "let LlamaChat decide" copy aimed at people who don't want to know.
  */
-export function Settings({ hardware, persona, onPersona, platform, prefs, onPrefs, tiers, onReplayOnboarding }: Props) {
+export function Settings({ hardware, persona, onPersona, platform, prefs, onPrefs, tiers, onReplayOnboarding, onWorkspaceDir }: Props) {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [catalog, setCatalog] = useState<CatalogModel[]>([]);
   const [memoryDir, setMemoryDir] = useState('');
@@ -83,6 +86,34 @@ export function Settings({ hardware, persona, onPersona, platform, prefs, onPref
     }
     load();
   }, [hardware]);
+
+  /**
+   * Native folder picker. The backend persists the choice itself, so the only
+   * job here is to reflect it. A cancelled dialog returns null and must leave
+   * the existing scope alone — a stray Escape silently widening the agent back
+   * out to the whole machine would be the worst possible failure mode.
+   */
+  async function pickWorkspace() {
+    try {
+      const dir = await invoke<string | null>('pick_workspace_dir');
+      if (dir && settings) {
+        setSettings({ ...settings, workspace_dir: dir });
+        onWorkspaceDir?.(dir);
+      }
+    } catch (e) {
+      console.error('pick_workspace_dir failed:', e);
+    }
+  }
+
+  async function clearWorkspace() {
+    try {
+      await invoke('clear_workspace_dir');
+      if (settings) setSettings({ ...settings, workspace_dir: null });
+      onWorkspaceDir?.(null);
+    } catch (e) {
+      console.error('clear_workspace_dir failed:', e);
+    }
+  }
 
   async function update(patch: Partial<AppSettings>) {
     if (!settings) return;
@@ -223,6 +254,35 @@ export function Settings({ hardware, persona, onPersona, platform, prefs, onPref
         {/* Agent abilities. */}
         <div className="sgroup">
           <h2>Agent abilities</h2>
+
+          {/* Scope. Applies to Cowork and Code alike — both drive the same
+              tool loop, so scoping one and not the other would be a false
+              reassurance. Stored per-app, not per-conversation: the folder is
+              a standing safety boundary, and having it silently change when
+              you switch chats is exactly how someone gets surprised. */}
+          <div className="srow">
+            <div className="tx">
+              <b>Working folder</b>
+              <span>
+                Where the agent runs commands, in Cowork and Code.{' '}
+                {settings.workspace_dir
+                  ? <>Currently <span style={{ fontFamily: 'var(--mono)' }}>{settings.workspace_dir}</span>.</>
+                  : 'Not set — commands can run anywhere on this computer.'}
+              </span>
+            </div>
+            <div style={{ display: 'flex', gap: 6, flex: 'none' }}>
+              <button type="button" className="chip" onClick={pickWorkspace}>
+                <Icon name="folder" size={13} />
+                {settings.workspace_dir ? 'Change' : 'Choose…'}
+              </button>
+              {settings.workspace_dir && (
+                <button type="button" className="chip" onClick={clearWorkspace} title="Let the agent use the whole computer again">
+                  Clear
+                </button>
+              )}
+            </div>
+          </div>
+
           {/* Same checklist component as the startup readiness step, so the two
               can never disagree about what is granted. `showVision` is on here
               and off at startup: a 4.7 GB pull is a settings decision, not a

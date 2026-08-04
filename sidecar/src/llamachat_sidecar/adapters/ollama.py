@@ -24,6 +24,52 @@ except Exception:  # pragma: no cover - requests is a hard dep, but be defensive
 
 OLLAMA_URL = "http://127.0.0.1:11434"
 
+
+class OllamaError(RuntimeError):
+    """A chat request failed for a reason the user should be told about.
+
+    Chat used to swallow every exception and return normally, which the client
+    could not distinguish from a model that genuinely had nothing to say. The
+    result was an empty bubble and no error for a missing model, a crashed
+    runner or a stopped server alike.
+    """
+
+
+def _raise_if_error(obj: dict, model: str) -> None:
+    """Ollama can answer HTTP 200 and put the failure in the body.
+
+    A model runner that dies on load does exactly this, so a status check alone
+    is not enough.
+    """
+    if isinstance(obj, dict) and obj.get("error"):
+        raise OllamaError(f"{model}: {obj['error']}")
+
+
+def _explain(exc: Exception, model: str) -> str:
+    """Turn a transport-level failure into something actionable."""
+    text = str(exc)
+    if requests is not None:
+        if isinstance(exc, requests.exceptions.ConnectionError):
+            return "Can't reach Ollama at 127.0.0.1:11434. Is it running? (`ollama serve`)"
+        if isinstance(exc, requests.exceptions.ReadTimeout):
+            return f"{model}: timed out waiting for a reply."
+        resp = getattr(exc, "response", None)
+        if resp is not None:
+            body = ""
+            try:
+                body = resp.json().get("error", "")
+            except Exception:
+                body = (resp.text or "").strip()[:200]
+            if resp.status_code == 404:
+                return (
+                    f"Model '{model}' isn't installed. Pull it with "
+                    f"`ollama pull {model}`, or pick another model."
+                )
+            if body:
+                return f"{model}: {body}"
+            return f"{model}: Ollama returned HTTP {resp.status_code}."
+    return f"{model}: {text}" if text else f"{model}: the request failed."
+
 # Lightweight calls (tags / pull status framing) use a 30s timeout. Generation
 # can legitimately run longer than 30s (e.g. 500 tokens on CPU), so it uses a
 # 30s *connect* timeout with a generous *read* timeout so a benchmark is not
@@ -216,6 +262,7 @@ class OllamaAdapter(RuntimeAdapter):
 
             if not stream:
                 obj = resp.json()
+                _raise_if_error(obj, model)
                 content = obj.get("message", {}).get("content", "")
                 if content:
                     yield content
@@ -228,13 +275,22 @@ class OllamaAdapter(RuntimeAdapter):
                     obj = json.loads(line)
                 except Exception:
                     continue
+                # Ollama can answer 200 and then stream an error object (a
+                # crashed model runner does exactly this). Treat it as failure.
+                _raise_if_error(obj, model)
                 chunk = obj.get("message", {}).get("content", "")
                 if chunk:
                     yield chunk
                 if obj.get("done"):
                     break
-        except Exception:
-            return
+        except OllamaError:
+            raise
+        except Exception as exc:
+            # Previously this was a bare `return`, which turned every backend
+            # failure into a successful EMPTY reply: the UI showed an empty
+            # bubble and no error, for a missing model, a crashed runner or a
+            # dead server alike. Surface it instead.
+            raise OllamaError(_explain(exc, model)) from exc
 
     def pull(self, model: str) -> Iterator[dict]:
         if not HAVE_REQUESTS:

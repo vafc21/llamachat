@@ -203,6 +203,11 @@ pub fn run(app: tauri::AppHandle, mut messages: Vec<Value>, model: String) {
         return;
     }
 
+    // Catalog tags are base names (`qwen2.5:7b`); installed models are usually
+    // variants (`qwen2.5:7b-instruct-q8_0`). Reconcile before use — Ollama
+    // treats the mismatch as a 404.
+    let model = ollama::resolve_model(&model).unwrap_or(model);
+
     let state = app.state::<AppState>();
 
     // Read mode + effort from state (set by the UI via commands).
@@ -348,9 +353,21 @@ pub fn run(app: tauri::AppHandle, mut messages: Vec<Value>, model: String) {
         } else {
             match state.0.lock() {
                 Ok(inner) => {
+                    // Scope the run to the chosen folder. `shell` has always
+                    // taken a per-call `cwd` and nothing ever supplied one, so
+                    // commands ran in whatever directory the app was launched
+                    // from. An explicit arg from the model still wins.
+                    let mut args = args.clone();
+                    if tool == "shell" && args.get("cwd").and_then(|v| v.as_str()).is_none() {
+                        if let Some(dir) = inner.settings.workspace_dir.clone() {
+                            if let Some(obj) = args.as_object_mut() {
+                                obj.insert("cwd".into(), json!(dir));
+                            }
+                        }
+                    }
                     let result = inner.tools.execute(&ToolRequest {
                         name: tool.clone(),
-                        args: args.clone(),
+                        args,
                     });
                     if result.ok {
                         (true, result.output.unwrap_or_else(|| "(done)".into()))

@@ -179,6 +179,8 @@ export interface AppSettings {
   vision_model: string | null;
   /** True when usage reporting is turned off (it always is — shown for reassurance). */
   telemetry_off: boolean;
+  /** Folder the agent may work in (Cowork + Code). null = the whole machine. */
+  workspace_dir: string | null;
 }
 
 /** One message in a persisted conversation (markdown transcript). */

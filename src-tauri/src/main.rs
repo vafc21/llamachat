@@ -22,6 +22,7 @@ fn main() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(app_state)
         .setup(|app| {
             // System-tray menu — the always-available "Jarvis-style" entry point.
@@ -104,6 +105,8 @@ fn main() {
             commands::tool_needs_approval,
             commands::get_tool_system_prompt,
             commands::send_message,
+            commands::pick_workspace_dir,
+            commands::clear_workspace_dir,
         ])
         .run(tauri::generate_context!())
         .expect("error while running LlamaChat");

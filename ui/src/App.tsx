@@ -29,7 +29,7 @@ import {
 import { route, describeRoute } from './router'
 import { detectPlatform, hasSystemPermissions, type Platform } from './platform'
 import { usePermissions } from './permissions'
-import { estimateContext, estimateTokens, type TurnStats, type ActivityEntry } from './runtime'
+import { estimateContext, type TurnStats, type ActivityEntry } from './runtime'
 import type { Message, Conversation, HardwareProfile, LevelPlan, TierModel, DownloadProgress, Skill, ConvDto } from './types'
 
 /** Conversation ⇄ persisted DTO (markdown transcript). */
@@ -137,6 +137,8 @@ export default function App() {
     try { return localStorage.getItem('llamachat.welcomed') === '1'; } catch { return false; }
   });
   const [conversations, setConversations] = useState<Conversation[]>(INITIAL_CONVERSATIONS);
+  /** Live mirror of `conversations` for async handlers (see `finish()` below). */
+  const conversationsRef = useRef(conversations);
   const [activeId, setActiveId] = useState(() => {
     try { return localStorage.getItem('llamachat.activeId') || INITIAL_CONVERSATIONS[0].id; }
     catch { return INITIAL_CONVERSATIONS[0].id; }
@@ -383,8 +385,22 @@ export default function App() {
   }, [phase, tiers, leaveSetup]);
 
   // ── Agent-mode events → chat messages + real activity log ─────────
+  //
+  // `listen()` is async, so a re-run of this effect could tear down before the
+  // previous registrations resolved: the cleanup saw a still-empty array, and
+  // every listener that landed afterwards stayed subscribed forever. Switching
+  // conversation stacked a second, third… copy of every handler, so one
+  // `agent_step` was written to the transcript once per leaked listener
+  // (observed on a real run: a single shell call logged three times).
+  //
+  // `cancelled` closes that window — anything resolving late unsubscribes itself.
   useEffect(() => {
+    let cancelled = false;
     const uns: Array<(() => void) | null> = [];
+    const track = (u: (() => void) | null) => {
+      if (cancelled) u?.();
+      else uns.push(u);
+    };
     const add = (content: string) =>
       setConversations((prev) =>
         prev.map((c) =>
@@ -400,14 +416,14 @@ export default function App() {
           : t));
 
     (async () => {
-      uns.push(await listen<{ tool: string; args: Record<string, unknown> }>('agent_step', (p) => {
+      track(await listen<{ tool: string; args: Record<string, unknown> }>('agent_step', (p) => {
         add(`${TOOL_MARK}**${p.tool}** ${summarizeArgs(p.args)}`);
         setActivity((prev) => [...prev, {
           id: uid(), tool: p.tool, detail: plainArgs(p.args), state: 'running', startedAt: Date.now(),
         }]);
         touchTask(`Working · ${p.tool}`);
       }));
-      uns.push(await listen<{ ok: boolean; text: string }>('agent_result', (p) => {
+      track(await listen<{ ok: boolean; text: string }>('agent_result', (p) => {
         add('```\n' + (p.text || '(done)') + '\n```');
         setActivity((prev) => {
           const i = prev.map((a) => a.state).lastIndexOf('running');
@@ -417,24 +433,29 @@ export default function App() {
           return next;
         });
       }));
-      uns.push(await listen<{ text: string }>('agent_answer', (p) => { if (p.text?.trim()) add(p.text); }));
-      uns.push(await listen<{ text: string }>('agent_plan', (p) => add('**Plan**\n\n' + p.text)));
-      uns.push(await listen<{ error: string }>('agent_error', (p) => {
+      track(await listen<{ text: string }>('agent_answer', (p) => { if (p.text?.trim()) add(p.text); }));
+      track(await listen<{ text: string }>('agent_plan', (p) => add('**Plan**\n\n' + p.text)));
+      track(await listen<{ error: string }>('agent_error', (p) => {
         add('**Error** — ' + p.error);
         touchTask(p.error.slice(0, 80), 'error');
       }));
-      uns.push(await listen<{ tool: string; args: Record<string, unknown> }>('agent_approval', (p) => {
+      track(await listen<{ tool: string; args: Record<string, unknown> }>('agent_approval', (p) => {
         setPendingApproval(p);
         touchTask('Waiting for you · confirm the tool call', 'waiting');
       }));
-      uns.push(await listen('agent_done', () => {
+      track(await listen('agent_done', () => {
         setStreaming(false);
         setPendingApproval(null);
         touchTask('Finished', 'done');
       }));
     })();
-    return () => uns.forEach((u) => u?.());
+    return () => {
+      cancelled = true;
+      uns.forEach((u) => u?.());
+    };
   }, [activeId]);
+
+  conversationsRef.current = conversations;
 
   const active = conversations.find((c) => c.id === activeId) ?? conversations[0];
   const commands = allCommands(skills);
@@ -641,7 +662,15 @@ export default function App() {
           quant: tiers.find((t) => t.rec.ollama_pull === model)?.rec.quant,
           tokensOut: tokens,
           seconds,
-          ctxUsed: ctxUsed + estimateTokens(String(chars)) + tokens,
+          // `chars` is a NUMBER of characters. The old code did
+          // estimateTokens(String(chars)) — tokenising the *digits* of that
+          // number ("84" -> 1), then added it to a `ctxUsed` captured before
+          // the user's own message existed. The footer therefore disagreed
+          // with the status bar (observed: "ctx 11" vs "27" for one turn).
+          // Both now derive from the same live transcript.
+          ctxUsed: estimateContext(
+            conversationsRef.current.find((c) => c.id === convId)?.messages ?? []
+          ),
           ctxTotal,
           router: prev[msgId]?.router,
         },

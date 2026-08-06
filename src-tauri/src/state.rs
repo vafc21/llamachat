@@ -6,7 +6,7 @@ use llamachat_core::{
     tools::{ToolLimits, ToolRegistry},
     BenchmarkResult, CatalogModel, Effort, HardwareProfile, ModelCatalog, PermMode,
 };
-use llamachat_core::tools::{ShellTool, FilesystemTool, ProcessTool, DesktopTool, ComputerTool};
+use llamachat_core::tools::{ShellTool, FilesystemTool, ProcessTool, DesktopTool, ComputerTool, WebSearchTool, ReadPageTool};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
@@ -76,6 +76,12 @@ impl AppState {
         tools.register(Box::new(ProcessTool::new(ToolLimits::default())));
         tools.register(Box::new(DesktopTool::new()));
         tools.register(Box::new(ComputerTool::new()));
+        tools.register(Box::new(WebSearchTool {
+            searxng_url: settings.searxng_url.clone(),
+            brave_api_key: settings.brave_api_key.clone(),
+            state: None,
+        }));
+        tools.register(Box::new(ReadPageTool { state: None }));
 
         Ok(AppState(Mutex::new(Inner {
             store,

@@ -58,6 +58,17 @@ Parameters:
   - action: string (required) Action: 'screenshot' to capture the full screen
   - path: string (optional) Where to save the screenshot (defaults to temp file).
 
+## web_search
+Search the web and get a short list of pages. Use to find current information: news, prices, releases, versions, weather, scores, or anything about a company, product or person you are not sure about. Returns only titles, links and one-line snippets — NOT the page text. To read a page, call read_page with one of the links this returns.
+Parameters:
+  - query: string (required) What to search for. Keep it under 12 words.
+
+## read_page
+Read one web page and get its main text. Use after web_search, or when the user gives you a URL. Only use a link that came from a search result or from the user. Long pages are shortened.
+Parameters:
+  - url: string (required) The full link, starting with https://.
+  - question: string (optional) What you want to know from this page.
+
 Respond with tool calls like:
 {"tool": "shell", "args": {"command": "ls -la"}}
 You can use multiple tools in sequence. After tool results, continue your response.
@@ -83,6 +94,8 @@ Available tools:
 - file: Read/write/edit files. Args: {"action": "read|write|edit", "path": "<path>", "content": "<optional>"}
 - process: List/spawn/kill processes. Args: {"action": "list|spawn|kill", "command": "<optional>", "pid": <optional>}
 - desktop: Take screenshots. Args: {"action": "screenshot", "path": "<optional path>"}
+- web_search: Search the web for current info. Args: {"query": "<search terms>"}
+- read_page: Read one web page. Args: {"url": "<full link>", "question": "<optional>"}
 
 When you use a tool, the result will be shown. Then continue your response naturally."""
 

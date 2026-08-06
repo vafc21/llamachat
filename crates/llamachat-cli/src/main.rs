@@ -14,7 +14,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
 use llamachat_core::{catalog, hardware, recommend, store::Store, Recommendation};
-use llamachat_core::tools::{ShellTool, FilesystemTool, ProcessTool, DesktopTool, ToolLimits, ToolRegistry, ToolRequest};
+use llamachat_core::tools::{ShellTool, FilesystemTool, ProcessTool, DesktopTool, WebSearchTool, ReadPageTool, ToolLimits, ToolRegistry, ToolRequest};
 
 mod design;
 mod tui;
@@ -251,6 +251,12 @@ fn cmd_tools(tool_name: Option<String>, args_json: String) -> Result<()> {
     registry.register(Box::new(FilesystemTool::new(ToolLimits::default())));
     registry.register(Box::new(ProcessTool::new(ToolLimits::default())));
     registry.register(Box::new(DesktopTool::new()));
+    registry.register(Box::new(WebSearchTool {
+        searxng_url: None,
+        brave_api_key: None,
+        state: None,
+    }));
+    registry.register(Box::new(ReadPageTool { state: None }));
     register_computer(&mut registry);
 
     match tool_name {

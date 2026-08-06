@@ -1,6 +1,6 @@
 # Privacy Policy
 
-_Last updated: 2026-07-12_
+_Last updated: 2026-08-06_
 
 **LlamaChat** is a local-first desktop application. It is designed so that your
 data stays on your device. LlamaChat does **not** collect, transmit, sell, or
@@ -47,6 +47,41 @@ machine — to perform the task you requested. It is not transmitted by LlamaCha
 
 Because LlamaChat collects no personal information, it collects none from
 children either.
+
+## Web research
+
+If you enable web research, LlamaChat can search the web and read pages on your
+behalf. This feature is **off by default** and must be explicitly turned on in
+Settings.
+
+When enabled:
+
+- **Your search query is sent to the configured search provider.** The default
+  is DuckDuckGo (via a direct HTML request — no API key, no account). You can
+  also configure your own SearXNG instance or a Brave Search API key. The
+  privacy of your query is governed by that provider's policy.
+- **Self-hosted SearXNG is the recommended configuration** for users who want
+  no third party to see their queries — not even DuckDuckGo.
+- **LlamaChat fetches web pages directly from their source sites, not through
+  a proxy.** Those sites see your IP address and a generic user-agent string
+  (`LlamaChat/0.3 (local web research)`). No cookies are sent or stored, and
+  each fetch runs in an isolated session.
+- **Page contents are processed locally** by the model on your machine. They
+  are never transmitted to any service by LlamaChat.
+- **Visited URLs are stored only in your local chat history**, which you can
+  delete at any time.
+
+### Prompt injection risk
+
+Fetched web pages are untrusted content. A malicious page could contain hidden
+instructions that attempt to influence the model's behaviour. LlamaChat applies
+structural defences — private-address blocking, URL allow-lists, content
+spotlighting envelopes, and automatic local summarisation — but **the risk is
+not zero.** This is an inherent property of any system that lets language models
+consume web content, and we believe the honest thing is to tell you plainly.
+
+[Anthropic makes the same disclosure for Claude in Chrome](https://support.claude.com/en/articles/12902428-use-claude-in-chrome-safely),
+and [OpenAI describes the same challenge for ChatGPT Atlas](https://openai.com/index/hardening-atlas-against-prompt-injection/).
 
 ## Changes to this policy
 

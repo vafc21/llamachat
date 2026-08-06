@@ -8,14 +8,17 @@ pub mod process;
 pub mod desktop;
 pub mod computer;
 pub mod computer_use_tool;
+pub mod web;
 
 pub use shell::ShellTool;
 pub use filesystem::FilesystemTool;
 pub use process::ProcessTool;
 pub use desktop::DesktopTool;
 pub use computer::ComputerTool;
+pub use web::{WebSearchTool, ReadPageTool, WebState};
 
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 // ── Tool definition ────────────────────────────────────────────
@@ -122,6 +125,11 @@ pub struct ToolRegistry {
     destructive_allowed: bool,
     /// Pending approval: tool name → whether approved.
     pending_approval: Option<String>,
+    /// Set after any web tool (web_search, read_page) returns content this
+    /// turn. Locks out destructive tools for the rest of the turn — web
+    /// content in context with shell/file-write/process/computer in the
+    /// toolbox is the canonical prompt-injection source-sink pairing.
+    web_context_active: AtomicBool,
 }
 
 impl ToolRegistry {
@@ -131,6 +139,7 @@ impl ToolRegistry {
             limits,
             destructive_allowed,
             pending_approval: None,
+            web_context_active: AtomicBool::new(false),
         }
     }
 
@@ -192,9 +201,29 @@ impl ToolRegistry {
             };
         }
 
+        // Sink reduction (§5.3.1): after any web tool returns content, lock
+        // out destructive tools for the rest of the turn. This is enforced in
+        // Rust, not the prompt — a 3B model's instruction-following cannot be
+        // relied upon as a security boundary.
+        if tool.safety() == ToolSafety::Destructive && self.web_context_active.load(Ordering::SeqCst) {
+            return ToolResult {
+                ok: false,
+                output: None,
+                error: Some(
+                    "Web content is in context, so destructive tools are disabled for the rest of this turn. This is a safety guard — web pages can contain hidden instructions.".into(),
+                ),
+                media: None,
+                elapsed_ms: start.elapsed().as_millis() as u64,
+            };
+        }
+
         match tool.execute(request.args.clone()) {
             Ok(mut result) => {
                 result.elapsed_ms = start.elapsed().as_millis() as u64;
+                // Mark web context after any web tool returns content.
+                if matches!(request.name.as_str(), "web_search" | "read_page") && result.ok {
+                    self.web_context_active.store(true, Ordering::SeqCst);
+                }
                 result
             }
             Err(e) => ToolResult {
@@ -205,6 +234,11 @@ impl ToolRegistry {
                 elapsed_ms: start.elapsed().as_millis() as u64,
             },
         }
+    }
+
+    /// Reset the web-context flag at the start of a new turn.
+    pub fn reset_web_context(&self) {
+        self.web_context_active.store(false, Ordering::SeqCst);
     }
 
     /// Generate a system prompt describing available tools for the model.

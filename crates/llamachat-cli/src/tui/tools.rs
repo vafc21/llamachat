@@ -10,7 +10,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use llamachat_core::tools::{
-    FilesystemTool, ProcessTool, ShellTool, ToolLimits, ToolRegistry, ToolRequest, ToolResult,
+    FilesystemTool, ProcessTool, ShellTool, WebSearchTool, ReadPageTool, ToolLimits, ToolRegistry, ToolRequest, ToolResult,
 };
 
 use super::action;
@@ -48,6 +48,12 @@ pub fn build_registry() -> Arc<ToolRegistry> {
     r.register(Box::new(ProcessTool::new(ToolLimits::default())));
     // Only offer desktop control when there is a desktop. See `register_computer`
     // in main.rs for why absence beats a tool that always fails.
+    r.register(Box::new(WebSearchTool {
+        searxng_url: None,
+        brave_api_key: None,
+        state: None,
+    }));
+    r.register(Box::new(ReadPageTool { state: None }));
     if let Ok(ctrl) = llamachat_core::control::open() {
         if let Ok(tool) = llamachat_core::tools::computer_use_tool::ComputerUseTool::new(ctrl) {
             r.register(Box::new(tool));

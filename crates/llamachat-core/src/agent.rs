@@ -14,6 +14,10 @@ impl Agent {
     }
 
     pub async fn run(&self, user_message: &str) -> Result<String> {
+        // Reset web-context safety flag at turn start. Each turn gets a fresh
+        // slate: web content from a previous turn does not carry over.
+        self.registry.reset_web_context();
+
         let system = self.registry.system_prompt();
         let mut messages: Vec<serde_json::Value> = vec![
             serde_json::json!({"role": "system", "content": system}),

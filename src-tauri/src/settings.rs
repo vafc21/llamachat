@@ -36,6 +36,14 @@ pub struct AppSettings {
     /// inherited whatever directory the app happened to be launched from.
     #[serde(default)]
     pub workspace_dir: Option<String>,
+    /// SearXNG instance URL for web_search, e.g. "http://localhost:8888".
+    /// When None, falls back to DuckDuckGo HTML scrape.
+    #[serde(default)]
+    pub searxng_url: Option<String>,
+    /// Brave Search API key. When set, Brave is preferred over the DuckDuckGo
+    /// fallback (SearXNG, if configured, is always tried first).
+    #[serde(default)]
+    pub brave_api_key: Option<String>,
 }
 
 fn default_perception() -> String {
@@ -53,6 +61,8 @@ impl Default for AppSettings {
             vision_model: None,
             telemetry_off: true,
             workspace_dir: None,
+            searxng_url: None,
+            brave_api_key: None,
         }
     }
 }

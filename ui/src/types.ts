@@ -181,6 +181,10 @@ export interface AppSettings {
   telemetry_off: boolean;
   /** Folder the agent may work in (Cowork + Code). null = the whole machine. */
   workspace_dir: string | null;
+  /** SearXNG instance URL for web_search. null = not configured. */
+  searxng_url: string | null;
+  /** Brave Search API key for web_search. null = not configured. */
+  brave_api_key: string | null;
 }
 
 /** One message in a persisted conversation (markdown transcript). */

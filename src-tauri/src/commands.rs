@@ -703,12 +703,52 @@ pub fn get_settings(state: State<AppState>) -> Result<AppSettings, String> {
 }
 
 /// Replace and persist the app settings.
+///
+/// Search credentials are copied into the live tool registry here. They are
+/// read once when a tool is constructed, so without this a user who pasted an
+/// API key saw no change until they quit and reopened the app — and every
+/// search in between failed as "not configured".
 #[tauri::command]
 pub fn set_settings(state: State<AppState>, settings: AppSettings) -> Result<(), String> {
     let mut inner = state.0.lock().map_err(|e| e.to_string())?;
     settings::save_settings(&data_dir(), &settings)?;
     inner.settings = settings;
+    let searxng = inner.settings.searxng_url.clone();
+    let brave = inner.settings.brave_api_key.clone();
+    inner.tools.set_search_backends(searxng, brave);
     Ok(())
+}
+
+/// Run one real `web_search` against the configured backend and report back.
+///
+/// A search backend can fail in ways that are invisible until the middle of a
+/// conversation — a typo'd URL, a rejected key, a SearXNG instance with the
+/// JSON format disabled. This makes that failure immediate and legible at the
+/// moment the user enters the credentials.
+#[tauri::command]
+pub fn test_web_search(state: State<AppState>) -> Result<String, String> {
+    let inner = state.0.lock().map_err(|e| e.to_string())?;
+    let req = ToolRequest {
+        name: "web_search".into(),
+        args: serde_json::json!({ "query": "llamachat local ai" }),
+    };
+    let result = inner.tools.execute(&req);
+    if result.ok {
+        let hits = result
+            .output
+            .as_deref()
+            .unwrap_or("")
+            .lines()
+            .filter(|l| l.trim_start().starts_with('['))
+            .count();
+        let via = if inner.settings.searxng_url.is_some() { "SearXNG" } else { "Brave" };
+        Ok(format!(
+            "Working — {via} returned {hits} results in {} ms.",
+            result.elapsed_ms
+        ))
+    } else {
+        Err(result.error.unwrap_or_else(|| "Search failed.".into()))
+    }
 }
 
 // ── Custom models ─────────────────────────────────────────────

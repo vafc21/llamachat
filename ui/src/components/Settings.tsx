@@ -4,7 +4,7 @@ import { ReadinessChecklist } from './Readiness'
 import { PersonaCards } from './PersonaChoice'
 import { Icon } from './Icon'
 import { INTENSITY_OPTIONS } from '../types'
-import { invoke, isTauri } from '../tauri'
+import { invoke, invokeOrThrow, isTauri } from '../tauri'
 import type { Persona } from '../persona'
 import type { Platform } from '../platform'
 import type { UiPrefs } from '../prefs'
@@ -26,6 +26,8 @@ function defaultSettings(hardware: HardwareProfile | null): AppSettings {
     vision_model: null,
     telemetry_off: true,
     workspace_dir: null,
+    searxng_url: null,
+    brave_api_key: null,
   };
 }
 
@@ -75,6 +77,9 @@ export function Settings({ hardware, persona, onPersona, platform, prefs, onPref
   const [catalog, setCatalog] = useState<CatalogModel[]>([]);
   const [memoryDir, setMemoryDir] = useState('');
   const [saved, setSaved] = useState(false);
+  /** Result of the last "Test" click in Web research. */
+  const [searchTest, setSearchTest] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [testing, setTesting] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -112,6 +117,26 @@ export function Settings({ hardware, persona, onPersona, platform, prefs, onPref
       onWorkspaceDir?.(null);
     } catch (e) {
       console.error('clear_workspace_dir failed:', e);
+    }
+  }
+
+  /**
+   * Run a real search against whatever is configured and report what came
+   * back. Without this the only way to find out a key was wrong was to ask the
+   * model a question and watch it fail with no explanation.
+   */
+  async function testSearch() {
+    setTesting(true);
+    setSearchTest(null);
+    try {
+      // invokeOrThrow, not invoke: the plain wrapper turns a rejected command
+      // into null, which would render a failed search as "Working".
+      const msg = await invokeOrThrow<string>('test_web_search');
+      setSearchTest({ ok: true, msg });
+    } catch (e) {
+      setSearchTest({ ok: false, msg: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setTesting(false);
     }
   }
 
@@ -324,6 +349,80 @@ export function Settings({ hardware, persona, onPersona, platform, prefs, onPref
           )}
         </div>
 
+        {/* Web research. The tool ships with no default backend on purpose:
+            scraping a public engine broke (DuckDuckGo now serves an anti-bot
+            challenge to every request) and routing everyone's queries through
+            one hosted default would quietly undo the local-first promise. So
+            the user picks, and can verify it here rather than discovering it
+            failed mid-conversation. */}
+        <div className="sgroup">
+          <h2>Web research</h2>
+          <div className="srow">
+            <div className="tx">
+              <b>Search backend</b>
+              <span>
+                Needed before the assistant can look anything up online. Without one it will
+                say so instead of guessing. Searches are the only thing that leaves this machine.
+              </span>
+            </div>
+            <div style={{ display: 'flex', gap: 6, flex: 'none', alignItems: 'center' }}>
+              <button type="button" className="chip" onClick={testSearch} disabled={testing}>
+                {testing ? 'Testing…' : 'Test'}
+              </button>
+            </div>
+          </div>
+
+          {searchTest && (
+            <div className="srow">
+              <div className="tx">
+                <span style={{ color: searchTest.ok ? 'var(--ok)' : 'var(--danger, #ff6b6b)' }}>
+                  {searchTest.msg}
+                </span>
+              </div>
+            </div>
+          )}
+
+          <div className="srow">
+            <div className="tx">
+              <b>SearXNG address</b>
+              <span>
+                Most private — you host it, so no third party sees your searches.
+                Its <span style={{ fontFamily: 'var(--mono)' }}>settings.yml</span> must list
+                {' '}<span style={{ fontFamily: 'var(--mono)' }}>json</span> under
+                {' '}<span style={{ fontFamily: 'var(--mono)' }}>search.formats</span>.
+              </span>
+            </div>
+            <input
+              type="text"
+              value={settings.searxng_url ?? ''}
+              onChange={(e) => update({ searxng_url: e.target.value || null })}
+              placeholder="http://localhost:8888"
+              aria-label="SearXNG address"
+              style={{ width: 220 }}
+            />
+          </div>
+
+          <div className="srow">
+            <div className="tx">
+              <b>Brave Search API key</b>
+              <span>
+                Used when SearXNG isn’t set. Free tier available at brave.com/search/api —
+                your searches go to Brave, nothing else does.
+              </span>
+            </div>
+            <input
+              type="password"
+              value={settings.brave_api_key ?? ''}
+              onChange={(e) => update({ brave_api_key: e.target.value || null })}
+              placeholder="Not set"
+              aria-label="Brave Search API key"
+              autoComplete="off"
+              spellCheck={false}
+              style={{ width: 220, fontFamily: 'var(--mono)' }}
+            />
+          </div>
+        </div>
+
         {/* First run. Without this, re-testing onboarding means clearing
             localStorage by hand — and a user who was put on the wrong side of
             the persona question has no way back to it. */}
@@ -351,7 +450,10 @@ export function Settings({ hardware, persona, onPersona, platform, prefs, onPref
             <div className="tx">
               <b>Everything stays on this machine</b>
               <span>
-                No account, no telemetry, no network calls. Models run through your local runtime.
+                No account, no telemetry. Models run through your local runtime.
+                {(settings.searxng_url || settings.brave_api_key)
+                  ? ' The one exception is web research: when the assistant searches or opens a page, that request goes to the backend you configured above.'
+                  : ' Web research is off, so nothing leaves this machine at all.'}
                 {!isTauri() && ' (Browser dev build — the desktop backend isn\u2019t attached.)'}
               </span>
             </div>

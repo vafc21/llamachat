@@ -35,6 +35,25 @@ export async function invoke<T>(
 }
 
 /**
+ * Call a backend command and **propagate failures** instead of collapsing them
+ * to `null`.
+ *
+ * Use this wherever the difference between "it worked" and "it failed" is the
+ * whole point of the call — connection tests, credential checks. With plain
+ * `invoke` a rejected command is indistinguishable from a command that
+ * legitimately returned nothing, so a failure renders as success.
+ */
+export async function invokeOrThrow<T>(
+  cmd: string,
+  args?: Record<string, unknown>
+): Promise<T> {
+  if (!isTauri()) {
+    throw new Error('Not available in the browser dev build — run the desktop app.');
+  }
+  return await tauriInvoke<T>(cmd, args);
+}
+
+/**
  * Subscribe to a backend event. Resolves to an unlisten function, or `null`
  * when events aren't available (browser dev build).
  */

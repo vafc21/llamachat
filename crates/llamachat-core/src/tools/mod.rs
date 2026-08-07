@@ -81,6 +81,13 @@ pub trait Tool: Send + Sync {
     fn info(&self) -> ToolInfo;
     fn execute(&self, args: serde_json::Value) -> Result<ToolResult, String>;
     fn safety(&self) -> ToolSafety;
+
+    /// Apply new web-search credentials to an already-registered tool.
+    ///
+    /// Only `WebSearchTool` overrides this; the default is a no-op. It exists
+    /// because `execute` takes `&self`, so a tool cannot be mutated in place,
+    /// and settings must apply without an app restart.
+    fn set_search_backends(&self, _searxng_url: Option<String>, _brave_api_key: Option<String>) {}
 }
 
 // ── Execution limits ───────────────────────────────────────────
@@ -150,6 +157,19 @@ impl ToolRegistry {
     /// Allow or forbid destructive tools (kept in sync with the user's consent).
     pub fn set_destructive_allowed(&mut self, allowed: bool) {
         self.destructive_allowed = allowed;
+    }
+
+    /// Push new search credentials to every tool that accepts them, so a
+    /// Settings change takes effect on the next message rather than the next
+    /// app launch.
+    pub fn set_search_backends(
+        &mut self,
+        searxng_url: Option<String>,
+        brave_api_key: Option<String>,
+    ) {
+        for tool in &self.tools {
+            tool.set_search_backends(searxng_url.clone(), brave_api_key.clone());
+        }
     }
 
     pub fn list_tools(&self) -> Vec<ToolInfo> {

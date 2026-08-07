@@ -77,6 +77,7 @@ fn main() {
             commands::wipe_data,
             commands::get_settings,
             commands::set_settings,
+            commands::test_web_search,
             commands::add_custom_model,
             commands::remove_custom_model,
             commands::download_model,

@@ -4,9 +4,19 @@
 //! Architecture: two narrow tools, designed for small (3B–9B) local models.
 //!
 //! ## web_search
-//! Queries a user-configured SearXNG instance (default), DuckDuckGo HTML scrape,
-//! or Brave Search API. Returns titles, links and one-line snippets — NOT page
-//! bodies. The model must call `read_page` to get full text.
+//! Queries a user-configured SearXNG instance or Brave Search API. Returns
+//! titles, links and one-line snippets — NOT page bodies. The model must call
+//! `read_page` to get full text.
+//!
+//! **There is deliberately no built-in default backend.** Scraping a public
+//! engine was tried (DuckDuckGo's HTML endpoint) and removed in 0.3.1: it now
+//! answers every request with a JS anti-bot challenge, so it returned zero
+//! results for everyone, everywhere. The engines that still parse cleanly
+//! (Mojeek) disallow `/search` in robots.txt, and their API is paid. Rather
+//! than ship a scraper that breaks the moment an engine adds a challenge — or
+//! quietly route every user's queries through somebody else's server, which
+//! would break the local-first promise in SPEC.md §1 — search requires an
+//! explicit backend the user chooses and controls.
 //!
 //! ## read_page
 //! Fetches one URL and extracts readable text. Strips scripts, styles, comments,
@@ -77,13 +87,53 @@ impl Default for WebState {
 
 /// `web_search` — query a search backend, return snippets.
 pub struct WebSearchTool {
-    /// SearXNG base URL, e.g. "http://localhost:8888". If None, falls back to
-    /// DuckDuckGo HTML scrape.
-    pub searxng_url: Option<String>,
-    /// Brave Search API key. If set, Brave is preferred over DuckDuckGo fallback.
-    pub brave_api_key: Option<String>,
+    /// Backend credentials. Behind a lock so Settings can update a registered
+    /// tool in place — `Tool::execute` takes `&self`.
+    backends: std::sync::RwLock<SearchBackends>,
     /// Shared per-conversation state.
     pub state: Option<std::sync::Arc<WebState>>,
+}
+
+/// The user-controlled ways to reach a search index.
+#[derive(Debug, Clone, Default)]
+struct SearchBackends {
+    /// SearXNG base URL, e.g. "http://localhost:8888". Tried first when set.
+    searxng_url: Option<String>,
+    /// Brave Search API key. Tried when SearXNG is unset or unreachable.
+    brave_api_key: Option<String>,
+}
+
+impl WebSearchTool {
+    /// Build the tool with the user's configured backends. Pass `None`/`None`
+    /// for an unconfigured tool — it will return setup instructions rather
+    /// than silently failing.
+    pub fn new(
+        searxng_url: Option<String>,
+        brave_api_key: Option<String>,
+        state: Option<std::sync::Arc<WebState>>,
+    ) -> Self {
+        WebSearchTool {
+            backends: std::sync::RwLock::new(SearchBackends {
+                searxng_url: normalize(searxng_url),
+                brave_api_key: normalize(brave_api_key),
+            }),
+            state,
+        }
+    }
+
+    /// True when at least one backend is configured. Lets callers hide or
+    /// explain the tool instead of offering a search that cannot run.
+    pub fn is_configured(&self) -> bool {
+        let b = self.backends.read().unwrap();
+        b.searxng_url.is_some() || b.brave_api_key.is_some()
+    }
+}
+
+/// Treat whitespace-only config as absent. A settings field the user cleared
+/// leaves an empty string behind, and an empty SearXNG URL would otherwise be
+/// "configured" and fail every request against `/search?q=`.
+fn normalize(v: Option<String>) -> Option<String> {
+    v.map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
 }
 
 impl Tool for WebSearchTool {
@@ -129,8 +179,26 @@ impl Tool for WebSearchTool {
         }
 
         let start = std::time::Instant::now();
-        let results = block_on(search(query, &self.searxng_url, &self.brave_api_key))
-            .unwrap_or_else(|e| vec![format!("Search failed: {}", e)]);
+        let (searxng_url, brave_api_key) = {
+            let b = self.backends.read().unwrap();
+            (b.searxng_url.clone(), b.brave_api_key.clone())
+        };
+        let results = match block_on(search(query, &searxng_url, &brave_api_key)) {
+            Ok(r) => r,
+            // A failed search is a failed tool call. Returning ok:true with the
+            // error as the "results" text taught the model to treat an outage as
+            // a legitimately empty web, and it would confidently tell the user
+            // no such page existed.
+            Err(e) => {
+                return Ok(ToolResult {
+                    ok: false,
+                    output: None,
+                    error: Some(e),
+                    media: None,
+                    elapsed_ms: start.elapsed().as_millis() as u64,
+                });
+            }
+        };
 
         // Populate the allowed-url set from results (§5.3.3).
         if let Some(ref state) = self.state {
@@ -155,6 +223,13 @@ impl Tool for WebSearchTool {
 
     fn safety(&self) -> crate::tools::ToolSafety {
         crate::tools::ToolSafety::ReadOnly
+    }
+
+    fn set_search_backends(&self, searxng_url: Option<String>, brave_api_key: Option<String>) {
+        if let Ok(mut b) = self.backends.write() {
+            b.searxng_url = normalize(searxng_url);
+            b.brave_api_key = normalize(brave_api_key);
+        }
     }
 }
 
@@ -301,6 +376,17 @@ impl Tool for ReadPageTool {
 
 // ── Search backend ──────────────────────────────────────────────
 
+/// Shown whenever no backend is configured, or every configured backend
+/// failed. It names the exact next action — a bare "search failed" sent users
+/// hunting for a network problem that wasn't there.
+const NO_BACKEND_HELP: &str = concat!(
+    "Web search is not set up yet. Open Settings → Web research and add one of:\n",
+    "  • SearXNG — a URL you host (fully private, nothing leaves your network)\n",
+    "  • Brave Search — a free API key from https://brave.com/search/api/\n",
+    "Tell the user this. Do not guess an answer that needs current information, ",
+    "and do not retry web_search until it is configured.",
+);
+
 async fn search(
     query: &str,
     searxng_url: &Option<String>,
@@ -309,28 +395,45 @@ async fn search(
     let client = build_client()?;
     let encoded = urlencoding(query);
 
-    // 1. SearXNG if configured.
+    // Why each backend failed, so a misconfiguration is debuggable. Without
+    // this every fault — wrong URL, dead host, bad key, quota — collapsed into
+    // the same unhelpful message.
+    let mut failures: Vec<String> = Vec::new();
+    let configured = searxng_url.is_some() || brave_api_key.is_some();
+
+    // 1. SearXNG if configured. Preferred: self-hosted, so no third party ever
+    //    sees the query.
     if let Some(base) = searxng_url {
         let base = base.trim_end_matches('/');
         let url = format!("{base}/search?q={encoded}&format=json&categories=general");
         match client.get(&url).send().await {
-            Ok(resp) => {
-                if resp.status().is_success() {
-                    let body = resp.text().await.map_err(|e| format!("read error: {e}"))?;
-                    return parse_searxng(&body);
+            Ok(resp) if resp.status().is_success() => {
+                let body = resp.text().await.map_err(|e| format!("read error: {e}"))?;
+                match parse_searxng(&body) {
+                    Ok(results) => return Ok(results),
+                    Err(e) => failures.push(format!("SearXNG ({base}): {e}")),
                 }
             }
-            Err(e) => {
-                // Fall through — SearXNG unavailable is not fatal.
-                let _ = e;
+            Ok(resp) => {
+                let status = resp.status();
+                // The most common SearXNG misconfiguration by a wide margin:
+                // the JSON output format is disabled by default in settings.yml.
+                let hint = if status == reqwest::StatusCode::FORBIDDEN {
+                    " — this instance may not allow the JSON format; \
+                     add `- json` under `search.formats` in its settings.yml"
+                } else {
+                    ""
+                };
+                failures.push(format!("SearXNG ({base}) returned HTTP {status}{hint}"));
             }
+            Err(e) => failures.push(format!("SearXNG ({base}) unreachable: {e}")),
         }
     }
 
-    // 2. Brave Search API if key is set.
+    // 2. Brave Search API if a key is set.
     if let Some(key) = brave_api_key {
         let url = format!(
-            "https://api.search.brave.com/res/v1/web/search?q={encoded}&count=5"
+            "https://api.search.brave.com/res/v1/web/search?q={encoded}&count={MAX_SEARCH_RESULTS}"
         );
         match client
             .get(&url)
@@ -340,33 +443,51 @@ async fn search(
             .send()
             .await
         {
-            Ok(resp) => {
-                if resp.status().is_success() {
-                    let body = resp.text().await.map_err(|e| format!("read error: {e}"))?;
-                    return parse_brave(&body);
+            Ok(resp) if resp.status().is_success() => {
+                let body = resp.text().await.map_err(|e| format!("read error: {e}"))?;
+                match parse_brave(&body) {
+                    Ok(results) => return Ok(results),
+                    Err(e) => failures.push(format!("Brave: {e}")),
                 }
             }
-            Err(e) => {
-                let _ = e;
+            Ok(resp) => {
+                let status = resp.status();
+                // Brave answers a bad key with 422 (not 401) and puts the real
+                // reason in the JSON body, so the status code alone is
+                // actively misleading — "Unprocessable Entity" reads like a
+                // malformed query rather than "your key is wrong".
+                let body = resp.text().await.unwrap_or_default();
+                let detail = serde_json::from_str::<serde_json::Value>(&body)
+                    .ok()
+                    .and_then(|v| {
+                        v["error"]["detail"]
+                            .as_str()
+                            .or_else(|| v["error"]["code"].as_str())
+                            .map(str::to_string)
+                    });
+                let hint = match (status, detail) {
+                    (_, Some(d)) => format!(" — {d}"),
+                    (reqwest::StatusCode::TOO_MANY_REQUESTS, None) => {
+                        " — rate limit or monthly quota reached".to_string()
+                    }
+                    _ => String::new(),
+                };
+                failures.push(format!("Brave returned HTTP {status}{hint}"));
             }
+            Err(e) => failures.push(format!("Brave unreachable: {e}")),
         }
     }
 
-    // 3. DuckDuckGo HTML scrape (fallback).
-    let url = format!("https://html.duckduckgo.com/html/?q={encoded}");
-    match client.get(&url).send().await {
-        Ok(resp) => {
-            let body = resp
-                .text()
-                .await
-                .map_err(|e| format!("read error: {e}"))?;
-            parse_ddg(&body)
-        }
-        Err(e) => Err(format!(
-            "Could not search: no search backend is available. \
-             (SearXNG returned an error, and the DuckDuckGo fallback failed: {e})"
-        )),
+    // 3. There is no step 3. See the module docs: no free backend can be
+    //    relied on without the user's own key or instance.
+    if !configured {
+        return Err(NO_BACKEND_HELP.to_string());
     }
+
+    Err(format!(
+        "Web search failed. {}\nCheck Settings → Web research.",
+        failures.join("; ")
+    ))
 }
 
 fn urlencoding(s: &str) -> String {
@@ -386,6 +507,44 @@ fn urlencoding(s: &str) -> String {
         .collect()
 }
 
+/// Max snippet length, in characters, before we ellipsize.
+const MAX_SNIPPET_CHARS: usize = 200;
+
+/// Shorten a snippet to [`MAX_SNIPPET_CHARS`] **characters**.
+///
+/// This counts characters, not bytes. The previous `&s[..200]` panicked
+/// whenever byte 200 landed inside a multi-byte character — an em dash, a
+/// curly quote, any CJK or accented text — which is common in real search
+/// snippets and took down the whole tool call.
+fn shorten(snippet: &str) -> String {
+    // Search backends return HTML in snippets (Brave bolds matched terms), so
+    // decode entities and drop tags before measuring — otherwise a `&amp;`
+    // costs 5 of the budget and markup reaches the model verbatim.
+    let clean = html_decode(&strip_tags(snippet));
+    let clean = clean.split_whitespace().collect::<Vec<_>>().join(" ");
+    if clean.chars().count() > MAX_SNIPPET_CHARS {
+        let cut: String = clean.chars().take(MAX_SNIPPET_CHARS).collect();
+        format!("{}…", cut.trim_end())
+    } else {
+        clean
+    }
+}
+
+/// Remove HTML tags from a short snippet.
+fn strip_tags(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut in_tag = false;
+    for c in s.chars() {
+        match c {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if !in_tag => out.push(c),
+            _ => {}
+        }
+    }
+    out
+}
+
 fn parse_searxng(body: &str) -> Result<Vec<String>, String> {
     let parsed: serde_json::Value =
         serde_json::from_str(body).map_err(|e| format!("SearXNG response invalid: {e}"))?;
@@ -394,28 +553,22 @@ fn parse_searxng(body: &str) -> Result<Vec<String>, String> {
         .as_array()
         .ok_or("SearXNG returned no results array")?;
 
-    let query_str = parsed["query"]
-        .as_str()
-        .unwrap_or("");
+    if results.is_empty() {
+        return Err("SearXNG returned no results for that query".into());
+    }
 
-    let mut lines: Vec<String> = Vec::new();
-    lines.push(format!("Found {} results for \"{query_str}\".\n", results.len()));
+    let query_str = parsed["query"].as_str().unwrap_or("");
 
     let cap = results.len().min(MAX_SEARCH_RESULTS);
+    let mut lines: Vec<String> = Vec::new();
+    lines.push(format!("Found {cap} results for \"{query_str}\".\n"));
+
     for i in 0..cap {
         let r = &results[i];
         let title = r["title"].as_str().unwrap_or("Untitled");
         let url = r["url"].as_str().unwrap_or("");
-        let snippet = r["content"].as_str().unwrap_or("");
-        // Truncate snippet to ~200 chars.
-        let snip = if snippet.len() > 200 {
-            format!("{}…", &snippet[..200])
-        } else {
-            snippet.to_string()
-        };
-        lines.push(format!(
-            "[{i}] {title}\n    {url}\n    {snip}\n"
-        ));
+        let snip = shorten(r["content"].as_str().unwrap_or(""));
+        lines.push(format!("[{i}] {title}\n    {url}\n    {snip}\n"));
     }
 
     lines.push("\nTo read one, call: {\"tool\": \"read_page\", \"args\": {\"url\": \"<the link above>\"}}".into());
@@ -432,118 +585,20 @@ fn parse_brave(body: &str) -> Result<Vec<String>, String> {
         .as_array()
         .ok_or("Brave returned no web results")?;
 
-    let mut lines: Vec<String> = Vec::new();
-    lines.push(format!("Found {} results.\n", results.len()));
+    if results.is_empty() {
+        return Err("Brave returned no results for that query".into());
+    }
 
     let cap = results.len().min(MAX_SEARCH_RESULTS);
+    let mut lines: Vec<String> = Vec::new();
+    lines.push(format!("Found {cap} results.\n"));
+
     for i in 0..cap {
         let r = &results[i];
         let title = r["title"].as_str().unwrap_or("Untitled");
         let url = r["url"].as_str().unwrap_or("");
-        let snippet = r["description"].as_str().unwrap_or("");
-        let snip = if snippet.len() > 200 {
-            format!("{}…", &snippet[..200])
-        } else {
-            snippet.to_string()
-        };
-        lines.push(format!(
-            "[{i}] {title}\n    {url}\n    {snip}\n"
-        ));
-    }
-
-    lines.push("\nTo read one, call: {\"tool\": \"read_page\", \"args\": {\"url\": \"<the link above>\"}}".into());
-    Ok(lines)
-}
-
-fn parse_ddg(body: &str) -> Result<Vec<String>, String> {
-    // DuckDuckGo HTML scrape: extract result links and snippets from the
-    // minimal HTML version. Fragile, but works as a fallback.
-    let mut lines: Vec<String> = Vec::new();
-    lines.push("Found results:\n".into());
-
-    let mut count = 0usize;
-    let mut idx = 0usize;
-
-    // Results are in <a rel="nofollow" class="result__a" href="..."> and
-    // <a class="result__snippet"> pairs.
-    let lower = body.to_lowercase();
-
-    let mut pos = 0usize;
-    let mut urls_with_titles: Vec<(String, String)> = Vec::new();
-
-    while pos < body.len() {
-        let marker = "result__a\"";
-        if let Some(m) = lower[pos..].find(marker) {
-            let link_start = pos + m + marker.len();
-            // Find href="
-            if let Some(href_m) = lower[link_start..].find("href=\"") {
-                let href_start = link_start + href_m + 6;
-                if let Some(href_end) = body[href_start..].find('"') {
-                    let raw_url = &body[href_start..href_start + href_end];
-                    let url = html_decode(raw_url);
-                    // Find closing >, then the title text until <
-                    if let Some(tag_end) = body[href_start + href_end..].find('>') {
-                        let title_start = href_start + href_end + tag_end + 1;
-                        if let Some(title_end) = body[title_start..].find('<') {
-                            let title = body[title_start..title_start + title_end]
-                                .trim()
-                                .to_string();
-                            if !url.is_empty() && url.starts_with("http") && !title.is_empty() {
-                                urls_with_titles.push((url, title));
-                            }
-                        }
-                    }
-                }
-            }
-            pos = link_start;
-        } else {
-            break;
-        }
-    }
-
-    // Now find snippets. DuckDuckGo puts them in <a class="result__snippet">
-    // We'll just match snippets to their preceding URLs by order.
-    let mut snippets: Vec<String> = Vec::new();
-    let mut sp = 0usize;
-    while sp < body.len() {
-        let marker = "result__snippet\"";
-        if let Some(m) = lower[sp..].find(marker) {
-            let snip_start = sp + m + marker.len();
-            if let Some(tag_end) = body[snip_start..].find('>') {
-                let content_start = snip_start + tag_end + 1;
-                if let Some(content_end) = body[content_start..].find("</a>") {
-                    let snip_text = strip_html(&body[content_start..content_start + content_end]);
-                    let snip_text = snip_text.trim().to_string();
-                    if !snip_text.is_empty() {
-                        snippets.push(snip_text);
-                    }
-                }
-            }
-            sp = snip_start;
-        } else {
-            break;
-        }
-    }
-
-    let max = urls_with_titles.len().min(MAX_SEARCH_RESULTS);
-    for i in 0..max {
-        let (ref url, ref title) = urls_with_titles[i];
-        lines.push(format!("[{idx}] {title}\n    {url}"));
-        if i < snippets.len() {
-            let snip = if snippets[i].len() > 200 {
-                format!("{}…", &snippets[i][..200])
-            } else {
-                snippets[i].clone()
-            };
-            lines.push(format!("    {snip}"));
-        }
-        lines.push("".into());
-        count += 1;
-        idx += 1;
-    }
-
-    if count == 0 {
-        return Err("DuckDuckGo returned no results. Try different search terms or check that SearXNG is configured in settings.".into());
+        let snip = shorten(r["description"].as_str().unwrap_or(""));
+        lines.push(format!("[{i}] {title}\n    {url}\n    {snip}\n"));
     }
 
     lines.push("\nTo read one, call: {\"tool\": \"read_page\", \"args\": {\"url\": \"<the link above>\"}}".into());
@@ -1064,5 +1119,97 @@ mod tests {
             "My Page"
         );
         assert_eq!(extract_title("<html></html>"), "(no title)");
+    }
+
+    /// Regression: `&snippet[..200]` panicked when byte 200 fell inside a
+    /// multi-byte character. An em dash is 3 bytes, so 100 of them put a char
+    /// boundary at 198..201 and the whole tool call unwound.
+    #[test]
+    fn test_shorten_never_splits_a_multibyte_char() {
+        for s in [
+            "\u{2014}".repeat(100),          // em dashes
+            "caf\u{e9} ".repeat(60),         // accented latin
+            "\u{4e2d}\u{6587}".repeat(150),  // CJK
+            "\u{1f600}".repeat(80),          // 4-byte emoji
+        ] {
+            let out = shorten(&s);
+            assert!(out.chars().count() <= MAX_SNIPPET_CHARS + 1, "too long: {}", out.chars().count());
+        }
+    }
+
+    #[test]
+    fn test_shorten_counts_chars_not_bytes() {
+        // 150 CJK chars = 450 bytes. A byte-based cut would truncate to ~66
+        // visible characters; we must keep all 150.
+        let s = "\u{4e2d}".repeat(150);
+        let out = shorten(&s);
+        assert_eq!(out.chars().count(), 150);
+        assert!(!out.ends_with('\u{2026}'));
+    }
+
+    #[test]
+    fn test_shorten_ellipsizes_only_when_over_budget() {
+        let short = shorten("a short snippet");
+        assert_eq!(short, "a short snippet");
+        let long = shorten(&"x".repeat(500));
+        assert!(long.ends_with('\u{2026}'));
+        assert_eq!(long.chars().count(), MAX_SNIPPET_CHARS + 1);
+    }
+
+    /// Backends put markup in snippets (Brave bolds the matched terms).
+    #[test]
+    fn test_shorten_strips_tags_and_decodes_entities() {
+        let out = shorten("<strong>Rust</strong> &amp; C++  \n  are fast");
+        assert_eq!(out, "Rust & C++ are fast");
+    }
+
+    /// With no backend configured the tool must fail loudly with setup
+    /// instructions — never return ok with an empty result set, which reads to
+    /// the model as "the web has nothing on this".
+    #[test]
+    fn test_unconfigured_search_fails_with_setup_help() {
+        let tool = WebSearchTool::new(None, None, None);
+        assert!(!tool.is_configured());
+        let res = tool
+            .execute(serde_json::json!({ "query": "anything" }))
+            .expect("execute should return Ok(ToolResult), not Err");
+        assert!(!res.ok, "an unconfigured search must not report success");
+        let err = res.error.unwrap_or_default();
+        assert!(err.contains("Settings"), "error should point at Settings: {err}");
+        assert!(err.contains("SearXNG") && err.contains("Brave"));
+    }
+
+    /// Blank strings are what the UI leaves behind when a field is cleared.
+    #[test]
+    fn test_blank_config_is_treated_as_unconfigured() {
+        let tool = WebSearchTool::new(Some("   ".into()), Some("".into()), None);
+        assert!(!tool.is_configured());
+    }
+
+    /// Settings must apply to a live tool without an app restart.
+    #[test]
+    fn test_set_search_backends_updates_in_place() {
+        let tool = WebSearchTool::new(None, None, None);
+        assert!(!tool.is_configured());
+        tool.set_search_backends(Some("http://localhost:8888".into()), None);
+        assert!(tool.is_configured());
+        tool.set_search_backends(None, None);
+        assert!(!tool.is_configured(), "clearing settings must disable search");
+    }
+
+    #[test]
+    fn test_searxng_empty_results_is_an_error_not_success() {
+        let body = r#"{"query":"x","results":[]}"#;
+        assert!(parse_searxng(body).is_err());
+    }
+
+    #[test]
+    fn test_searxng_parses_results() {
+        let body = r#"{"query":"rust","results":[
+            {"title":"Rust","url":"https://rust-lang.org","content":"A language"}
+        ]}"#;
+        let out = parse_searxng(body).expect("should parse").join("\n");
+        assert!(out.contains("https://rust-lang.org"));
+        assert!(out.contains("A language"));
     }
 }

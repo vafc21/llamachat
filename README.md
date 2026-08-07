@@ -123,6 +123,54 @@ Windows may show *"Windows protected your PC"* on first launch. Click **More inf
 
 ---
 
+## Web research (optional, off by default)
+
+The assistant can search the web and read pages — but **only after you give it a
+search backend.** There is no bundled default: shipping one would route every
+user's queries through a service chosen for them, and scraping a public engine
+isn't reliable (DuckDuckGo's HTML endpoint now answers with an anti-bot
+challenge). You pick who sees your searches.
+
+Pick one:
+
+| Backend | Privacy | Cost | Setup |
+| --- | --- | --- | --- |
+| **SearXNG** (recommended) | Best — you host it, nothing leaves your network | Free | Run an instance, paste its URL |
+| **Brave Search API** | Brave sees your queries | Free tier | Get a key at [brave.com/search/api](https://brave.com/search/api/) |
+
+**Desktop app:** Settings → Web research. Paste the URL or key, then click
+**Test** — it runs a real search and tells you what came back.
+
+**Terminal:** set an environment variable before launching.
+
+```bash
+export LLAMACHAT_SEARXNG_URL=http://localhost:8888
+# or
+export LLAMACHAT_BRAVE_API_KEY=your-key-here
+
+# verify it works:
+llamachat tools web_search -a '{"query":"rust release notes"}'
+```
+
+Self-hosting SearXNG with Docker:
+
+```bash
+docker run -d -p 8888:8080 -v "$PWD/searxng:/etc/searxng" \
+  --name searxng searxng/searxng
+
+# SearXNG ships with formats: [html] only — add json, then restart:
+sed -i 's/^    - html$/    - html\n    - json/' searxng/settings.yml
+docker restart searxng
+```
+
+> That `json` line is required. Without it SearXNG answers LlamaChat with an
+> HTTP 403 and the **Test** button will tell you exactly that.
+
+When no backend is configured the assistant says so and declines to guess,
+rather than inventing an answer that needed current information.
+
+---
+
 ## Quick start (30 seconds)
 
 ```bash

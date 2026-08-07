@@ -48,11 +48,13 @@ pub fn build_registry() -> Arc<ToolRegistry> {
     r.register(Box::new(ProcessTool::new(ToolLimits::default())));
     // Only offer desktop control when there is a desktop. See `register_computer`
     // in main.rs for why absence beats a tool that always fails.
-    r.register(Box::new(WebSearchTool {
-        searxng_url: None,
-        brave_api_key: None,
-        state: None,
-    }));
+    // The CLI has no settings file of its own, so search is configured by
+    // environment: LLAMACHAT_SEARXNG_URL / LLAMACHAT_BRAVE_API_KEY.
+    r.register(Box::new(WebSearchTool::new(
+        std::env::var("LLAMACHAT_SEARXNG_URL").ok(),
+        std::env::var("LLAMACHAT_BRAVE_API_KEY").ok(),
+        None,
+    )));
     r.register(Box::new(ReadPageTool { state: None }));
     if let Ok(ctrl) = llamachat_core::control::open() {
         if let Ok(tool) = llamachat_core::tools::computer_use_tool::ComputerUseTool::new(ctrl) {

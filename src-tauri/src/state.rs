@@ -76,11 +76,11 @@ impl AppState {
         tools.register(Box::new(ProcessTool::new(ToolLimits::default())));
         tools.register(Box::new(DesktopTool::new()));
         tools.register(Box::new(ComputerTool::new()));
-        tools.register(Box::new(WebSearchTool {
-            searxng_url: settings.searxng_url.clone(),
-            brave_api_key: settings.brave_api_key.clone(),
-            state: None,
-        }));
+        tools.register(Box::new(WebSearchTool::new(
+            settings.searxng_url.clone(),
+            settings.brave_api_key.clone(),
+            None,
+        )));
         tools.register(Box::new(ReadPageTool { state: None }));
 
         Ok(AppState(Mutex::new(Inner {

@@ -51,17 +51,25 @@ children either.
 ## Web research
 
 If you enable web research, LlamaChat can search the web and read pages on your
-behalf. This feature is **off by default** and must be explicitly turned on in
-Settings.
+behalf. This feature is **off by default**: there is no built-in search
+provider, and search does nothing until you add one in **Settings → Web
+research**.
+
+There is deliberately no bundled default. Shipping one would mean routing every
+user's queries through a service we chose on their behalf, which is exactly the
+kind of silent third-party dependency this app exists to avoid. You pick the
+provider, so you decide who sees your searches.
 
 When enabled:
 
-- **Your search query is sent to the configured search provider.** The default
-  is DuckDuckGo (via a direct HTML request — no API key, no account). You can
-  also configure your own SearXNG instance or a Brave Search API key. The
-  privacy of your query is governed by that provider's policy.
+- **Your search query is sent to the search provider you configured** — either
+  your own SearXNG instance or Brave Search. The privacy of your query is
+  governed by that provider's policy.
 - **Self-hosted SearXNG is the recommended configuration** for users who want
-  no third party to see their queries — not even DuckDuckGo.
+  no third party to see their queries at all.
+- **Your Brave API key is stored in plain text** in `settings.json` inside
+  LlamaChat's local data directory, readable by anything running as your user
+  account. It is sent only to Brave, and only to authenticate your searches.
 - **LlamaChat fetches web pages directly from their source sites, not through
   a proxy.** Those sites see your IP address and a generic user-agent string
   (`LlamaChat/0.3 (local web research)`). No cookies are sent or stored, and

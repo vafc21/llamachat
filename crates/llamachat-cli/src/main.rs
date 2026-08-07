@@ -251,11 +251,12 @@ fn cmd_tools(tool_name: Option<String>, args_json: String) -> Result<()> {
     registry.register(Box::new(FilesystemTool::new(ToolLimits::default())));
     registry.register(Box::new(ProcessTool::new(ToolLimits::default())));
     registry.register(Box::new(DesktopTool::new()));
-    registry.register(Box::new(WebSearchTool {
-        searxng_url: None,
-        brave_api_key: None,
-        state: None,
-    }));
+    // Same env-var config as the TUI registry — see tui/tools.rs.
+    registry.register(Box::new(WebSearchTool::new(
+        std::env::var("LLAMACHAT_SEARXNG_URL").ok(),
+        std::env::var("LLAMACHAT_BRAVE_API_KEY").ok(),
+        None,
+    )));
     registry.register(Box::new(ReadPageTool { state: None }));
     register_computer(&mut registry);
 

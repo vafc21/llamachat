@@ -171,3 +171,30 @@ pub fn merged_catalog(base: &ModelCatalog, custom: &[CatalogModel]) -> ModelCata
     cat.models.extend(custom.iter().cloned());
     cat
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A settings.json written by 0.3.0 has no `searxng_url` / `brave_api_key`
+    /// keys at all. Loading must succeed and leave search unconfigured, not
+    /// fail and silently reset every other preference to its default.
+    #[test]
+    fn loads_a_pre_0_3_1_settings_file() {
+        let json = r#"{
+            "benchmark_intensity": "balanced",
+            "model_override": null,
+            "models_dir": null,
+            "memory_dir": null,
+            "perception": "vision",
+            "vision_model": null,
+            "telemetry_off": true,
+            "workspace_dir": "/Users/vlad/Documents"
+        }"#;
+        let s: AppSettings = serde_json::from_str(json).expect("old settings must still parse");
+        assert_eq!(s.perception, "vision");
+        assert_eq!(s.workspace_dir.as_deref(), Some("/Users/vlad/Documents"));
+        assert!(s.searxng_url.is_none());
+        assert!(s.brave_api_key.is_none());
+    }
+}

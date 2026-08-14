@@ -31,6 +31,7 @@ import { detectPlatform, hasSystemPermissions, type Platform } from './platform'
 import { usePermissions } from './permissions'
 import { estimateContext, type TurnStats, type ActivityEntry } from './runtime'
 import type { Message, Conversation, HardwareProfile, LevelPlan, TierModel, DownloadProgress, Skill, ConvDto } from './types'
+import { UpdateBanner } from './components/UpdateBanner'
 
 /** Conversation ⇄ persisted DTO (markdown transcript). */
 function conversationToDto(c: Conversation): ConvDto {
@@ -1041,6 +1042,7 @@ export default function App() {
     <>
       <IconSprite />
       <div className="lc-shell">
+        <UpdateBanner />
         {/* Top bar — the chromeless strip from the reference shots. */}
         <div className="tb">
           <button type="button" title="Toggle sidebar" onClick={() => setSidebarOpen((o) => !o)}>

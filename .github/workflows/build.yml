@@ -97,6 +97,27 @@ jobs:
           # CI has no dev certificate — ad-hoc sign on macOS. Locally the repo
           # config uses a real Apple Development identity (see tauri.conf.json).
           APPLE_SIGNING_IDENTITY: ${{ startsWith(matrix.os, 'macos') && '-' || '' }}
+          # Signs the updater artifacts. Without these the build still produces
+          # installers, but every .sig is missing and the in-app updater
+          # rejects the release as untrusted.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
+      # Both macOS jobs bundle an updater archive named exactly
+      # `LlamaChat.app.tar.gz`. They are separate CI artifacts, but they land in
+      # one flat GitHub Release, so without this the Intel archive and the Apple
+      # Silicon archive collide -- one silently overwrites the other and half of
+      # macOS gets updates built for the wrong architecture.
+      - name: Disambiguate the macOS updater archive
+        if: startsWith(matrix.os, 'macos')
+        shell: bash
+        run: |
+          cd target/release/bundle/macos
+          for f in *.app.tar.gz *.app.tar.gz.sig; do
+            [ -e "$f" ] || continue
+            mv "$f" "${f/.app.tar.gz/.app.${{ matrix.triple }}.tar.gz}"
+          done
+          ls -la
 
       - name: Upload bundles
         uses: actions/upload-artifact@v4
@@ -111,6 +132,8 @@ jobs:
             target/release/bundle/**/*.deb
             target/release/bundle/**/*.AppImage
             target/release/bundle/**/*.rpm
+            target/release/bundle/**/*.tar.gz
+            target/release/bundle/**/*.sig
           if-no-files-found: ignore
 
   # Publish a GitHub Release with the installers when a vX.Y.Z tag is pushed:
@@ -149,9 +172,62 @@ jobs:
       # Exact inputs: https://github.com/SignPath/github-action-submit-signing-request
       # -------------------------------------------------------------------------
 
+      # The manifest the in-app updater polls. Built from the .sig files the
+      # matrix just produced, so it can never drift from the actual artifacts.
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build latest.json
+        run: node scripts/make-latest-json.mjs installers "${{ github.ref_name }}" latest.json
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: installers/**/*
+          files: |
+            installers/**/*
+            latest.json
           generate_release_notes: true
           fail_on_unmatched_files: false
+
+  # Without this a failed release is invisible: the tag exists, the release
+  # never appears, and nothing says why unless someone opens the Actions tab.
+  # Fires for a failed *or* cancelled build, and for a release job that never
+  # ran because a build job hung.
+  notify:
+    needs: [build, release]
+    if: always() && startsWith(github.ref, 'refs/tags/v') && (needs.build.result != 'success' || needs.release.result != 'success')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Open an issue describing the failure
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const tag = context.ref.replace('refs/tags/', '');
+            const url = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = [
+              `Release **${tag}** did not publish.`,
+              '',
+              `- build: \`${{ needs.build.result }}\``,
+              `- release: \`${{ needs.release.result }}\``,
+              '',
+              `Run: ${url}`,
+              '',
+              'Installed apps keep polling `latest.json` from the previous release, so',
+              'nobody gets a broken update -- they just get no update.',
+            ].join('\n');
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Release ${tag} failed`,
+              body,
+              labels: ['release-failure'],
+            });

@@ -148,6 +148,18 @@ jobs:
     permissions:
       contents: write   # required to create the GitHub Release
     steps:
+      # Checkout MUST come before download-artifact. actions/checkout cleans the
+      # working directory, so running it afterwards deletes the very installers
+      # this job just downloaded.
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
       - name: Download all installers
         uses: actions/download-artifact@v4
         with:
@@ -174,15 +186,6 @@ jobs:
 
       # The manifest the in-app updater polls. Built from the .sig files the
       # matrix just produced, so it can never drift from the actual artifacts.
-      - uses: actions/checkout@v4
-        with:
-          sparse-checkout: scripts
-          sparse-checkout-cone-mode: false
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
       - name: Build latest.json
         run: node scripts/make-latest-json.mjs installers "${{ github.ref_name }}" latest.json
 

@@ -24,6 +24,12 @@ jobs:
           - os: macos-latest
             triple: aarch64-apple-darwin
             sidecar: bash scripts/build-sidecar.sh
+          # Intel Macs (pre-2020). A separate Intel *runner* rather than a
+          # cross-compile on Apple Silicon: PyInstaller cannot cross-build the
+          # sidecar, so the binary has to be produced on the target arch.
+          - os: macos-13
+            triple: x86_64-apple-darwin
+            sidecar: bash scripts/build-sidecar.sh
           - os: ubuntu-latest
             triple: x86_64-unknown-linux-gnu
             sidecar: bash scripts/build-sidecar.sh
@@ -79,12 +85,14 @@ jobs:
         env:
           # CI has no dev certificate — ad-hoc sign on macOS. Locally the repo
           # config uses a real Apple Development identity (see tauri.conf.json).
-          APPLE_SIGNING_IDENTITY: ${{ matrix.os == 'macos-latest' && '-' || '' }}
+          APPLE_SIGNING_IDENTITY: ${{ startsWith(matrix.os, 'macos') && '-' || '' }}
 
       - name: Upload bundles
         uses: actions/upload-artifact@v4
         with:
-          name: llamachat-${{ matrix.os }}
+          # Keyed on the triple, not the OS: two macOS jobs share no runner
+          # label suffix, and identical artifact names would collide.
+          name: llamachat-${{ matrix.triple }}
           path: |
             target/release/bundle/**/*.dmg
             target/release/bundle/**/*.msi
@@ -123,9 +131,9 @@ jobs:
       #       organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
       #       project-slug: llamachat
       #       signing-policy-slug: release-signing
-      #       github-artifact-id: llamachat-windows-latest
+      #       github-artifact-id: llamachat-x86_64-pc-windows-msvc
       #       wait-for-completion: true
-      #       output-artifact-directory: installers/llamachat-windows-latest
+      #       output-artifact-directory: installers/llamachat-x86_64-pc-windows-msvc
       #
       # Exact inputs: https://github.com/SignPath/github-action-submit-signing-request
       # -------------------------------------------------------------------------

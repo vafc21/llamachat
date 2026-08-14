@@ -150,12 +150,6 @@ export function InputBar({
       </div>
 
       <div className="crow">
-        {!isCode && (
-          <button type="button" className="icb" title="Attach — coming soon" disabled>
-            <Icon name="plus" />
-          </button>
-        )}
-
         {/* R1: the single mode switcher. */}
         <div className="seg" role="tablist" aria-label="Mode">
           {modes.map((m) => (
@@ -196,11 +190,6 @@ export function InputBar({
         {/* R5: the context-window meter. Dev persona only. */}
         {showRing && <ContextRing used={ctxUsed} total={ctxTotal} />}
 
-        {!isCode && (
-          <button type="button" className="icb" title="Voice input — coming soon" disabled>
-            <Icon name="mic" />
-          </button>
-        )}
 
         {disabled && onStop ? (
           <button type="button" className="sendb" onClick={onStop} title="Stop">

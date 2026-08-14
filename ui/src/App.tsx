@@ -1056,7 +1056,6 @@ export default function App() {
                 platform={platform}
                 prefs={prefs}
                 onPrefs={setPrefs}
-                tiers={tiers}
                 onReplayOnboarding={replayOnboarding}
                 onWorkspaceDir={setWorkspaceDir}
               />
@@ -1135,7 +1134,6 @@ export default function App() {
                     }
                     tasks={tasks}
                     onClear={() => setTasks([])}
-                    onOpen={() => setNav(null)}
                   />
                 )}
               </div>

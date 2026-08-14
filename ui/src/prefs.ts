@@ -12,15 +12,12 @@ export interface UiPrefs {
   explainRouter: boolean;
   /** Simple: let the router pick, vs. always using the everyday model. */
   autoRoute: boolean;
-  /** Simple: bias the router toward the faster tier. */
-  preferSpeed: boolean;
 }
 
 export const DEFAULT_PREFS: UiPrefs = {
   statusBar: true,
   explainRouter: true,
   autoRoute: true,
-  preferSpeed: false,
 };
 
 export function loadPrefs(): UiPrefs {

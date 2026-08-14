@@ -36,7 +36,6 @@ interface Props {
   composer: ReactNode;
   tasks: CoworkTask[];
   onClear: () => void;
-  onOpen: (id: string) => void;
 }
 
 /**
@@ -45,7 +44,7 @@ interface Props {
  * greeting, the composer with its scope/permission row, and the list of work
  * in flight, ported from v6's `.active`.
  */
-export function CoworkPane({ greeting, composer, tasks, onClear, onOpen }: Props) {
+export function CoworkPane({ greeting, composer, tasks, onClear }: Props) {
   const now = Date.now();
   return (
     <div className="center top">
@@ -61,15 +60,9 @@ export function CoworkPane({ greeting, composer, tasks, onClear, onOpen }: Props
           <div className="aempty">Nothing running. Hand over a task above and it shows up here.</div>
         )}
         {tasks.map((t) => (
-          <div
-            className="arow"
-            key={t.id}
-            role="button"
-            tabIndex={0}
-            style={{ cursor: 'pointer' }}
-            onClick={() => onOpen(t.id)}
-            onKeyDown={(e) => { if (e.key === 'Enter') onOpen(t.id); }}
-          >
+          // A task row is a live status readout, not a link: there is no
+          // per-task detail view to open, so it must not look clickable.
+          <div className="arow" key={t.id}>
             <i className="dot" style={{ background: DOT[t.state] }} />
             <div className="tx">
               <b>{t.title}</b>

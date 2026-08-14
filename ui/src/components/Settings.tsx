@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import type { AppSettings, ModelCatalog, CatalogModel, BenchmarkIntensity, HardwareProfile, TierModel } from '../types'
+import type { AppSettings, BenchmarkIntensity, HardwareProfile } from '../types'
 import { ReadinessChecklist } from './Readiness'
 import { PersonaCards } from './PersonaChoice'
 import { Icon } from './Icon'
@@ -38,7 +38,6 @@ interface Props {
   platform: Platform;
   prefs: UiPrefs;
   onPrefs: (p: UiPrefs) => void;
-  tiers: TierModel[];
   /** Clears the onboarding flags and returns to the very first screen. */
   onReplayOnboarding: () => void;
   /** Report the agent's folder scope up, so the composer chips can show it. */
@@ -72,9 +71,8 @@ function Toggle({ title, blurb, on, onToggle }: { title: string; blurb: string; 
  * simple user never sees a runtime knob and a developer never sees the
  * "let LlamaChat decide" copy aimed at people who don't want to know.
  */
-export function Settings({ hardware, persona, onPersona, platform, prefs, onPrefs, tiers, onReplayOnboarding, onWorkspaceDir }: Props) {
+export function Settings({ hardware, persona, onPersona, platform, prefs, onPrefs, onReplayOnboarding, onWorkspaceDir }: Props) {
   const [settings, setSettings] = useState<AppSettings | null>(null);
-  const [catalog, setCatalog] = useState<CatalogModel[]>([]);
   const [memoryDir, setMemoryDir] = useState('');
   const [saved, setSaved] = useState(false);
   /** Result of the last "Test" click in Web research. */
@@ -85,8 +83,6 @@ export function Settings({ hardware, persona, onPersona, platform, prefs, onPref
     async function load() {
       const s = await invoke<AppSettings>('get_settings');
       setSettings(s ?? defaultSettings(hardware));
-      const cat = await invoke<ModelCatalog>('get_catalog');
-      setCatalog(cat?.models ?? []);
       setMemoryDir((await invoke<string>('get_memory_dir')) ?? '');
     }
     load();
@@ -162,10 +158,6 @@ export function Settings({ hardware, persona, onPersona, platform, prefs, onPref
     );
   }
 
-  const catalogOptions = catalog.length > 0
-    ? catalog.map((m) => ({ value: m.ollama_pull ?? m.model_id, label: m.display_name }))
-    : tiers.map((t) => ({ value: t.rec.ollama_pull, label: t.rec.display_name }));
-
   return (
     <div className="setwrap">
       <div className="setinner">
@@ -182,15 +174,9 @@ export function Settings({ hardware, persona, onPersona, platform, prefs, onPref
           <h2>Answers</h2>
           <Toggle
             title="Let LlamaChat decide"
-            blurb="Picks the best model on this machine for each message, and how long to think about it."
+            blurb="Picks the best model on this machine for each message. Turn this off to use the everyday model for everything — faster and lighter, but weaker on hard questions."
             on={prefs.autoRoute}
             onToggle={() => togglePref('autoRoute')}
-          />
-          <Toggle
-            title="Prefer speed over depth"
-            blurb="Answer faster, think less. Good on battery."
-            on={prefs.preferSpeed}
-            onToggle={() => togglePref('preferSpeed')}
           />
         </div>
 
@@ -209,22 +195,6 @@ export function Settings({ hardware, persona, onPersona, platform, prefs, onPref
             on={prefs.explainRouter}
             onToggle={() => togglePref('explainRouter')}
           />
-          <div className="srow">
-            <div className="tx">
-              <b>Default model</b>
-              <span>Used when Auto is off.</span>
-            </div>
-            <select
-              value={settings.model_override ?? ''}
-              onChange={(e) => update({ model_override: e.target.value || null })}
-              aria-label="Default model"
-            >
-              <option value="">Auto (recommended)</option>
-              {catalogOptions.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
-          </div>
         </div>
 
         {/* Benchmarking depth — developer-facing detail. */}
@@ -265,6 +235,7 @@ export function Settings({ hardware, persona, onPersona, platform, prefs, onPref
               <span>Saved as editable markdown. Currently: <span style={{ fontFamily: 'var(--mono)' }}>{memoryDir || '—'}</span></span>
             </div>
             <input
+              className="dev-only"
               type="text"
               value={settings.memory_dir ?? ''}
               onChange={(e) => update({ memory_dir: e.target.value || null })}
@@ -355,7 +326,7 @@ export function Settings({ hardware, persona, onPersona, platform, prefs, onPref
             one hosted default would quietly undo the local-first promise. So
             the user picks, and can verify it here rather than discovering it
             failed mid-conversation. */}
-        <div className="sgroup">
+        <div className="sgroup dev-only">
           <h2>Web research</h2>
           <div className="srow">
             <div className="tx">

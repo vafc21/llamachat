@@ -96,9 +96,9 @@ export function Sidebar({
         )}
       </div>
       {conversations.length > shown.length && (
-        <button type="button" className="viewall" onClick={() => onSelect(conversations[0].id)}>
-          {conversations.length - shown.length} more
-        </button>
+        <div className="viewall" aria-hidden="true">
+          {conversations.length - shown.length} older not shown
+        </div>
       )}
 
       <div className="sp" />

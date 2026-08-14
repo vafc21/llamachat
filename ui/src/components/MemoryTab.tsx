@@ -52,7 +52,7 @@ export function MemoryTab() {
           </button>
         </div>
         {dir && (
-          <p className="text-[10px] text-text-muted mt-2 font-mono truncate" title={`${dir}/memory.md`}>
+          <p className="dev-only text-[10px] text-text-muted mt-2 font-mono truncate" title={`${dir}/memory.md`}>
             {dir}/memory.md
           </p>
         )}

@@ -3,7 +3,6 @@ import type { AppSettings, BenchmarkIntensity, HardwareProfile } from '../types'
 import { ReadinessChecklist } from './Readiness'
 import { PersonaCards } from './PersonaChoice'
 import { Icon } from './Icon'
-import { INTENSITY_OPTIONS } from '../types'
 import { invoke, invokeOrThrow, isTauri } from '../tauri'
 import type { Persona } from '../persona'
 import type { Platform } from '../platform'
@@ -197,29 +196,6 @@ export function Settings({ hardware, persona, onPersona, platform, prefs, onPref
           />
         </div>
 
-        {/* Benchmarking depth — developer-facing detail. */}
-        <div className="sgroup dev-only">
-          <h2>How hard to test</h2>
-          {INTENSITY_OPTIONS.map((opt) => {
-            const active = settings.benchmark_intensity === opt.id;
-            return (
-              <button
-                key={opt.id}
-                type="button"
-                className="srow"
-                style={{ width: '100%', textAlign: 'left', borderColor: active ? 'rgba(77,124,255,.5)' : undefined }}
-                onClick={() => update({ benchmark_intensity: opt.id })}
-              >
-                <div className="tx">
-                  <b>{opt.title} <span style={{ color: 'var(--text3)', fontWeight: 400 }}>· {opt.blurb}</span></b>
-                  <span>{opt.detail}</span>
-                </div>
-                {active && <Icon name="check" size={15} />}
-              </button>
-            );
-          })}
-        </div>
-
         {/* Storage. */}
         <div className="sgroup">
           <h2>Storage</h2>
@@ -407,7 +383,15 @@ export function Settings({ hardware, persona, onPersona, platform, prefs, onPref
             <button
               type="button"
               className="chip"
-              onClick={onReplayOnboarding}
+              onClick={() => {
+                // Wipes the persona answer and every readiness flag, dropping
+                // the user back to the welcome screen. Harmless to the data,
+                // but startling enough that it shouldn't happen on a stray
+                // click next to the Storage rows.
+                if (window.confirm('Show the first-run setup again?\n\nYour chats, models and memory are not affected.')) {
+                  onReplayOnboarding();
+                }
+              }}
             >
               <Icon name="refresh" size={14} />Start over
             </button>

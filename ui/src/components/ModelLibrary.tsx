@@ -153,6 +153,11 @@ export function ModelLibrary({ selectedModel, onUseModel }: ModelLibraryProps = 
   }
 
   async function handleRemove(rec: Recommendation) {
+    // Removing a custom entry drops the user's own catalog work, and the row
+    // vanishes with no undo -- worth one question first.
+    if (!window.confirm(`Remove "${rec.display_name}" from your library?\n\nThe downloaded model itself stays on disk; only this entry is removed.`)) {
+      return;
+    }
     await invoke('remove_custom_model', { id: rec.model_id });
     const next = new Set(customTags);
     next.delete(rec.ollama_pull);
@@ -244,6 +249,10 @@ function ModelRow({
 }) {
   const downloading = !!progress && progress.pct < 100 && progress.status !== 'done';
   const done = isInstalled || progress?.pct === 100 || progress?.status === 'done';
+  // A multi-GB pull takes a moment to report its first progress event. Without
+  // this the button stays live and enabled in the gap, so an impatient second
+  // click fires a second download of the same model.
+  const starting = progress?.status === 'starting';
   const sizeGb = rec.memory_fit.required_mb ? (rec.memory_fit.required_mb / 1024).toFixed(1) : null;
 
   return (
@@ -275,10 +284,12 @@ function ModelRow({
           {!downloading && !done && (
             <button
               onClick={onDownload}
+              disabled={starting}
               className="px-3 py-1.5 rounded text-[12px] font-medium bg-accent text-white
-                         hover:opacity-90 transition-opacity"
+                         hover:opacity-90 transition-opacity disabled:opacity-50
+                         disabled:cursor-not-allowed"
             >
-              Download
+              {starting ? 'Starting…' : 'Download'}
             </button>
           )}
           {done && isActive && (

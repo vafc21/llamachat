@@ -238,7 +238,18 @@ export function ReadinessChecklist({ persona, platform, showVision = false, api 
             >
               <Icon name="refresh" size={13} /> Reset permissions
             </button>
-            <button type="button" className="chip" disabled={!live} onClick={() => invoke('restart_app')}>
+            <button
+              type="button"
+              className="chip"
+              disabled={!live}
+              onClick={() => {
+                // Quits and relaunches immediately. A streaming reply or an
+                // unsaved skill draft would go with it, so ask first.
+                if (window.confirm('Restart LlamaChat now?\n\nAnything in progress will be interrupted.')) {
+                  invoke('restart_app');
+                }
+              }}
+            >
               <Icon name="run" size={13} /> Restart LlamaChat
             </button>
           </div>

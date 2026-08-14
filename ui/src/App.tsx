@@ -905,6 +905,16 @@ export default function App() {
   }
 
   function handleNewConversation() {
+    // Clicking New on an untouched blank chat used to stack another identical
+    // "New conversation" on top of it, so the sidebar filled with rows that
+    // were impossible to tell apart. An empty chat is already a new chat:
+    // focus it instead of duplicating it.
+    const blank = conversations.find((c) => c.messages.length === 0);
+    if (blank) {
+      setActiveId(blank.id);
+      setNav(null);
+      return;
+    }
     const id = uid();
     setConversations((prev) => [
       { id, title: 'New conversation', messages: [], createdAt: new Date().toISOString() },
@@ -915,10 +925,29 @@ export default function App() {
   }
 
   function handleDeleteConversation(id: string) {
+    // Deleting is permanent and there is no undo, so an empty chat goes
+    // quietly but one with real messages has to be confirmed. Losing a
+    // conversation to a mis-click on a 12px icon is not a recoverable error.
+    const conv = conversations.find((c) => c.id === id);
+    if (conv && conv.messages.length > 0) {
+      const ok = window.confirm(
+        `Delete "${conv.title}"?\n\nThis conversation has ${conv.messages.length} message${conv.messages.length === 1 ? '' : 's'} and cannot be recovered.`,
+      );
+      if (!ok) return;
+    }
     invoke('delete_conversation', { id });
     setConversations((prev) => {
       const next = prev.filter((c) => c.id !== id);
-      if (activeId === id && next.length > 0) setActiveId(next[0].id);
+      // Deleting the last conversation used to leave `active` undefined, and
+      // the render then threw on `active.messages` -- a black window with no
+      // sidebar and no way back except relaunching. There is always at least
+      // one conversation.
+      if (next.length === 0) {
+        const fresh = { id: uid(), title: 'New conversation', messages: [], createdAt: new Date().toISOString() };
+        setActiveId(fresh.id);
+        return [fresh];
+      }
+      if (activeId === id) setActiveId(next[0].id);
       return next;
     });
   }

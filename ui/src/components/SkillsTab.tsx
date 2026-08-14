@@ -17,6 +17,13 @@ export function SkillsTab({ skills, onChange }: Props) {
     setEditing(null);
   }
   function remove(id: string) {
+    // Skills are hand-written prompt templates that only live in localStorage:
+    // deleting one destroys the user's own text with no undo and no copy on
+    // disk to restore from.
+    const skill = skills.find((s) => s.id === id);
+    if (skill && !window.confirm(`Delete the "${skill.title || skill.name}" skill?\n\nThis can't be undone.`)) {
+      return;
+    }
     onChange(skills.filter((s) => s.id !== id));
     if (editing?.id === id) setEditing(null);
   }

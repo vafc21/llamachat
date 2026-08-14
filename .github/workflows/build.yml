@@ -27,7 +27,13 @@ jobs:
           # Intel Macs (pre-2020). A separate Intel *runner* rather than a
           # cross-compile on Apple Silicon: PyInstaller cannot cross-build the
           # sidecar, so the binary has to be produced on the target arch.
-          - os: macos-13
+          #
+          # Must be `macos-15-intel`, NOT `macos-13`: the macOS 13 image was
+          # retired in December 2025 and jobs targeting it are never scheduled
+          # -- they queue forever without failing, which silently blocks the
+          # release job waiting on them. `macos-15-intel` is the standard-runner
+          # x86_64 label and is supported until August 2027.
+          - os: macos-15-intel
             triple: x86_64-apple-darwin
             sidecar: bash scripts/build-sidecar.sh
           - os: ubuntu-latest
@@ -37,6 +43,11 @@ jobs:
             triple: x86_64-pc-windows-msvc
             sidecar: pwsh scripts/build-sidecar.ps1
     runs-on: ${{ matrix.os }}
+    # A retired or mistyped runner label is never scheduled: the job sits in
+    # `queued` indefinitely instead of failing, and the release job blocks
+    # behind it with no error anywhere. Builds take ~12-20 min, so 45 turns
+    # that silent hang into a visible failure.
+    timeout-minutes: 45
     env:
       FITLLM_SIDECAR_TRIPLE: ${{ matrix.triple }}
     steps:

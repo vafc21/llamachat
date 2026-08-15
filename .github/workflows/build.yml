@@ -128,10 +128,18 @@ jobs:
           dest="$HOME/.tauri-cli"
           mkdir -p "$dest"
           curl -fsSL --retry 5 --retry-all-errors -o "cargo-tauri.${ext}" "$url"
-          # `tar -xf` handles both: GNU tar reads the Linux .tgz, and the
-          # bsdtar shipped on macOS and Windows reads .zip. Avoids `unzip`,
-          # which is not on the Windows runners.
-          tar -xf "cargo-tauri.${ext}" -C "$dest"
+          # Extraction differs per runner and the obvious shortcuts do not
+          # work: `shell: bash` on Windows is Git-bash, whose `tar` is GNU tar
+          # and cannot read a zip, and Git-bash has no `unzip` either.
+          # macOS has `unzip`; Windows gets PowerShell's Expand-Archive.
+          if [ "$ext" = "tgz" ]; then
+            tar -xzf "cargo-tauri.${ext}" -C "$dest"
+          elif command -v unzip >/dev/null 2>&1; then
+            unzip -o "cargo-tauri.${ext}" -d "$dest"
+          else
+            powershell -NoProfile -Command \
+              "Expand-Archive -Force -Path 'cargo-tauri.${ext}' -DestinationPath '$dest'"
+          fi
           bin="$(find "$dest" -type f -name 'cargo-tauri*' | head -1)"
           [ -n "$bin" ] || { echo "::error::cargo-tauri binary not found in $url"; exit 1; }
           chmod +x "$bin"

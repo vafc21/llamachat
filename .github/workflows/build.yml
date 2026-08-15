@@ -197,14 +197,21 @@ jobs:
       # is set, which is why the first failure logged nothing but "failed to
       # run".
       #
-      # continue-on-error: the DMG is a convenience download for new users. The
+      # Fatal, deliberately. The DMG is only a convenience download -- the
       # updater consumes LlamaChat.app.<triple>.tar.gz (see
-      # scripts/make-latest-json.mjs), so a missing DMG costs nobody an update.
-      # Losing every other artifact because a disk image would not unmount does.
-      - name: Bundle macOS DMG (best effort)
+      # scripts/make-latest-json.mjs) -- so a missing one costs nobody an
+      # update. But three failed attempts with a force-detach between them is
+      # no longer "the runner was busy": it means something regressed, and a
+      # release that quietly ships without an Intel DMG is worse than one that
+      # stops and says so.
+      #
+      # Fatal on master pushes too, not just tags. The last release broke
+      # because the release job only ever ran on a tag and was therefore never
+      # tested; making DMG behaviour differ between master and tags would
+      # rebuild that exact trap.
+      - name: Bundle macOS DMG
         if: startsWith(matrix.os, 'macos')
         id: dmg
-        continue-on-error: true
         shell: bash
         run: |
           set -uo pipefail
@@ -224,12 +231,6 @@ jobs:
           done
           echo "::error::DMG bundling failed 3 times on ${{ matrix.triple }}"
           exit 1
-
-      - name: Flag a missing DMG loudly
-        if: startsWith(matrix.os, 'macos') && steps.dmg.outcome == 'failure'
-        shell: bash
-        run: |
-          echo "::warning title=No DMG for ${{ matrix.triple }}::bundle_dmg.sh failed 3x. Updater artifacts are unaffected (they use .app.tar.gz), but this release has no Intel/ARM DMG for manual download."
 
       - name: Upload bundles
         uses: actions/upload-artifact@v4

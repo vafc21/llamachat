@@ -145,7 +145,15 @@ jobs:
           chmod +x "$bin"
           "$bin" --version
           # cargo subcommand dispatch needs the binary's own directory on PATH.
-          dirname "$bin" >> "$GITHUB_PATH"
+          # On Windows this script is Git-bash, so `dirname` yields a POSIX
+          # path (/c/Users/...) that the Windows PATH cannot resolve -- cargo
+          # then reports 'no such command: tauri' despite the binary being
+          # there. cygpath converts it back; it does not exist elsewhere.
+          bindir="$(dirname "$bin")"
+          if command -v cygpath >/dev/null 2>&1; then
+            bindir="$(cygpath -w "$bindir")"
+          fi
+          echo "$bindir" >> "$GITHUB_PATH"
 
       # macOS is split: the .app (and the .app.tar.gz the in-app updater
       # actually consumes) is built here and MUST succeed. The DMG is a

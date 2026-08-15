@@ -45,11 +45,25 @@ jobs:
     runs-on: ${{ matrix.os }}
     # A retired or mistyped runner label is never scheduled: the job sits in
     # `queued` indefinitely instead of failing, and the release job blocks
-    # behind it with no error anywhere. Builds take ~12-20 min, so 45 turns
-    # that silent hang into a visible failure.
-    timeout-minutes: 45
+    # behind it with no error anywhere. This bound turns that silent hang into
+    # a visible failure.
+    #
+    # It used to be 45, and run 31869663153 hit it: a slow Intel runner spent
+    # 24m37s compiling the Tauri CLI from source, and the job was cancelled 12
+    # seconds into DMG bundling. The CLI is now a prebuilt download (~10s), so
+    # the real budget is ~25 min; 60 leaves room for a slow runner without
+    # letting a genuine hang sit for hours.
+    timeout-minutes: 60
     env:
       FITLLM_SIDECAR_TRIPLE: ${{ matrix.triple }}
+      # CI has no dev certificate — ad-hoc sign on macOS. Locally the repo
+      # config uses a real Apple Development identity (see tauri.conf.json).
+      APPLE_SIGNING_IDENTITY: ${{ startsWith(matrix.os, 'macos') && '-' || '' }}
+      # Signs the updater artifacts. Without these the build still produces
+      # installers, but every .sig is missing and the in-app updater
+      # rejects the release as untrusted.
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
 
@@ -88,20 +102,53 @@ jobs:
           ${{ matrix.sidecar }}
         shell: bash
 
+      # `cargo install tauri-cli --locked` compiles the CLI and the whole
+      # bundler from source on every single run. Measured on the Intel runner:
+      # 12m51s on a good day, 24m37s on a slow one -- more than the actual app
+      # build. That variance, not the DMG, is what blew the job timeout.
+      #
+      # Upstream publishes prebuilt binaries for all four triples this matrix
+      # builds, so fetch one: ~10 seconds, and byte-identical every run.
+      # Pinned deliberately -- `^2` silently re-resolves, and a surprise CLI
+      # bump is exactly the kind of thing that costs a whole CI cycle to find.
+      # 2.11.4 vendors tauri-bundler 2.9.4, the same pair the last green Intel
+      # build used.
       - name: Install Tauri CLI
-        run: cargo install tauri-cli --version "^2" --locked
-
-      - name: Build app
-        run: cargo tauri build
+        shell: bash
         env:
-          # CI has no dev certificate — ad-hoc sign on macOS. Locally the repo
-          # config uses a real Apple Development identity (see tauri.conf.json).
-          APPLE_SIGNING_IDENTITY: ${{ startsWith(matrix.os, 'macos') && '-' || '' }}
-          # Signs the updater artifacts. Without these the build still produces
-          # installers, but every .sig is missing and the in-app updater
-          # rejects the release as untrusted.
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_CLI_VERSION: "2.11.4"
+        run: |
+          set -euo pipefail
+          # Upstream ships .tgz for Linux and .zip for macOS/Windows.
+          case "${{ matrix.triple }}" in
+            *-linux-gnu) ext=tgz ;;
+            *)           ext=zip ;;
+          esac
+          url="https://github.com/tauri-apps/tauri/releases/download/tauri-cli-v${TAURI_CLI_VERSION}/cargo-tauri-${{ matrix.triple }}.${ext}"
+          dest="$HOME/.tauri-cli"
+          mkdir -p "$dest"
+          curl -fsSL --retry 5 --retry-all-errors -o "cargo-tauri.${ext}" "$url"
+          # `tar -xf` handles both: GNU tar reads the Linux .tgz, and the
+          # bsdtar shipped on macOS and Windows reads .zip. Avoids `unzip`,
+          # which is not on the Windows runners.
+          tar -xf "cargo-tauri.${ext}" -C "$dest"
+          bin="$(find "$dest" -type f -name 'cargo-tauri*' | head -1)"
+          [ -n "$bin" ] || { echo "::error::cargo-tauri binary not found in $url"; exit 1; }
+          chmod +x "$bin"
+          "$bin" --version
+          # cargo subcommand dispatch needs the binary's own directory on PATH.
+          dirname "$bin" >> "$GITHUB_PATH"
+
+      # macOS is split: the .app (and the .app.tar.gz the in-app updater
+      # actually consumes) is built here and MUST succeed. The DMG is a
+      # separate, retried, best-effort step below -- see its comment.
+      - name: Build app
+        if: ${{ !startsWith(matrix.os, 'macos') }}
+        run: cargo tauri build
+
+      - name: Build app (macOS, no DMG)
+        if: startsWith(matrix.os, 'macos')
+        run: cargo tauri build --bundles app
 
       # Both macOS jobs bundle an updater archive named exactly
       # `LlamaChat.app.tar.gz`. They are separate CI artifacts, but they land in
@@ -118,6 +165,55 @@ jobs:
             mv "$f" "${f/.app.tar.gz/.app.${{ matrix.triple }}.tar.gz}"
           done
           ls -la
+
+      # DMG bundling is flaky on CI and it is the *last* thing in the build, so
+      # a failure here used to throw away a 20-minute compile. Two Intel
+      # failures (runs 31851532913 and 31869663153) both left an orphaned
+      # `diskimages-help` process behind -- the signature of a disk image that
+      # never detached. Tauri's vendored create-dmg 1.2.1 only retries
+      # `hdiutil detach` on exit code 16, but a busy unmount exits 2, so its
+      # retry loop never runs and the script dies on the first attempt.
+      #
+      # Retrying the whole step is the fix that actually matches that failure
+      # mode: the compile is already cached, so an attempt costs ~30s, and the
+      # leftover volume is force-detached in between so attempt 2 starts clean.
+      # `--verbose` matters -- tauri swallows bundle_dmg.sh's stdout unless it
+      # is set, which is why the first failure logged nothing but "failed to
+      # run".
+      #
+      # continue-on-error: the DMG is a convenience download for new users. The
+      # updater consumes LlamaChat.app.<triple>.tar.gz (see
+      # scripts/make-latest-json.mjs), so a missing DMG costs nobody an update.
+      # Losing every other artifact because a disk image would not unmount does.
+      - name: Bundle macOS DMG (best effort)
+        if: startsWith(matrix.os, 'macos')
+        id: dmg
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -uo pipefail
+          for attempt in 1 2 3; do
+            echo "::group::DMG attempt $attempt"
+            if cargo tauri build --bundles dmg --verbose; then
+              echo "::endgroup::"
+              exit 0
+            fi
+            echo "::endgroup::"
+            echo "DMG attempt $attempt failed; detaching leftover volumes"
+            # Only our own scratch image -- never anything else attached.
+            hdiutil info | grep -E '^/dev/disk' | grep -i llamachat | awk '{print $1}' \
+              | while read -r dev; do hdiutil detach "$dev" -force || true; done
+            rm -f target/release/bundle/dmg/rw.*.dmg || true
+            sleep 15
+          done
+          echo "::error::DMG bundling failed 3 times on ${{ matrix.triple }}"
+          exit 1
+
+      - name: Flag a missing DMG loudly
+        if: startsWith(matrix.os, 'macos') && steps.dmg.outcome == 'failure'
+        shell: bash
+        run: |
+          echo "::warning title=No DMG for ${{ matrix.triple }}::bundle_dmg.sh failed 3x. Updater artifacts are unaffected (they use .app.tar.gz), but this release has no Intel/ARM DMG for manual download."
 
       - name: Upload bundles
         uses: actions/upload-artifact@v4

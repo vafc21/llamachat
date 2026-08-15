@@ -220,6 +220,25 @@ input:focus-visible, textarea:focus-visible { outline: none; }
 .side .sp { flex: 1; }
 .viewall { font-size: 12px; color: var(--text3); padding: 7px 10px; text-align: left; }
 
+/* Model tier choice — three boxes, pick before anything downloads. */
+.tierrow { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;
+  width: 100%; max-width: 860px; margin: 22px 0 6px; }
+@media (max-width: 820px) { .tierrow { grid-template-columns: 1fr; } }
+.tiercard { display: flex; flex-direction: column; gap: 7px; text-align: left;
+  padding: 15px 15px 13px; border: 1px solid var(--border); border-radius: 12px;
+  background: var(--surface); cursor: pointer; transition: border-color .12s, background .12s; }
+.tiercard:hover { border-color: rgba(77,124,255,.45); }
+.tiercard.on { border-color: rgba(77,124,255,.85); background: rgba(77,124,255,.07); }
+.tch { display: flex; align-items: center; justify-content: space-between; }
+.tclabel { font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--text3); font-weight: 600; }
+.tchead { font-size: 14px; font-weight: 600; }
+.tcbody { font-size: 12px; color: var(--text2); line-height: 1.45; margin: 0; flex: 1; }
+.tcmeta { display: flex; flex-direction: column; gap: 2px; font-size: 11px;
+  color: var(--text3); padding-top: 8px; border-top: 1px solid var(--border); }
+.go .primary { background: var(--accent); color: #fff; border-color: transparent; }
+.go .primary:disabled { opacity: .5; cursor: not-allowed; }
+
 /* Update notice. A strip above the top bar, never a modal. */
 .updbar { display: flex; align-items: center; gap: 10px; padding: 8px 12px;
   background: rgba(77,124,255,.10); border-bottom: 1px solid rgba(77,124,255,.25);

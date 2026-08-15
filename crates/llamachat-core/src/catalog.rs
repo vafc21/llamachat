@@ -58,6 +58,10 @@ mod tests {
         let min = cat.models.iter().map(|m| m.params_b).fold(f64::MAX, f64::min);
         let max = cat.models.iter().map(|m| m.params_b).fold(0.0_f64, f64::max);
         assert!(min <= 2.0, "smallest model should be ~1B, got {min}");
-        assert!(max >= 65.0, "largest model should be ~70B, got {max}");
+        // The shelf must reach a genuinely large model. The bar is 25B rather
+        // than 70B because the useful large-model class moved: current 27-31B
+        // models outscore the 70B generation this catalog used to carry, and
+        // dense 70B builds are no longer what a local user should be steered to.
+        assert!(max >= 25.0, "largest model should be 25B+, got {max}");
     }
 }

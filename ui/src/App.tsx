@@ -32,6 +32,7 @@ import { usePermissions } from './permissions'
 import { estimateContext, type TurnStats, type ActivityEntry } from './runtime'
 import type { Message, Conversation, HardwareProfile, LevelPlan, TierModel, DownloadProgress, Skill, ConvDto } from './types'
 import { UpdateBanner } from './components/UpdateBanner'
+import { TierChoice } from './components/TierChoice'
 
 /** Conversation ⇄ persisted DTO (markdown transcript). */
 function conversationToDto(c: Conversation): ConvDto {
@@ -66,7 +67,7 @@ function dtoToConversation(d: ConvDto, mkId: () => string): Conversation {
  *   welcome   — the optional memory-transfer step.
  *   ready     — the app.
  */
-type Phase = 'persona' | 'readiness' | 'profiling' | 'setup' | 'welcome' | 'ready'
+type Phase = 'persona' | 'readiness' | 'profiling' | 'choose' | 'setup' | 'welcome' | 'ready'
 
 /** Set when the readiness step has been passed, so a restart mid-grant returns to it. */
 const READY_SEEN_KEY = 'llamachat.readinessSeen';
@@ -326,17 +327,29 @@ export default function App() {
       }
 
       setTiers(built);
-      setPhase('setup');
+      // Stop at the choice screen. This used to jump straight to 'setup' and
+      // start pulling all three tiers -- on a 12 GB card that is ~25 GB of
+      // downloads nobody agreed to, on a connection we know nothing about.
+      setPhase('choose');
 
       if (!isTauri()) {
         setTiers((prev) => prev.map((t) => ({ ...t, status: 'ready', pct: 100 })));
-        return;
-      }
-      for (const t of built) {
-        if (t.status !== 'ready') invoke('download_model', { tag: t.rec.ollama_pull });
       }
     })();
   }, [phase]);
+
+  /** Download only the tiers the user picked, then show progress. */
+  function startDownloads(tags: string[]) {
+    const wanted = new Set(tags);
+    setTiers((prev) => prev.filter((t) => wanted.has(t.rec.ollama_pull)));
+    setPhase('setup');
+    if (!isTauri()) return;
+    for (const t of tiers) {
+      if (wanted.has(t.rec.ollama_pull) && t.status !== 'ready') {
+        invoke('download_model', { tag: t.rec.ollama_pull });
+      }
+    }
+  }
 
   // Live download progress → tier status.
   useEffect(() => {
@@ -1002,6 +1015,23 @@ export default function App() {
       </>
     );
   }
+  if (phase === 'choose') {
+    return (
+      <>
+        <IconSprite />
+        <div className="setup">
+          <div className="mk"><Icon name="llama" /></div>
+          <TierChoice
+            hardware={hardware}
+            tiers={tiers}
+            onChoose={startDownloads}
+            onBrowseAll={persona === 'dev' ? () => leaveSetup(() => setNav('library')) : undefined}
+          />
+        </div>
+      </>
+    );
+  }
+
   if (phase === 'profiling' || phase === 'setup') {
     return (
       <>

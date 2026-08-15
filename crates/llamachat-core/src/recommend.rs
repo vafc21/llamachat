@@ -370,10 +370,21 @@ fn rate_one(
     // Effective footprint = weights + KV/runtime headroom.
     let footprint = |q: &Quant| ((q.size_mb as f64) * (1.0 + KV_HEADROOM)).ceil() as u64;
 
-    let pool = mem.gpu_mb.max(mem.ram_mb); // best case: whichever is larger
-    let chosen: &Quant = if let Some(q) = q8.filter(|q| footprint(q) <= pool) {
-        q
-    } else if let Some(q) = q4.filter(|q| footprint(q) <= pool) {
+    // Prefer the best quant that runs fully on the *execution* pool, not the
+    // largest pool available.
+    //
+    // Choosing against max(gpu, ram) upgrades a big model to Q8_0 on the
+    // strength of system RAM, and the Q8 footprint then fails the VRAM fit
+    // check -- so the model drops out of "fits fully on GPU" and the Max tier
+    // falls back to something small. On a 48GB Mac that demoted a 27B to a 12B.
+    // Sizing to the GPU pool first keeps the large model, at Q4, where it runs.
+    let gpu_pool = if mem.gpu_mb > 0 { mem.gpu_mb } else { mem.ram_mb };
+    let pool = mem.gpu_mb.max(mem.ram_mb);
+    let pick = |p: u64| -> Option<&Quant> {
+        q8.filter(|q| footprint(q) <= p)
+            .or_else(|| q4.filter(|q| footprint(q) <= p))
+    };
+    let chosen: &Quant = if let Some(q) = pick(gpu_pool).or_else(|| pick(pool)) {
         q
     } else {
         // Nothing fits; report against the smallest quant so the memory math is
@@ -759,6 +770,36 @@ mod tests {
         gpu_with_cc(vram_mb, Some("8.9"))
     }
 
+    /// Pick the catalog's largest model, whatever it happens to be.
+    ///
+    /// Tests used to hardcode ids like `llama3.1-70b`. That coupled every
+    /// hardware assertion to one specific shelf, so refreshing the catalog
+    /// broke nine tests that were not actually about those models -- they are
+    /// about *size classes*. Selecting by parameter count keeps them meaningful
+    /// across catalog updates.
+    fn biggest(recs: &[Recommendation]) -> &Recommendation {
+        recs.iter()
+            .max_by(|a, b| a.params_b.partial_cmp(&b.params_b).unwrap())
+            .expect("catalog is not empty")
+    }
+
+    /// A mid-size model (6-15B): the class that runs on a normal GPU.
+    ///
+    /// Picks the *smallest* of that class, not the best. These tests assert
+    /// things like "fits an 8GB card", and the highest-quality 12B is a ~9GB
+    /// download that legitimately does not -- which would make the test fail
+    /// for a reason that has nothing to do with what it is checking.
+    fn midsize(recs: &[Recommendation]) -> &Recommendation {
+        recs.iter()
+            // Skip the vision model: it is pulled on demand for the screen-
+            // reading agent, is not part of the chat tiers, and its small
+            // 4-bit build would stand in for a text model it is nothing like.
+            .filter(|r| !r.model_id.starts_with("llava"))
+            .filter(|r| (6.0..=15.0).contains(&r.params_b))
+            .min_by(|a, b| a.params_b.partial_cmp(&b.params_b).unwrap())
+            .expect("catalog has a mid-size model")
+    }
+
     fn gpu_with_cc(vram_mb: u64, cc: Option<&str>) -> Gpu {
         Gpu {
             vendor: "NVIDIA".into(),
@@ -780,9 +821,9 @@ mod tests {
         let recs = rate_all(&p, &cat, &[]);
         assert_eq!(recs.len(), cat.models.len());
 
-        // 70B must not run on a 16GB machine.
-        let big = recs.iter().find(|r| r.model_id == "llama3.1-70b").unwrap();
-        assert_eq!(big.tier, Tier::WontRun);
+        // The largest model in the catalog must not run on a 16GB machine.
+        let big = biggest(&recs);
+        assert_eq!(big.tier, Tier::WontRun, "{} on 16GB CPU-only", big.model_id);
 
         // Something small must run.
         assert!(recs.iter().any(|r| r.tier.rank() >= Tier::Okay.rank()));
@@ -801,10 +842,10 @@ mod tests {
         // 48GB VRAM workstation + 64GB RAM.
         let p = profile(64_000, vec![discrete_gpu(48_000)], None);
         let recs = rate_all(&p, &cat, &[]);
-        let l8 = recs.iter().find(|r| r.model_id == "llama3.1-8b").unwrap();
+        let l8 = midsize(&recs);
         assert!(l8.memory_fit.fits_gpu);
         assert!(matches!(l8.tier, Tier::Great | Tier::Blazing));
-        // 8B on a big GPU should pick the higher-quality Q8_0.
+        // A mid-size model on a big GPU should pick the higher-quality Q8_0.
         assert_eq!(l8.quant, "Q8_0");
     }
 
@@ -812,8 +853,11 @@ mod tests {
     fn measured_benchmark_overrides_heuristic() {
         let cat = catalog::load_bundled().unwrap();
         let p = profile(32_000, vec![discrete_gpu(24_000)], None);
+        // Bench the model the recommender would actually pick for this class,
+        // so the assertion follows the catalog instead of a hardcoded tag.
+        let target = midsize(&rate_all(&p, &cat, &[])).clone();
         let bench = BenchmarkResult {
-            model: "llama3.1:8b".into(),
+            model: target.ollama_pull.clone(),
             adapter: "ollama".into(),
             ok: true,
             error: None,
@@ -827,7 +871,7 @@ mod tests {
             timestamp: "2026-07-09T04:40:00Z".into(),
         };
         let recs = rate_all(&p, &cat, &[bench]);
-        let l8 = recs.iter().find(|r| r.model_id == "llama3.1-8b").unwrap();
+        let l8 = recs.iter().find(|r| r.model_id == target.model_id).unwrap();
         assert_eq!(l8.source, RatingSource::Measured);
         assert_eq!(l8.measured_tokens_per_sec, Some(7.5));
         assert_eq!(l8.tier, Tier::Slow);
@@ -844,8 +888,8 @@ mod tests {
         let cat = catalog::load_bundled().unwrap();
         let p1080 = profile(9_000, vec![gpu_with_cc(8_000, Some("6.1"))], None);
         let recs = rate_all(&p1080, &cat, &[]);
-        let l8 = recs.iter().find(|r| r.model_id == "llama3.1-8b").unwrap();
-        assert!(l8.memory_fit.fits_gpu, "8B Q4_K_M should fit an 8GB card");
+        let l8 = midsize(&recs);
+        assert!(l8.memory_fit.fits_gpu, "mid-size Q4_K_M should fit an 8GB card");
         assert_eq!(l8.quant, "Q4_K_M");
         assert_eq!(l8.tier, Tier::Great, "8B on a GTX 1080 should be Great, not Blazing");
         let tps = l8.estimated_tokens_per_sec.unwrap();
@@ -854,7 +898,7 @@ mod tests {
         // Same VRAM but a tensor-core card (Ampere, CC 8.6) must be faster.
         let p3070 = profile(9_000, vec![gpu_with_cc(8_000, Some("8.6"))], None);
         let recs2 = rate_all(&p3070, &cat, &[]);
-        let l8_amp = recs2.iter().find(|r| r.model_id == "llama3.1-8b").unwrap();
+        let l8_amp = midsize(&recs2);
         assert!(
             l8_amp.estimated_tokens_per_sec.unwrap() > tps,
             "tensor-core GPU should out-run Pascal at equal VRAM"
@@ -876,10 +920,10 @@ mod tests {
         p.cpu.flags.neon = true;
         p.backends = vec!["metal".into(), "cpu".into()];
         let recs = rate_all(&p, &cat, &[]);
-        let l8 = recs.iter().find(|r| r.model_id == "llama3.1-8b").unwrap();
+        let l8 = midsize(&recs);
         let tps = l8.estimated_tokens_per_sec.unwrap();
-        assert!(tps < 16.0, "M1 8B should be modest (~10 tok/s), got {tps}");
-        assert!(l8.tier.rank() <= Tier::Okay.rank(), "M1 8B is Slow/Okay, not Great");
+        assert!(tps < 16.0, "M1 mid-size should be modest (~10 tok/s), got {tps}");
+        assert!(l8.tier.rank() <= Tier::Okay.rank(), "M1 mid-size is Slow/Okay, not Great");
     }
 
     #[test]
@@ -895,9 +939,13 @@ mod tests {
         p.cpu.flags.neon = true;
         p.backends = vec!["metal".into(), "cpu".into()];
         let recs = rate_all(&p, &cat, &[]);
-        // With 64GB unified memory, a 32B model should fit on the "GPU" pool.
-        let q32 = recs.iter().find(|r| r.model_id == "qwen2.5-32b").unwrap();
-        assert!(q32.memory_fit.fits_gpu);
+        // With 64GB unified memory, a large (25B+) model should fit the "GPU" pool.
+        let big = recs
+            .iter()
+            .filter(|r| r.params_b >= 25.0)
+            .max_by(|a, b| a.params_b.partial_cmp(&b.params_b).unwrap())
+            .expect("catalog has a 25B+ model");
+        assert!(big.memory_fit.fits_gpu, "{} should fit 64GB unified", big.model_id);
     }
 
     #[test]
@@ -930,8 +978,20 @@ mod tests {
         // Every level names a concrete model, and they escalate in capability.
         let quick = plan.quick.expect("Quick must name a model");
         let standard = plan.standard.expect("Standard must name a model");
-        assert!(max.params_b >= standard.params_b);
-        assert!(standard.params_b >= quick.params_b || standard.quality_score >= quick.quality_score);
+        // Capability, not size. This used to assert `max.params_b >=
+        // standard.params_b`, which quietly assumed bigger is smarter. That is
+        // no longer true: a current 27B can outscore a previous-generation 31B,
+        // so Max legitimately picks the smaller, better model. Ranking on
+        // quality is what the tiers actually promise the user.
+        assert!(
+            max.quality_score >= standard.quality_score,
+            "Max ({} q{}) must not be worse than Standard ({} q{})",
+            max.display_name,
+            max.quality_score,
+            standard.display_name,
+            standard.quality_score
+        );
+        assert!(standard.quality_score >= quick.quality_score);
         assert!(!plan.all.is_empty(), "the runnable set must not be empty");
 
         // Each setting runs and reports a COHORT, not a single model. On a 48GB
@@ -978,11 +1038,7 @@ mod tests {
             p.cpu.flags.neon = true;
             p.backends = vec!["metal".into(), "cpu".into()];
             let recs = rate_all(&p, &cat, &[]);
-            recs.iter()
-                .find(|r| r.model_id == "llama3.1-8b")
-                .unwrap()
-                .estimated_tokens_per_sec
-                .unwrap()
+            midsize(&recs).estimated_tokens_per_sec.unwrap()
         };
         assert!(
             mk("Apple M4 Pro") > mk("Apple M1 Pro"),

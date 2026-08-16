@@ -25,12 +25,45 @@ pub const OKAY_MAX_TPS: f64 = 25.0;
 /// Upper bound of the [`Tier::Great`] band; at/above this we call it Blazing.
 pub const GREAT_MAX_TPS: f64 = 50.0;
 
-/// Fraction of memory kept free for the KV cache / runtime overhead.
+/// Planning context, in tokens, used when sizing a model against memory.
 ///
-/// ~20% over the raw weight size covers the KV cache at a typical interactive
-/// context plus runtime/CUDA overhead; 10% proved too tight in practice and let
-/// models that actually OOM slip through as "fits".
-const KV_HEADROOM: f64 = 0.20;
+/// Every catalog entry declares `context_default = 32768`, but a 32k KV cache
+/// costs multiple GB on a 12B model -- sizing every machine against it would
+/// reject models that run perfectly well in ordinary use (Ollama itself serves
+/// 4096 by default). 8192 is the compromise: comfortably above what Ollama
+/// actually allocates, far enough below `context_max` that a very long chat
+/// degrades gradually instead of OOMing on turn one.
+const PLANNING_CONTEXT_TOKENS: u32 = 8_192;
+
+/// KV cache cost in MB per billion parameters per token (fp16 K+V).
+///
+/// Derived from a real GQA model rather than guessed. Llama-3 8B has 32 layers,
+/// 8 KV heads and head_dim 128, so one token of K+V is
+///   2 * 32 * 8 * 128 * 2 bytes = 131_072 B = 0.125 MB,
+/// i.e. 0.125 / 8 = 0.015625 MB per token per billion parameters. The catalog
+/// carries no layer/head shape, so this per-parameter proxy stands in; it is
+/// good to roughly a factor of 1.5 across current GQA models and errs high for
+/// MoE (which is the safe direction). Replace it the day the catalog grows real
+/// n_layers / n_kv_heads / head_dim fields.
+const KV_MB_PER_B_PER_TOKEN: f64 = 0.015_625;
+
+/// Fixed runtime overhead in MB: Metal/CUDA context, compute buffers, the app
+/// itself. Small next to weights, but the difference between "just fits" and
+/// "OOMs on load" for a model sized right at the ceiling.
+const RUNTIME_OVERHEAD_MB: u64 = 384;
+
+/// Total memory a model actually needs: weights + KV cache at the planning
+/// context + fixed runtime overhead.
+///
+/// Sizing is driven by the quant's real `size_mb`, never by `params_b`.
+/// gemma4-e4b declares 4.5B (it is Gemma's MatFormer "effective 4B" variant)
+/// but ships a 9.6 GB Q4_K_M -- larger than the genuine 12B. Anything that
+/// orders or sizes by parameter count gets fooled by exactly that entry.
+fn footprint_mb(model: &CatalogModel, quant: &Quant) -> u64 {
+    let ctx = model.context_default.min(PLANNING_CONTEXT_TOKENS);
+    let kv = (model.params_b.max(0.1) * ctx as f64 * KV_MB_PER_B_PER_TOKEN).ceil() as u64;
+    quant.size_mb + kv + RUNTIME_OVERHEAD_MB
+}
 /// Headroom fraction above which the full `context_max` is considered comfortable.
 const COMFORT_HEADROOM: f64 = 0.20;
 
@@ -111,12 +144,32 @@ fn best_by_quality(recs: &[Recommendation]) -> Option<Recommendation> {
 /// the UI can show it before running. On strong hardware `max` reaches a large
 /// model — it never falls back to a tiny one when a bigger model fits. See
 /// `docs/design/benchmark-levels.md`.
+/// Is this model a candidate for the chat tiers?
+///
+/// Excludes the dedicated vision/screenshot model. llava is pulled on demand
+/// for the screen-reading agent and is not an instruction-tuned chat model --
+/// but its small 4-bit build fits where real chat models do not, so a pure
+/// memory-and-speed ranking will happily offer it as the default assistant.
+/// Every genuine chat entry in the catalog carries the `instruct` tag, so key
+/// off capability rather than hardcoding a model id.
+fn is_chat_candidate(r: &Recommendation, catalog: &ModelCatalog) -> bool {
+    catalog
+        .models
+        .iter()
+        .find(|m| m.id == r.model_id)
+        .map(|m| m.tags.iter().any(|t| t == "instruct"))
+        .unwrap_or(true)
+}
+
 pub fn plan_levels(
     profile: &HardwareProfile,
     catalog: &ModelCatalog,
     benchmarks: &[BenchmarkResult],
 ) -> LevelPlan {
-    let rated = rate_all(profile, catalog, benchmarks);
+    let rated: Vec<Recommendation> = rate_all(profile, catalog, benchmarks)
+        .into_iter()
+        .filter(|r| is_chat_candidate(r, catalog))
+        .collect();
 
     let filter_rank = |min: &Tier| -> Vec<Recommendation> {
         rated
@@ -153,8 +206,20 @@ pub fn plan_levels(
         })
         .cloned();
     let quick = best_by_quality(&blazing).or(fastest_fit.clone());
-    // Standard: best-quality model that runs Great or better (fall back to Quick).
-    let standard = best_by_quality(&great_plus).or_else(|| quick.clone());
+    // Standard: best-quality model that runs Great or better AND fits entirely
+    // in the execution pool.
+    //
+    // The fit requirement is not redundant with the speed tier. Tier is a
+    // *speed* judgement, and the offload estimate can rate a model Great while
+    // it spills to CPU -- which is how a 16 GB M4 was offered gemma4-e4b
+    // (10790 MB) as its safe middle option while Max, which does require a full
+    // fit, correctly picked the smaller gemma4-12b (9702 MB). Standard is the
+    // default most people accept, so it has to be the conservative one.
+    let great_plus_fitting: Vec<Recommendation> =
+        great_plus.iter().filter(|r| r.memory_fit.fits_gpu).cloned().collect();
+    let standard = best_by_quality(&great_plus_fitting)
+        .or_else(|| best_by_quality(&great_plus))
+        .or_else(|| quick.clone());
     // Max/Best: best-quality model that fits FULLY in GPU/unified memory (no CPU
     // spill). A model that must offload to CPU technically "fits" but crawls
     // (e.g. a 22B on a 16GB Mac), so it makes a poor default Best. Fall back to
@@ -301,7 +366,20 @@ impl MachineMemory {
             // that *technically* fits the full pool spills to CPU in practice
             // (e.g. a 22B on a 16GB Mac). Reserve headroom so "fits GPU" means
             // "actually runs fully on Metal".
-            let usable = ((ram_mb as f64) * 0.72) as u64;
+            // 0.60, set from measurement rather than taste. macOS reserves a
+            // third of unified memory from the GPU on <=32 GB machines
+            // (iogpu.wired_limit_mb defaults to ~67% of RAM), which on 16 GB is
+            // ~10.9 GB -- and 10.9 GB is not safe: on a real 16 GB M4,
+            // llama3.1:8b-q8_0 at ~8.8 GB resident ran 100% on GPU, while
+            // gemma2:9b-q8_0 at ~11 GB crashed the runner 3/3 with "resource
+            // limitations". The true ceiling sits between those, so the wired
+            // limit is an upper bound on what the GPU *can* map, not on what a
+            // machine with an OS and a browser open can actually use.
+            // 0.60 * 16384 = 9830 MB: above the proven-good 8.8 GB, below the
+            // proven-fatal 11 GB. Raise it only against measurements from a
+            // quiet machine -- the ones above were taken with ~9.3 GB of swap
+            // already in use, so if anything the real ceiling is lower.
+            let usable = ((ram_mb as f64) * 0.60) as u64;
             return MachineMemory {
                 gpu_mb: usable,
                 ram_mb,
@@ -367,8 +445,9 @@ fn rate_one(
         .or(q4)
         .unwrap_or(&m.quants[0]);
 
-    // Effective footprint = weights + KV/runtime headroom.
-    let footprint = |q: &Quant| ((q.size_mb as f64) * (1.0 + KV_HEADROOM)).ceil() as u64;
+    // Effective footprint = weights + KV cache at the planning context +
+    // runtime overhead. See [`footprint_mb`].
+    let footprint = |q: &Quant| footprint_mb(m, q);
 
     // Prefer the best quant that runs fully on the *execution* pool, not the
     // largest pool available.
@@ -742,7 +821,7 @@ mod tests {
         }
     }
 
-    fn profile(ram_mb: u64, gpus: Vec<Gpu>, apple: Option<AppleSilicon>) -> HardwareProfile {
+    pub(super) fn profile(ram_mb: u64, gpus: Vec<Gpu>, apple: Option<AppleSilicon>) -> HardwareProfile {
         HardwareProfile {
             cpu: base_cpu(),
             gpus,
@@ -812,6 +891,129 @@ mod tests {
             backend: "cuda".into(),
             is_integrated: false,
         }
+    }
+
+    /// Vlad's actual machine: MacBook Pro, base M4, 16 GiB unified, 10 GPU cores.
+    pub(super) fn m4_16gb() -> HardwareProfile {
+        let apple = Some(AppleSilicon {
+            unified_memory: true,
+            gpu_cores: Some(10),
+            neural_engine: true,
+            chip: "Apple M4".into(),
+        });
+        let mut p = profile(16_384, vec![], apple);
+        p.cpu.flags.neon = true;
+        p.cpu.flags.avx2 = false;
+        p.cpu.physical_cores = 10;
+        p.cpu.logical_cores = 10;
+        p.backends = vec!["metal".into(), "cpu".into()];
+        p.os = Os {
+            name: "macos".into(),
+            version: "26.5.2".into(),
+            arch: "aarch64".into(),
+        };
+        p
+    }
+
+    /// Regression: the Standard tier must never be a heavier download than Max.
+    ///
+    /// It was. On a 16 GB M4, Standard picked gemma4-e4b (9830 MB of weights)
+    /// while Max picked gemma4-12b (7782 MB) -- the "safe middle" was a bigger
+    /// download than the "maximum" one. gemma4-e4b declares params_b 4.5 (it is
+    /// a MatFormer "effective 4B") but ships a larger file than the real 12B,
+    /// so any sizing that trusts parameter count over `size_mb` picks it.
+    #[test]
+    fn tiers_are_monotonic_in_footprint() {
+        let cat = catalog::load_bundled().unwrap();
+        let plan = plan_levels(&m4_16gb(), &cat, &[]);
+
+        let req = |r: &Option<Recommendation>| r.as_ref().map(|x| x.memory_fit.required_mb);
+        let (q, s, m) = (req(&plan.quick), req(&plan.standard), req(&plan.max));
+
+        if let (Some(q), Some(s)) = (q, s) {
+            assert!(q <= s, "Quick ({q} MB) must not outweigh Standard ({s} MB)");
+        }
+        if let (Some(s), Some(m)) = (s, m) {
+            assert!(s <= m, "Standard ({s} MB) must not outweigh Max ({m} MB)");
+        }
+    }
+
+    /// Regression: every tier offered on a 16 GB M4 must actually run on it.
+    ///
+    /// Measured on the real machine: llama3.1:8b-q8_0 at ~8.8 GB resident ran
+    /// 100% on GPU, while gemma2:9b-q8_0 at ~11 GB crashed the Ollama runner
+    /// 3/3 with "resource limitations". Anything the app proposes as a default
+    /// has to sit below that line, with the KV cache counted.
+    #[test]
+    fn m4_16gb_tiers_all_fit_with_headroom() {
+        let cat = catalog::load_bundled().unwrap();
+        let p = m4_16gb();
+        let plan = plan_levels(&p, &cat, &[]);
+
+        // 0.60 * 16384. Kept as a literal so a change to the constant has to
+        // be justified against the measurements above rather than silently
+        // re-baselining this test.
+        let pool = 9_830u64;
+
+        for (name, rec) in [
+            ("quick", &plan.quick),
+            ("standard", &plan.standard),
+            ("max", &plan.max),
+        ] {
+            let r = rec.as_ref().unwrap_or_else(|| panic!("{name} tier resolved to nothing"));
+            assert!(
+                r.memory_fit.fits_gpu,
+                "{name} pick {} ({} MB) does not fit the {pool} MB Metal pool",
+                r.model_id, r.memory_fit.required_mb
+            );
+            assert!(
+                r.memory_fit.required_mb <= pool,
+                "{name} pick {} needs {} MB against a {pool} MB pool",
+                r.model_id, r.memory_fit.required_mb
+            );
+            // The specific model that crashed this machine in testing.
+            assert_ne!(
+                r.model_id, "gemma4-e4b",
+                "{name} must not offer gemma4-e4b on a 16GB M4"
+            );
+            // No tier may default to the screen-reading vision model. Asserting
+            // only "not gemma4-e4b" once let llava-7b through as Standard --
+            // a negative check passes for every wrong answer but one.
+            let m = cat
+                .models
+                .iter()
+                .find(|m| m.id == r.model_id)
+                .expect("pick is in the catalog");
+            assert!(
+                m.tags.iter().any(|t| t == "instruct"),
+                "{name} picked {}, which is not an instruction-tuned chat model",
+                r.model_id
+            );
+        }
+
+        // Pin the expected picks. If a catalog refresh moves these, that is a
+        // real change in what users are offered and should be looked at, not
+        // silently absorbed.
+        assert_eq!(plan.standard.as_ref().unwrap().model_id, "ministral3-8b");
+        assert_eq!(plan.max.as_ref().unwrap().model_id, "gemma4-12b");
+    }
+
+    /// The KV cache has to scale with context, not sit at a flat 20% of weights.
+    #[test]
+    fn footprint_counts_kv_cache_and_overhead() {
+        let cat = catalog::load_bundled().unwrap();
+        let m = cat
+            .models
+            .iter()
+            .find(|m| m.id == "gemma4-12b")
+            .expect("catalog has gemma4-12b");
+        let q = find_quant(m, "Q4_K_M").expect("gemma4-12b has Q4_K_M");
+
+        let fp = footprint_mb(m, q);
+        assert!(fp > q.size_mb, "footprint must exceed raw weights");
+
+        // 12B at 8k ctx: 12 * 8192 * 0.015625 = 1536 MB of KV, + 384 overhead.
+        assert_eq!(fp, q.size_mb + 1536 + RUNTIME_OVERHEAD_MB);
     }
 
     #[test]
@@ -918,6 +1120,17 @@ mod tests {
         });
         let mut p = profile(8_000, vec![], apple);
         p.cpu.flags.neon = true;
+        // No Apple Silicon part has AVX2, and an 8GB M1 is 8 cores, not 16.
+        // The shared fixture is an x86 desktop; inheriting its flags here gave
+        // this "M1" a CPU estimate *above* its GPU estimate, which made the
+        // offload blend behave backwards -- a smaller Metal pool scored faster,
+        // because less weight landed on the slower-rated GPU. The hardware was
+        // impossible, so the number it produced was meaningless.
+        p.cpu.flags.avx2 = false;
+        p.cpu.flags.avx512 = false;
+        p.cpu.flags.fma = false;
+        p.cpu.physical_cores = 8;
+        p.cpu.logical_cores = 8;
         p.backends = vec!["metal".into(), "cpu".into()];
         let recs = rate_all(&p, &cat, &[]);
         let l8 = midsize(&recs);
@@ -1046,3 +1259,6 @@ mod tests {
         );
     }
 }
+
+
+
